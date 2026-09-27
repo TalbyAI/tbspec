@@ -1,3 +1,7 @@
+## Language
+
+Conversations may be in English or Spanish. Write all repository documents and documentation in English.
+
 ## Agent skills
 
 ### Issue tracker
