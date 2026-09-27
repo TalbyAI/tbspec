@@ -36,3 +36,6 @@ A description of the explicitly selected elements and relationships of one ontol
 
 **Visual design model**:
 A reusable description of visual presentation rules for concept types, such as shapes, colors, and typography, that does not describe the placement or appearance of any specific domain element.
+
+**Saved query**:
+A named, reusable, read-only SPARQL query belonging to a project, optionally accepting declared RDF term parameters.

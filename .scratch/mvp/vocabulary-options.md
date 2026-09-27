@@ -8,9 +8,9 @@ Every project has a configuration based on defaults. It chooses which model type
 
 An external ontology can enter a project in two ways: as a locked dependency that stays unchanged until explicitly updated, or as an imported project-owned copy that the team edits and versions with Git. The same model-type setting can point to either.
 
-The default configuration supplies ready-to-use ontologies and visualizations for `data`, `process`, and `state-machine`. A project can replace a default ontology, including with one whose concepts are incompatible with the supplied ontology. Doing so disconnects the previous visual design association. The graph remains editable generically until the project explicitly selects a design for the replacement ontology's own concepts. Even a local copy of a supplied ontology must explicitly select the supplied design to reuse it. The tool does not map replacement concepts onto supplied concepts.
+The default configuration supplies ready-to-use, versioned RDF ontologies and visualizations with stable identities for `data`, `process`, and `state-machine`. A project can reference or copy them. It can replace a default ontology, including with one whose concepts are incompatible with the supplied ontology. Doing so disconnects the previous visual design association. The graph remains editable generically until the project explicitly selects a design for the replacement ontology's own concepts. Even a local copy of a supplied ontology must explicitly select the supplied design to reuse it. The tool does not map replacement concepts onto supplied concepts.
 
-For example, an external process ontology might name its activity class `wf:Activity` and its flow property `wf:next`. Its visual definition can render those concepts directly. The generic RDF editor can open the graph regardless. Whether the built-in process forms can edit an arbitrary replacement ontology remains an open question.
+For example, an external process ontology might name its activity class `wf:Activity` and its flow property `wf:next`. Its visual definition can render those concepts directly. The generic RDF editor can open the graph regardless. A specialized form works only for RDF terms it recognizes; selecting a visual design does not give the form knowledge of arbitrary terms.
 
 ## Concrete scenario
 
@@ -28,7 +28,7 @@ For the same `RiskReview` example:
 
 - Under A, the application recognizes its built-in `Step` type. `RiskReview` can be shown in the generic editor, but adding a specialized form for it requires an application update.
 - Under B, the project locks a process starter ontology, extends its `Step` type with `RiskReview`, and supplies a declarative visual rule. A dependent project receives both definitions through the normal dependency mechanism; a specialized `RiskReview` form would still require a later application update.
-- Under C, the team chooses or authors an ontology and defines how its concepts appear on the canvas. Generic graph editing works immediately; specialized form support for arbitrary terms is still undecided.
+- Under C, the team chooses or authors an ontology and defines how its concepts appear on the canvas. Generic graph editing works immediately; specialized forms apply only to terms they already recognize.
 
 The selected direction combines ready-to-use defaults with project-controlled replacements. The packaging and versioning of the supplied default resources remain technical design choices. The editor has a generic fallback for every concept. Replacing a model type's ontology warns in advance when existing models use that type; it does not rewrite those models.
 
@@ -43,7 +43,16 @@ The selected direction combines ready-to-use defaults with project-controlled re
 | Business process notation | [BPMN machine-readable files](https://www.omg.org/spec/BPMN/machine-readable) | OMG publishes XML Schema and CMOF artifacts. Direct use as this tool's RDF authoring vocabulary would require an RDF mapping; this is an inference from the published formats. |
 | State machine notation | [SCXML](https://www.w3.org/TR/scxml/) | Defines event-based state-machine concepts in XML. An RDF-native starter can reuse the concepts, but it would not automatically be an SCXML document or executable machine. |
 
-The remaining functional choices are the exact default ontologies and which specialized forms, if any, can edit arbitrary replacement ontologies. Exact vocabulary terms and standards mappings follow from those choices.
+### Assessment by default model type
+
+| Model type | Candidate | Fit for the agreed editor | Missing or mismatched concepts |
+| --- | --- | --- | --- |
+| Conceptual data | [OWL 2](https://www.w3.org/TR/owl2-syntax/) and [RDF Schema](https://www.w3.org/TR/rdf-schema/) | Classes, datatype properties, and object properties can describe entities, attributes, and binary relationships. This use of the standard terms as an entity-relationship editor vocabulary is an inference. | No dedicated entity-relationship visual notation or distinct entity/attribute classes; richer association patterns need deliberate modeling. |
+| Descriptive process | [P-Plan](https://www.opmw.org/model/p-plan/) with selected [PROV-O](https://www.w3.org/TR/prov-o/) terms | P-Plan has plans, steps, variables, inputs, outputs, and step precedence. PROV-O has agents and activity associations. | P-Plan does not itself define decisions or planned responsibility; PROV-O focuses on provenance of activities. The combined vocabulary still needs a fit check for the agreed descriptive control flow. |
+| Descriptive process alternative | [OWL-S](https://www.w3.org/submissions/OWL-S/) | RDF/OWL terms include inputs, outputs, and control constructs such as choice and conditional branches. | It targets web-service discovery, invocation, and composition, and is a W3C Member Submission rather than a Recommendation. Reusing its full process model may import unwanted execution semantics; this is an inference. |
+| State machine | [SCXML](https://www.w3.org/TR/scxml/) concepts; [UML](https://www.omg.org/spec/UML/2.5.1) through [MOF2RDF](https://www.omg.org/spec/MOF2RDF/) | Both describe states and transitions; SCXML also specifies events, conditions, and actions. MOF2RDF provides a standardized RDF/OWL mapping route for MOF models. | SCXML's native format is XML and includes execution, hierarchy, and parallel states. UML via MOF2RDF may expose much more structure than the agreed simple non-executable editor; this is an inference. No directly usable small RDF vocabulary has yet been selected. |
+
+The policy is to prefer established RDF-native terms where an individual fit check confirms coverage, and define project terms only for gaps. Exact default ontologies and specialized form bindings remain undecided.
 
 ## Separate question: inference
 
