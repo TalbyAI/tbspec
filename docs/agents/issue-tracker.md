@@ -23,8 +23,8 @@ Read the referenced file. The user will normally supply its path or issue number
 Used by `/wayfinder`. A map file has one child file per ticket.
 
 - Map: `.scratch/<effort>/map.md`, containing Notes, Decisions-so-far, and Fog.
-- Child ticket: `.scratch/<effort>/issues/NN-<slug>.md`, numbered from `01`, with the question in its body. A `Type:` line records `research`, `prototype`, `grilling`, or `task`; a `Status:` line records `claimed` or `resolved`.
-- Blocking: a `Blocked by: NN, NN` line near the top. A ticket is unblocked when every listed file is `resolved`.
-- Frontier: scan `.scratch/<effort>/issues/` for open, unblocked, unclaimed files; first by number wins.
-- Claim: set `Status: claimed` and save before starting work.
-- Resolve: append the answer under `## Answer`, set `Status: resolved`, then add a gist and link to the map's Decisions-so-far.
+- Child ticket: `.scratch/<effort>/issues/NN-<slug>.md`, numbered from `01`, with the question in its body. `Type:` records `research`, `prototype`, `grilling`, or `task`. `Status:` uses a value from `triage-labels.md`; `State:` is `open` or `resolved`.
+- Blocking: a `Blocked by: NN, NN` line near the top. A ticket is unblocked when every listed file has `State: resolved`.
+- Frontier: scan `.scratch/<effort>/issues/` for open, unblocked files without an `Assigned to:` line; first by number wins.
+- Claim: add `Assigned to: <dev>` and save before starting work.
+- Resolve: append the answer under `## Answer`, set `State: resolved`, then add a gist and link to the map's Decisions-so-far.
