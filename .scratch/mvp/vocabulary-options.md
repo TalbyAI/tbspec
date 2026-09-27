@@ -1,6 +1,6 @@
 # Starter Vocabulary Options for the MVP
 
-Status: Decision aid; project configuration direction selected
+Status: Decision aid; functional vocabulary choices are recorded in [spec.md](spec.md#starter-vocabulary-choices)
 
 ## Direction from the interview
 
@@ -52,7 +52,7 @@ The selected direction combines ready-to-use defaults with project-controlled re
 | Descriptive process alternative | [OWL-S](https://www.w3.org/submissions/OWL-S/) | RDF/OWL terms include inputs, outputs, and control constructs such as choice and conditional branches. | It targets web-service discovery, invocation, and composition, and is a W3C Member Submission rather than a Recommendation. Reusing its full process model may import unwanted execution semantics; this is an inference. |
 | State machine | [SCXML](https://www.w3.org/TR/scxml/) concepts; [UML](https://www.omg.org/spec/UML/2.5.1) through [MOF2RDF](https://www.omg.org/spec/MOF2RDF/) | Both describe states and transitions; SCXML also specifies events, conditions, and actions. MOF2RDF provides a standardized RDF/OWL mapping route for MOF models. | SCXML's native format is XML and includes execution, hierarchy, and parallel states. UML via MOF2RDF may expose much more structure than the agreed simple non-executable editor; this is an inference. No directly usable small RDF vocabulary has yet been selected. |
 
-The policy is to prefer established RDF-native terms where an individual fit check confirms coverage, and define project terms only for gaps. Exact default ontologies and specialized form bindings remain undecided.
+The policy is to prefer established RDF-native terms where an individual fit check confirms coverage, and define project terms only for gaps. The functional choices are now in [spec.md](spec.md#starter-vocabulary-choices); exact extension term IRIs and SHACL shapes remain implementation prerequisites.
 
 ## Separate question: inference
 
