@@ -1,6 +1,7 @@
 # MVP Functional Specification
 
-Status: First MVP functional specification (pre-implementation draft)
+Version: 0.1
+Status: Closed functional specification; technical design pending
 
 ## Purpose
 
