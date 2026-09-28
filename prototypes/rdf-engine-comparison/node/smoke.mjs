@@ -115,6 +115,9 @@ async function main() {
     { sources: [queryView(store)], unionDefaultGraph: false }), 'unrelated graph-specific query still runs')
   check(!await engine.queryBoolean(safeQuery(`ASK { <${ex}car1> a <${ex}Vehicle> }`), context) &&
     !await engine.queryBoolean(safeQuery(`ASK { <${ex}car1> <${ex}name> ?name }`), context), 'baseline has no implicit subclass or subproperty inference')
+  check(await engine.queryBoolean(safeQuery(`ASK { <${ex}car1> a ?kind . ?kind <http://www.w3.org/2000/01/rdf-schema#subClassOf>* <${ex}Vehicle> }`), context) &&
+    await engine.queryBoolean(safeQuery(`ASK { <${ex}car1> ?property "Roadster" . ?property <http://www.w3.org/2000/01/rdf-schema#subPropertyOf>* <${ex}name> }`), context),
+  'SPARQL property paths recover subclass and subproperty relationships')
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1 })
