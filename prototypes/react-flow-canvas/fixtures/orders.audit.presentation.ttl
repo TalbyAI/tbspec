@@ -1,0 +1,5 @@
+@prefix ex: <https://example.org/orders/> .
+@prefix p: <urn:canvas-proof:> .
+
+ex:order1 p:x 440 ; p:y 80 .
+ex:legacy p:x 100 ; p:y 260 .

@@ -1,0 +1,19 @@
+@prefix ex: <https://example.org/orders/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:order1 a ex:Order ;
+  rdfs:label "Order 01" ;
+  ex:customer ex:alice ;
+  ex:status "Draft" ;
+  ex:amount "42.50"^^xsd:decimal ;
+  ex:privateNote [ ex:flag "Needs review" ; ex:confidence "0.75"^^xsd:decimal ] ;
+  ex:opaqueLink ex:legacy .
+
+ex:alice a ex:Customer ;
+  rdfs:label "Alice" ;
+  ex:email "alice@example.org" .
+
+ex:legacy rdfs:label "Legacy record" ;
+  ex:unrecognized "Keep this statement"@en .

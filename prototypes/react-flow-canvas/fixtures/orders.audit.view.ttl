@@ -1,0 +1,6 @@
+@prefix ex: <https://example.org/orders/> .
+@prefix p: <urn:canvas-proof:> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+p:audit p:node ex:order1, ex:legacy ;
+  p:edge [ rdf:subject ex:order1 ; rdf:predicate ex:opaqueLink ; rdf:object ex:legacy ] .
