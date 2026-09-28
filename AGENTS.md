@@ -2,6 +2,11 @@
 
 Conversations may be in English or Spanish. Write all repository documents and documentation in English.
 
+## Git workflow
+
+- Before modifying repository files, create a new branch if the current branch is `main`.
+- Never commit directly to `main`; bring changes into `main` through a pull request.
+
 ## Agent skills
 
 ### Issue tracker

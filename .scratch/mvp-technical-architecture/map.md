@@ -21,6 +21,7 @@ An implementation-ready technical architecture for the closed [MVP functional sp
 - [Research the Node/RDF.js contract and compatible packages](issues/02-node-rdf-capability-research.md): Viable candidate for the integrated proof, with application-level dataset and security work.
 - [Research the embedded Jena contract](issues/03-jena-capability-research.md): Viable embedded candidate for the same proof, with explicit staging and network controls.
 - [Compare RDF engines with one integrated proof](issues/04-integrated-rdf-engine-proof.md): Both passed required checks; the user selected Node/RDF.js for a shared runtime, with optional hierarchy lookup via SPARQL paths.
+- [Choose the Node runtime and package baseline](issues/05-select-rdf-stack.md): Use Node 24 LTS, the five exact RDF package versions from the proof, and SPARQL property paths for optional hierarchy lookup.
 
 ## Not yet specified
 
