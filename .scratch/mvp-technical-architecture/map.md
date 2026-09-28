@@ -17,6 +17,7 @@ An implementation-ready technical architecture for the closed [MVP functional sp
 
 ## Decisions so far
 
+- [Choose the permanent domain and ontology IRI policy](issues/01-permanent-iri-policy.md): `talby.ai` hosts three vocabularies with stable `#` term IRIs and immutable versions starting at `0.1.0`.
 - [Research the Node/RDF.js contract and compatible packages](issues/02-node-rdf-capability-research.md): Viable candidate for the integrated proof, with application-level dataset and security work.
 - [Research the embedded Jena contract](issues/03-jena-capability-research.md): Viable embedded candidate for the same proof, with explicit staging and network controls.
 
