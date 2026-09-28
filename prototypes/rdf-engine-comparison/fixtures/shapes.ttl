@@ -1,0 +1,10 @@
+@prefix ex: <https://example.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+ex:CarShape a sh:NodeShape ;
+  sh:targetClass ex:Car ;
+  sh:property [ sh:path ex:name ; sh:minCount 1 ] ;
+  sh:sparql [
+    sh:message "Age must be at least 18" ;
+    sh:select """SELECT $this WHERE { $this <https://example.org/age> ?age . FILTER(?age < 18) }"""
+  ] .

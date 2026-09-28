@@ -1,0 +1,7 @@
+@prefix ex: <https://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:ontology a owl:Ontology .
+ex:Car rdfs:subClassOf ex:Vehicle .
+ex:label rdfs:subPropertyOf ex:name .

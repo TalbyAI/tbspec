@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node smoke.mjs"
+  },
+  "dependencies": {
+    "@comunica/query-sparql-rdfjs-lite": "5.4.1",
+    "@comunica/utils-bindings-factory": "5.4.0",
+    "@traqula/parser-sparql-1-1": "1.4.0",
+    "n3": "2.7.12",
+    "shacl-engine": "1.1.2"
+  }
+}
