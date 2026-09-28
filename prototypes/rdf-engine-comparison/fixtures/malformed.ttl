@@ -1,0 +1,4 @@
+@prefix ex: <https://example.org/> .
+
+ex:valid ex:value "one" .
+ex:broken ex:value "unterminated
