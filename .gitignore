@@ -12,3 +12,9 @@
 
 # Built Visual Studio Code Extensions
 *.vsix
+
+# Local prototype dependencies and build output
+prototypes/**/node_modules/
+prototypes/**/.m2/
+prototypes/**/.tools/
+prototypes/**/target/
