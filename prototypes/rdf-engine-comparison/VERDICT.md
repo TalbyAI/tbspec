@@ -8,8 +8,8 @@ Both candidates passed the same integrated RDF contract fixture on 2026-09-28. B
 
 | Candidate | Environment and command | Outcome |
 | --- | --- | --- |
-| Node/RDF.js | Windows; Node 24.14.1, npm 11.17.0; `node/`: `npm ci`, `npm test` | Exit 0; 14 `PASS` checks; 2 SHACL diagnostics |
-| Embedded Jena | Windows; Temurin JDK 21.0.12.1+1, Maven 3.9.16, Jena 6.2.0; `jena/`: `mvn -q compile exec:java '-Dexec.mainClass=Smoke'` | Exit 0; 14 `PASS` checks; 2 SHACL diagnostics |
+| Node/RDF.js | Windows; Node 24.14.1, npm 11.17.0; `node/`: `npm ci`, `npm test` | Exit 0; 13 `PASS` checks; 2 SHACL diagnostics |
+| Embedded Jena | Windows; Temurin JDK 21.0.12.1+1, Maven 3.9.16, Jena 6.2.0; `jena/`: `mvn -q compile exec:java '-Dexec.mainClass=Smoke'` | Exit 0; 13 `PASS` checks; 2 SHACL diagnostics |
 
 The same files under `fixtures/` supplied both runs: `ontology.ttl`, `model.nt`, `decoy.ttl`, `shapes.ttl`, and `malformed.ttl`. The last file has a valid prefix followed by invalid Turtle. The proof checks a failed replacement of the decoy graph, verifies its previous contents remain, then queries the separate model graph.
 
