@@ -25,6 +25,7 @@ An implementation-ready technical architecture for the closed [MVP functional sp
 - [Test React Flow for the generic canvas](issues/06-react-flow-canvas-proof.md): The small integrated proof supports generic editing and complete-graph exploration with separate RDF source, view, and presentation graphs. The user confirmed the interaction after three corrections. Keep React Flow for the next projection decision; revisit other renderers only for a concrete gap. See the [prototype verdict](../../prototypes/react-flow-canvas/VERDICT.md).
 - [Choose the RDF-to-canvas projection and editing boundary](issues/07-rdf-canvas-projection.md): Project RDF triples directly; keep view membership and presentation separate, share RDF edit operations, preserve unknown statements, and require explicit resolution of stale Turtle drafts.
 - [Choose dataset assembly and query isolation](issues/08-query-dataset-boundary.md): Build local in-memory RDF datasets per operation; isolate `--graph`, restrict the default union, reject malformed or duplicate full-project graphs, and gate all queries before execution.
+- [Choose SHACL validation and diagnostic integration](issues/09-shacl-validation-boundary.md): Validate resources independently with their associated Core and `sh:sparql` SELECT shapes, explicit vocabulary hierarchy, safe local queries, and partial diagnostics.
 
 ## Not yet specified
 
