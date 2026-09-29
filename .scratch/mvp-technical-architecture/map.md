@@ -27,7 +27,7 @@ An implementation-ready technical architecture for the closed [MVP functional sp
 
 ## Not yet specified
 
-None at present.
+Open tickets still cover the production RDF vocabulary, exact versioned terms, and SHACL constraints ([11](issues/11-starter-resource-contract.md)); file transaction and conflict mechanics ([10](issues/10-file-transaction-boundary.md)); and large-graph layout and exploration ([15](issues/15-layout-and-exploration-policy.md)).
 
 ## Out of scope
 
