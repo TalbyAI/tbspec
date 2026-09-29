@@ -2,9 +2,30 @@
 
 Type: grilling
 Status: ready-for-human
-State: open
+State: resolved
+Assigned to: Codex
 Blocked by: 05
 
 ## Question
 
 How will the selected engine assemble project RDF files and locked snapshots per operation so every resource has its correct named-graph IRI, the default union contains only ontology and domain-model graphs, and a graph-specific query can ignore malformed unrelated files? Specify where typed bindings enter the engine and where Update, `SERVICE`, `FROM`, and `FROM NAMED` are rejected before execution, with no implicit remote fetch. Retain in-memory assembly unless the proof shows a need for more.
+
+## Comments
+
+- The user chose to expose the selected resource under `--graph` both as the default graph and as the only named graph, so ordinary triple patterns and `GRAPH <iri>` both work within the selected resource.
+- The user chose to fail a full-project query if any registered RDF graph is malformed, naming its file, even when the query text only uses the default graph.
+- The user chose to reject duplicate graph IRIs and report both resources rather than merge their triples.
+- The user chose local snapshots, in-memory RDF sources, an AST policy gate, and Comunica Lite as the query network boundary; a process-wide network firewall is not required.
+- The user chose to check duplicate graph IRIs only among graphs loaded for an operation. A `--graph` query therefore remains isolated; full-project queries and validation detect project-wide collisions.
+
+## Answer
+
+Build a fresh in-memory query dataset from local project-owned RDF files and locked dependency snapshots for each operation. Discover all project-owned RDF graphs, including support and unclassified graphs, plus the locked graphs. Parse each needed single-graph file completely before adding any of its quads. Determine kind from its self-declaration, or from a locked dependency's explicit kind override when it lacks a declaration. Use the graph's one declared root IRI as its named-graph IRI; when it has no root, derive a deterministic project-local graph IRI from its resource selector. A managed graph with ambiguous roots cannot be assigned a name and fails the operation. The exact generated IRI syntax belongs to [the schema ticket](14-concrete-file-and-output-schemas.md). Use only local-only parser modes; reject a format that needs remote context resolution. Do not dereference RDF IRIs while parsing or querying.
+
+Without `--graph`, load every registered RDF graph as a named graph. A malformed file fails the query with its path, even if the query text uses only the default graph. Reject two loaded resources with the same named-graph IRI and report both selectors; never merge them. Copy only ontology and domain-model triples, including those from locked ontology/model snapshots, into the query-only default graph. SHACL, view, presentation, visual-design, and unclassified graphs remain named-only. Run Comunica with `unionDefaultGraph: false`; do not add inferred triples.
+
+With `--graph <selector>`, resolve and parse only the selected project file or locked snapshot. Expose its triples both in the default graph and under its named-graph IRI, with no other named graphs. This lets ordinary triple patterns and `GRAPH <iri>` address the selected resource, including a support graph. A malformed or missing selected resource fails with its selector; malformed unrelated files do not block the query. Check IRI collisions only in the loaded dataset. A full-project query and project validation report duplicate IRIs elsewhere.
+
+Before invoking the engine for an ad hoc or saved query, parse its SPARQL AST and accept only `SELECT`, `ASK`, `CONSTRUCT`, or `DESCRIBE`. Reject Update, any nested `SERVICE`, and every `FROM` or `FROM NAMED` clause; never rely on text matching. Parse and validate JSON bindings as RDF terms, including datatype or language, and check saved-query parameter declarations before passing them as Comunica `initialBindings`. Never interpolate binding values into query text. Supply only the constructed in-memory RDF/JS store as a Comunica Lite source, never a URL or file-source string. Explicit dependency acquisition is a separate operation; `query run` does no network fetch. This is an application-level local-data boundary, not a process-wide firewall. Apply the same pre-execution SPARQL policy to SHACL-SPARQL through [the validation ticket](09-shacl-validation-boundary.md).
+
+The [integrated proof](../../../prototypes/rdf-engine-comparison/VERDICT.md) demonstrated staged N3 parsing, selected default-union copies, RDF/JS named graphs, typed bindings, and rejection of forbidden forms. Production checks should cover malformed unrelated files, duplicate graph IRIs, `--graph` default/named access, and the complete local query gate.
