@@ -48,6 +48,7 @@ function download(name, contents) {
 function App() {
   const [source, setSource] = useState(() => parse(sourceText));
   const [sourceDraft, setSourceDraft] = useState(sourceText);
+  const [draftDirty, setDraftDirty] = useState(false);
   const [views, setViews] = useState(initialViews);
   const [presentations, setPresentations] = useState(initialPresentations);
   const [fullPositions, setFullPositions] = useState([]);
@@ -65,10 +66,15 @@ function App() {
   const selectedEdge = selected?.kind === 'edge' ? source.find((q) => quadId(q) === selected.id) : null;
   const literalQuads = selectedNode ? source.filter((q) => q.subject.equals(selectedNode) && q.object.termType === 'Literal') : [];
 
-  function commitSource(next, feedback) {
+  function commitSource(next, feedback, applyDraft = false) {
     setSource(next);
-    setSourceDraft(serialize(next));
-    setMessage(feedback);
+    if (!draftDirty || applyDraft) {
+      setSourceDraft(serialize(next));
+      setDraftDirty(false);
+    }
+    setMessage(draftDirty && !applyDraft
+      ? `${feedback} Unapplied Turtle draft preserved; applying it will replace canvas edits.`
+      : feedback);
   }
 
   function onConnect({ source: from, target: to }) {
@@ -110,7 +116,8 @@ function App() {
   function addSelectionToView(name) {
     try {
       const item = selectedNode || selectedEdge;
-      setViews((before) => ({ ...before, [name]: addToView(before[name], name, item, source) }));
+      const nextView = addToView(views[name], name, item, source);
+      setViews((before) => ({ ...before, [name]: nextView }));
       setMessage(selectedNode
         ? `Resource added to ${modes[name]}; existing links to members of that view were included.`
         : `Relationship added to ${modes[name]}; its endpoints were included automatically.`);
@@ -124,7 +131,7 @@ function App() {
   }
 
   function applySource() {
-    try { commitSource(parse(sourceDraft), 'Turtle parsed; the complete graph and saved views now project from the new RDF source.'); }
+    try { commitSource(parse(sourceDraft), 'Turtle parsed; the complete graph and saved views now project from the new RDF source.', true); }
     catch (error) { setMessage(`Source parse error: ${error.message}`); }
   }
 
@@ -175,10 +182,10 @@ function App() {
         {selectedEdge && <section><h2>Relationship</h2><p className="term">{selectedEdge.subject.value} → {selectedEdge.object.value}</p>
           <label htmlFor="edge-predicate">Predicate IRI</label><input id="edge-predicate" value={predicate} onChange={(event) => setPredicate(event.target.value)} />
           <div className="actions"><button onClick={updateEdge}>Save predicate</button><button onClick={deleteEdge}>Delete</button></div>
-          {mode === 'all' && <div className="actions"><button onClick={() => addSelectionToView('focus')}>Add to customer view</button>
-            <button onClick={() => addSelectionToView('audit')}>Add to audit view</button></div>}</section>}
-        <section className="source"><h2>RDF source</h2><p>Changes to the canvas rewrite Turtle. You can also edit it here and apply it to the graph.</p>
-          <textarea aria-label="RDF source" value={sourceDraft} onChange={(event) => setSourceDraft(event.target.value)} spellCheck="false" />
+          {mode === 'all' && <div className="actions"><button disabled={selectedEdge.subject.termType === 'BlankNode' || selectedEdge.object.termType === 'BlankNode'} onClick={() => addSelectionToView('focus')}>Add to customer view</button>
+            <button disabled={selectedEdge.subject.termType === 'BlankNode' || selectedEdge.object.termType === 'BlankNode'} onClick={() => addSelectionToView('audit')}>Add to audit view</button></div>}</section>}
+        <section className="source"><h2>RDF source</h2><p>Canvas edits update Turtle unless you have an unapplied draft. Applying a draft replaces canvas edits made since you started it.</p>
+          <textarea aria-label="RDF source" value={sourceDraft} onChange={(event) => { setSourceDraft(event.target.value); setDraftDirty(true); }} spellCheck="false" />
           <div className="actions"><button onClick={applySource}>Apply Turtle</button>
             <button onClick={() => download('orders.ttl', serialize(source))}>Download source</button></div></section>
         {mode !== 'all' && <section><h2>Saved view RDF</h2><p>These graphs hold membership and positions separately from source.</p>

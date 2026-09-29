@@ -49,4 +49,9 @@ assert([...viewMembers(withCustomer, 'focus').edges].some((id) => id.includes('r
 assert.equal(project(source, withCustomer, 'focus', focusPosition).edges.length, 2);
 assert.equal(positionsFromRdf(setPosition(focusPosition, order, { x: 5, y: 9 }))[termId(order)].x, 5);
 assert.throws(() => addToView(focus, 'focus', all.resources.get(all.nodes.find((node) => node.data.kind === 'blank node').id)), /Blank nodes/);
+assert.throws(() => addToView(focus, 'focus', source.find((q) => q.predicate.value === EX + 'privateNote')), /blank-node endpoints/);
+for (const invalid of ['https://example.org/a>b', 'https://example.org/a\\b', 'urn:a|b']) {
+  assert.throws(() => addRelation(source, order, invalid, namedNode(EX + 'alice')), /predicate IRI/);
+  assert.throws(() => changeRelation(source, status, invalid), /predicate IRI/);
+}
 console.log('PASS: RDF projection, two views, positions, relationship edits, blank-node policy, and opaque round trip');

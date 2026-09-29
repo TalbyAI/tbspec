@@ -18,7 +18,7 @@ export const termId = (term) => term.termType === 'Literal'
 export const quadId = (item) => [item.subject, item.predicate, item.object].map(termId).join('|');
 export const localName = (iri) => iri.replace(/^.*[/#:]/, '') || iri;
 export const isResource = (term) => term.termType === 'NamedNode' || term.termType === 'BlankNode';
-export const validIri = (value) => /^(https?:\/\/|urn:)[^\s]+$/.test(value);
+export const validIri = (value) => /^(https?:\/\/|urn:)[^\u0000-\u0020\u007F<>"{}|^`\\]+$/u.test(value);
 
 const same = (a, b) => a.equals(b);
 const has = (quads, subject, predicate, object) => quads.some((q) =>
@@ -130,7 +130,7 @@ export function setPosition(presentation, term, position) {
 }
 
 export function changeRelation(source, oldQuad, predicateIri) {
-  if (!validIri(predicateIri)) throw new Error('Enter an absolute http(s) or urn predicate IRI.');
+  if (!validIri(predicateIri)) throw new Error('Enter a Turtle-safe absolute http(s) or urn predicate IRI.');
   const replacement = quad(oldQuad.subject, namedNode(predicateIri), oldQuad.object);
   return { quads: replaceQuad(source, oldQuad, replacement), replacement };
 }
@@ -143,7 +143,7 @@ export function replaceQuad(source, previous, replacement) {
 }
 
 export function addRelation(source, subject, predicateIri, object) {
-  if (!validIri(predicateIri)) throw new Error('Enter an absolute http(s) or urn predicate IRI.');
+  if (!validIri(predicateIri)) throw new Error('Enter a Turtle-safe absolute http(s) or urn predicate IRI.');
   const added = quad(subject, namedNode(predicateIri), object);
   return { quads: has(source, subject, added.predicate, object) ? source : [...source, added], added };
 }
