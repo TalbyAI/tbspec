@@ -2,9 +2,31 @@
 
 Type: grilling
 Status: ready-for-human
-State: open
+State: resolved
+Assigned to: Codex
 Blocked by: 05
 
 ## Question
 
 How will the selected engine run model-owned, ontology-associated, and conceptual-schema-associated SHACL graphs, including SHACL-SPARQL, while keeping each report tied to its source shapes graph? Define the boundary between RDF syntax, vocabulary, association, view, and SHACL diagnostics, and how partial validation reports malformed files without losing results from parseable graphs. Base the decision on the engine proof and spec 0.1.
+
+## Comments
+
+- The user chose one validation data graph per resource: its own triples plus only explicit `rdfs:subClassOf` and `rdfs:subPropertyOf` triples from effective available ontologies and, for a concrete data model, its referenced conceptual schemas. No other model data or inferred triples enter it.
+- The user chose to validate an ontology against its own associated SHACL graph as well as applying that graph separately to models that use the ontology. `validate <selector>` checks the selected resource and its required support, not its dependent models.
+- The user chose to continue independent checks after malformed RDF, and to skip an entire SHACL graph when it contains a forbidden or invalid query. Other valid SHACL graphs still run.
+- The user chose SHACL Core and `sh:sparql` SELECT constraints as the MVP's supported profile. Unsupported SHACL-SPARQL forms must produce a diagnostic rather than be silently ignored. The user confirmed the combined contract.
+
+## Answer
+
+`validate` without a selector scans every registered project-owned RDF file and locked snapshot, including support and unclassified graphs. With a selector, it validates only that resource, loading the associations and local snapshots needed to interpret it; it does not validate downstream users of that resource. Selecting a support graph checks its syntax, supported forms, and association without validating every resource that uses it. Validation never fetches a remote source. Parse each file completely into a temporary graph before using any of its quads. A syntax error names the file and, when available, its line and column. Continue validating independent parseable resources; never treat a skipped dependent check as a clean pass.
+
+For each parseable ontology or domain model, run its own associated SHACL graph separately. A model also receives each SHACL graph associated with every effective ontology it uses. A concrete data model additionally receives SHACL graphs associated with each referenced conceptual data model. Locked resources retain their recorded associations; losing ontology snapshots are not merged into the effective vocabulary. Deduplicate the same shapes graph for one target resource, while retaining its source identity in every result.
+
+Each `(target resource, shapes graph)` run uses a fresh RDF/JS validation data graph containing the target's own triples and only the explicit `rdfs:subClassOf` and `rdfs:subPropertyOf` triples from its effective available ontologies and referenced conceptual schemas. These hierarchy triples are visible to SHACL-SPARQL; no other model's data, implicit entailment, or remotely dereferenced triples are present. Add the same hierarchy triples to that run's shapes dataset so `shacl-engine@1.1.2` can resolve class-based targets and `sh:class`. Its installed implementation resolves subclass paths from the shapes dataset: a local check using `:x a :Sedan`, `:Sedan rdfs:subClassOf :Car`, and a `:Car` target produced zero results with hierarchy only in data and one result when hierarchy was also in shapes. This does not infer or persist superclass types or superproperty statements.
+
+Enable `shacl-engine` Core and its opt-in `sh:sparql` SELECT constraint validation. This is the supported MVP profile; SPARQL-based targets and custom SPARQL ASK/SELECT constraint-component validators are unsupported and get explicit errors. Before invoking a validator, check every applicable shapes graph for RDF syntax, supported SHACL forms, and the effective SPARQL query after declared prefixes and `$PATH` expansion. Require SELECT and reject Update, nested `SERVICE`, `FROM`, and `FROM NAMED` with the same AST policy used by `query run`. Supply only the in-memory data graph to Comunica Lite. A malformed, unsupported, or unsafe shapes graph produces a diagnostic and is skipped as a whole for each affected target; valid shapes graphs continue independently.
+
+Keep diagnostic categories distinct: RDF syntax; graph classification and IRI collision; vocabulary and broken associations; view and presentation invariants; SHACL graph errors; and SHACL validation results. If a source graph is malformed, omit checks needing its triples. If an ontology or conceptual schema needed for a model's validation data graph is malformed, skip that model's vocabulary and SHACL checks rather than run them against an incomplete hierarchy; unrelated resources and the model's independent syntax and classification checks still run. If only one associated shapes graph is malformed, skip that graph while running the target's other shapes graphs. Report skipped checks with the blocking file so partial validation is explicit. A SHACL result identifies the target resource file, source shapes graph IRI and selector, and available focus node, source shape, constraint component, path, value, and message. Preserve available source location, but do not invent a line number for an RDF-level result. The concrete JSON field names and codes belong to [Define concrete project file and machine-output schemas](14-concrete-file-and-output-schemas.md).
+
+Map `sh:Violation` to an error, `sh:Warning` to a warning, and `sh:Info` to information. Use diagnostic severities, not the engine's `report.conforms`, to determine CLI status: per [spec 0.1](../../mvp/spec.md), warnings alone do not set exit code `1`; errors do. Invalid or incomplete project validation remains visible in `status` and `validate --json`. The [integrated proof](../../../prototypes/rdf-engine-comparison/VERDICT.md) established Core and `sh:sparql` SELECT execution, per-shapes-graph attribution, and local query preflight on small fixtures. The [SHACL recommendation](https://www.w3.org/TR/shacl/#sparql-constraints) and [selected engine's documented SPARQL extension](https://github.com/rdf-ext/shacl-engine#sparql-support) define the supported and unsupported boundary.
