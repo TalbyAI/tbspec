@@ -22,11 +22,12 @@ An implementation-ready technical architecture for the closed [MVP functional sp
 - [Research the embedded Jena contract](issues/03-jena-capability-research.md): Viable embedded candidate for the same proof, with explicit staging and network controls.
 - [Compare RDF engines with one integrated proof](issues/04-integrated-rdf-engine-proof.md): Both passed required checks; the user selected Node/RDF.js for a shared runtime, with optional hierarchy lookup via SPARQL paths.
 - [Choose the Node runtime and package baseline](issues/05-select-rdf-stack.md): Use Node 24 LTS, the five exact RDF package versions from the proof, and SPARQL property paths for optional hierarchy lookup.
-- [Test React Flow for the generic canvas](issues/06-react-flow-canvas-proof.md): The small integrated proof supports generic editing and complete-graph exploration with separate RDF source, view, and presentation graphs. The user confirmed the interaction after three corrections. Keep React Flow for the next projection decision; revisit other renderers only for a concrete gap. See the [prototype verdict](../../prototypes/react-flow-canvas/VERDICT.md). Ticket 07 is now unblocked.
+- [Test React Flow for the generic canvas](issues/06-react-flow-canvas-proof.md): The small integrated proof supports generic editing and complete-graph exploration with separate RDF source, view, and presentation graphs. The user confirmed the interaction after three corrections. Keep React Flow for the next projection decision; revisit other renderers only for a concrete gap. See the [prototype verdict](../../prototypes/react-flow-canvas/VERDICT.md).
+- [Choose the RDF-to-canvas projection and editing boundary](issues/07-rdf-canvas-projection.md): Project RDF triples directly; keep view membership and presentation separate, share RDF edit operations, preserve unknown statements, and require explicit resolution of stale Turtle drafts.
 
 ## Not yet specified
 
-- A failed canvas proof may reveal alternative technical routes that cannot be specified until the failure is observed.
+Open tickets still cover the production RDF vocabulary, exact versioned terms, and SHACL constraints ([11](issues/11-starter-resource-contract.md)); file transaction and conflict mechanics ([10](issues/10-file-transaction-boundary.md)); and large-graph layout and exploration ([15](issues/15-layout-and-exploration-policy.md)).
 
 ## Out of scope
 
