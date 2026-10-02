@@ -34,8 +34,38 @@ A data model describing individual resources, their properties, and their values
 **Process model**:
 A domain model describing activities, decisions, inputs, outputs, responsible parties, and the flow between activities.
 
+**Plan**:
+A description of planned process steps, their inputs and outputs, and the flows between them.
+
+**Process step**:
+A planned activity belonging to one or more plans. A decision is a specialized process step.
+
+**Decision**:
+A process step describing a choice between possible outgoing flows.
+
+**Flow**:
+An immediate directed connection between two process steps in one plan, optionally carrying a descriptive condition.
+
+**Responsible party**:
+A person, organization, or role assigned responsibility for a planned process step.
+
 **State machine model**:
 A domain model describing states, including initial and final states, and transitions with events, conditions, or actions.
+
+**State machine**:
+A description of a subject's states and the transitions between them.
+
+**State**:
+A condition or mode of a subject within a state machine.
+
+**Initial state**:
+The designated starting state of a state machine.
+
+**Final state**:
+A terminal state with no outgoing transition.
+
+**Transition**:
+A directed change between two states in a state machine, optionally described by an event, condition, or action.
 
 **Presentation graph**:
 A graph describing the visual appearance or placement of specific elements in one view of an ontology or domain model, separate from its content.
