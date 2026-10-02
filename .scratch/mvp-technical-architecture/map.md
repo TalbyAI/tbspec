@@ -26,11 +26,12 @@ An implementation-ready technical architecture for the closed [MVP functional sp
 - [Choose the RDF-to-canvas projection and editing boundary](issues/07-rdf-canvas-projection.md): Project RDF triples directly; keep view membership and presentation separate, share RDF edit operations, preserve unknown statements, and require explicit resolution of stale Turtle drafts.
 - [Choose dataset assembly and query isolation](issues/08-query-dataset-boundary.md): Build local in-memory RDF datasets per operation; isolate `--graph`, restrict the default union, reject malformed or duplicate full-project graphs, and gate all queries before execution.
 - [Choose SHACL validation and diagnostic integration](issues/09-shacl-validation-boundary.md): Validate resources independently with their associated Core and `sh:sparql` SELECT shapes, explicit vocabulary hierarchy, safe local queries, and partial diagnostics.
-- [Choose safe project file mutations and edit conflicts](issues/10-file-transaction-boundary.md): Stage and restore multi-file changes, detect conflicts in affected files, confine writes, preserve unrelated TOML text, and require manual recovery after crashes.
+- [Choose safe project file mutations and edit conflicts](issues/10-file-transaction-boundary.md): Coordinate CLI/web reads and writes with a project lock and content revisions; stage multi-file changes with guarded rollback, preserve unrelated TOML text, confine paths, and require manual recovery after incomplete transactions.
+- [Define metadata and starter resource identities and shapes](issues/11-starter-resource-contract.md): Fix the versioned metadata, view/presentation, visual-rule, process, and state-machine contracts, using pinned P-Plan 1.3 and separating local SHACL from cross-file diagnostics.
 
 ## Not yet specified
 
-No additional fog identified; remaining decisions have child tickets.
+No additional in-scope fog is currently identified. Remaining decisions are covered by existing child tickets.
 
 ## Out of scope
 
