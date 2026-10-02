@@ -27,4 +27,4 @@ Used by `/wayfinder`. A map file has one child file per ticket.
 - Blocking: a `Blocked by: NN, NN` line near the top. A ticket is unblocked when every listed file has `State: resolved`.
 - Frontier: scan `.scratch/<effort>/issues/` for open, unblocked files without an `Assigned to:` line; first by number wins.
 - Claim: add `Assigned to: <dev>` and save before starting work.
-- Resolve: append the answer under `## Answer`, set `State: resolved`, then add a gist and link to the map's Decisions-so-far.
+- Resolve: append the answer under `## Answer`, set `State: resolved`, then add a short decision summary and a link to the child ticket under the map's Decisions-so-far.
