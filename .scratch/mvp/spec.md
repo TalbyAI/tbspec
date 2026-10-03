@@ -120,7 +120,9 @@ CLI commands identify project-owned RDF resources by paths relative to the proje
 | `tbspec query run` | Run an ad hoc or saved read-only SPARQL query against a selected graph or the resolved project dataset, with optional typed parameter bindings. |
 | `tbspec query remove` | Remove a saved project query after explicit confirmation. |
 | `tbspec validate` | Validate the whole project or a selected resource using locked dependencies. |
-| `tbspec web` | Start the local web interface for a project. |
+| `tbspec web` | Start or reconnect to the project's local web server; attach a foreground control/log console by default or return with `--background`. |
+| `tbspec web status` | Report the web server's state and URL without starting it or attaching a console. |
+| `tbspec web stop` | Request graceful shutdown of the project's web server without attaching a console. |
 | `tbspec llms [topic ...]` | Print the essential agent prompt or recursively indexed, focused guidance. |
 
 There are no CLI commands for Git history or individual RDF statements. Agents edit view membership, visual rules, saved query files, and other graph details in files, then validate.
@@ -135,6 +137,8 @@ There are no CLI commands for Git history or individual RDF statements. Agents e
 - `resource move <from> <to>` previews by default and uses `--apply` to move the source and filename-associated support graphs together. It updates project-owned path references, reports any generated named-graph IRI that will change with the path, and refuses collisions. `refactor iri` also previews by default; `--apply` refuses a new IRI already declared by a different project-owned resource. Neither operation edits a locked snapshot.
 - Commands that delete a resource, plus `model schema remove`, preview affected files and references without `--confirm`; `--confirm` performs the removal even if known references remain. `clear` commands remove a choice or association without deleting its resource. Bulk reference repair uses explicit scope and `--apply` instead; garbage collection requires both `--apply` and `--confirm`. Multi-file operations preserve the prior files and lock record on normal failures.
 - `query run --file <path>` reads an ad hoc SPARQL file, while `query run --saved <name>` uses a saved query. `--graph <selector>` limits the dataset to one graph. `--bindings <path.json>` supplies a JSON object mapping variable names to typed RDF terms (`iri` or `literal`, with optional datatype or language); raw text substitution is not supported. `query save <name> --file <path>` stores a `.rq` file and a sibling `.query.toml` parameter declaration under `queries/`. Query execution rejects SPARQL Update, `SERVICE`, `FROM`, and `FROM NAMED` so it cannot fetch other datasets.
+
+- One web server serves one fixed project. `web` reuses an existing verified server and attaches a log/control console by default; `--background` reports readiness and an opening URL without attaching. An attached console can detach without stopping the server; Ctrl+C requests shutdown. Unexpected terminal disconnection or browser-tab closure leaves it running. `web status` reports its state and URL without starting or attaching; `web stop` requests graceful shutdown. `web --json` emits one readiness envelope and returns without attaching. This approved lifecycle extension and its authentication, preview, packaging, and compatibility contract are recorded in [Choose the shared CLI and loopback web architecture](../mvp-technical-architecture/issues/13-cli-web-runtime-boundary.md).
 
 ### Command signatures
 
@@ -206,7 +210,9 @@ tbspec query save <name> --file <path> [--parameters <path.toml>]
 tbspec query run (--file <path.rq> | --saved <name>) [--graph <graph-selector>] [--bindings <path.json>]
 tbspec query remove <name> [--confirm]
 tbspec validate [<graph-selector>]
-tbspec web [--port <port>]
+tbspec web [--port <port>] [--background]
+tbspec web status
+tbspec web stop
 tbspec llms [<topic> ...]
 ```
 
@@ -307,7 +313,7 @@ The process and state-machine extension terms and their SHACL shapes must be pub
 - A view selects IRIs from one source graph and relationships between selected IRI resources. Literal-valued properties appear in the properties panel; blank nodes remain visible in the generic graph editor. Saved view membership of blank nodes is deferred because their identifiers are not stable across source rewrites. A view's presentation graph may hold positions and local appearance overrides; reusable design models hold rules, not positions of concrete elements.
 - A visual rule targets an exact class or property IRI and describes a generic node or edge appearance: shape, label choice, colors, typography, and line style. The generic renderer covers uncovered terms. Explicit local winning choices live in `tbspec.toml`; discoverable choices from a source project are retained with its selected dependency snapshot and recorded in `tbspec.lock`. Resolution uses the already agreed precedence. No executable project-supplied React component or code is loaded.
 - `validate` checks every parseable graph for relevant syntax, vocabulary, association, view, and SHACL errors while reporting unparseable files separately. An unparseable source cannot be edited through graph operations or queried as part of a dataset requiring it. `status` reports the project's valid or invalid state and diagnostic counts. A missing visual rule is a canvas warning, not a validation failure.
-- The local web server binds to loopback only. It only writes project-owned files under the selected root, requires a session token for mutations, and rejects a save when the underlying file changed since the editor loaded it. Dependency acquisition is an explicit user action; validation and canvas rendering do not fetch remote content.
+- The local web server binds to loopback only. It only writes project-owned files under the selected root, requires authorization for project reads, mutations, and server controls, validates request host/origin at the HTTP boundary, and rejects a save when the underlying file changed since the editor loaded it. An opening link provides one-use browser authentication bootstrap; long-lived tokens do not appear in URLs or project files. Dependency acquisition is an explicit user action; validation and canvas rendering do not fetch remote content. Web impact confirmation applies the exact staged bytes and expected revisions shown in its preview; console detachment preserves previews, while cancellation, restart, or relevant file changes require a new preview. See the [shared CLI/web contract](../mvp-technical-architecture/issues/13-cli-web-runtime-boundary.md).
 - Project and lockfile changes made by one CLI operation are staged and committed together on normal success; on a recoverable error, the prior project state remains available. A crash can require Git or manual recovery. Removing a resource remains an intentionally permitted way to make the project invalid.
 
 ## Inference boundary
@@ -356,7 +362,7 @@ The MVP's core editor and validation rules do not depend on implicit entailment.
 - Resolve visual conflicts by choosing one complete design per concept type.
 - Let projects supply view protocols through ontologies; do not require C4 or 4+1 as built-in MVP protocols.
 - Add individual external resources, even when a source directory or repository contains several.
-- Make CLI commands non-interactive with stable exit codes and optional JSON output; add `tbspec llms` with selective agent guidance.
+- Make CLI project operations non-interactive with stable exit codes and optional JSON output; add `tbspec llms` with selective agent guidance. The web lifecycle may attach a foreground log/control console, with explicit background/status/stop alternatives and single-envelope JSON startup output.
 - Provide specialized ontology forms for classes, datatypes, properties, and individuals; use the generic editor for advanced OWL constructs.
 - Keep specialized data forms conceptual while allowing concrete data models in the generic editor; keep process models descriptive and state-machine models non-executable and non-hierarchical in the MVP.
 - Make `tbspec llms` a recursive disclosure tree: the root gives essential guidance and an index; deeper topics provide progressively detailed prompts and further indexes.
