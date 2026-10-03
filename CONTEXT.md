@@ -16,6 +16,12 @@ An ontology, domain model, or visual design model obtained from outside the proj
 **Dependency snapshot**:
 A fixed local copy of a dependency that remains available to the project until explicitly updated or removed.
 
+**Dependency closure**:
+The discoverable resources required to interpret a selected dependency, together with their directly associated support and inherited selections.
+
+**Source drift**:
+A difference between a dependency's locked interpretation content or associations and those currently obtainable from its recorded sources.
+
 **Domain model**:
 A formal or semi-formal description of a project's domain, expressed using the vocabularies available to that project. Domain models may describe data, workflows, information flows, or architecture.
 
