@@ -30,6 +30,7 @@ An implementation-ready technical architecture for the closed [MVP functional sp
 - [Define metadata and starter resource identities and shapes](issues/11-starter-resource-contract.md): Fix the versioned metadata, view/presentation, visual-rule, process, and state-machine contracts, using pinned P-Plan 1.3 and separating local SHACL from cross-file diagnostics.
 - [Choose dependency snapshot and resolution mechanics](issues/12-dependency-resolution-architecture.md): Acquire bounded original-byte snapshots with optional installed Git and a narrow RDF/XML parser; preserve source bindings, detect interpretation drift, and resolve effective ontologies before full-project query registration while retaining losing snapshots for isolated access.
 - [Choose the shared CLI and loopback web architecture](issues/13-cli-web-runtime-boundary.md): Ship one Node/npm package with a shared operation core and React/Vite interface; use one reconnectable server per project, explicit detach/status/stop controls, authenticated loopback APIs, and revision-bound web previews.
+- [Define concrete project file and machine-output schemas](issues/14-concrete-file-and-output-schemas.md): Use independent version-1 TOML/JSON contracts, explicit source-context lock inventories and deterministic signatures, `dep:<id>/<file-key>` retained-file selectors, separate runtime/control records, and `--accepted-preview` bindings for changed-preview rejection. See the [concrete contract](contracts/file-and-output-schemas.md).
 
 ## Not yet specified
 
