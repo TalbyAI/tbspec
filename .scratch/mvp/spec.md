@@ -51,7 +51,7 @@ CLI commands identify project-owned RDF resources by paths relative to the proje
 
 ## CLI command inventory
 
-`tbspec` is the executable name. Agents edit RDF statements directly in files; commands perform lifecycle, association, resolution, and validation operations. All commands are non-interactive, have stable exit codes, and accept `--json` for machine-readable output. `tbspec --help`, `tbspec --version`, and `--help` on every command expose usage and examples. Shared arguments and output rules appear below.
+`tbspec` is the executable name. Agents edit RDF statements directly in files; commands perform lifecycle, association, resolution, and validation operations. All commands are non-interactive except for the attached foreground `web` console, which supports lifecycle controls such as detaching. All commands have stable exit codes and accept `--json` for machine-readable output. `tbspec --help`, `tbspec --version`, and `--help` on every command expose usage and examples. Shared arguments and output rules appear below.
 
 | Command | Operation |
 | --- | --- |
