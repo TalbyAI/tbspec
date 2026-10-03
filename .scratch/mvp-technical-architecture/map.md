@@ -29,6 +29,7 @@ An implementation-ready technical architecture for the closed [MVP functional sp
 - [Choose safe project file mutations and edit conflicts](issues/10-file-transaction-boundary.md): Coordinate CLI/web reads and writes with a project lock and content revisions; stage multi-file changes with guarded rollback, preserve unrelated TOML text, confine paths, and require manual recovery after incomplete transactions.
 - [Define metadata and starter resource identities and shapes](issues/11-starter-resource-contract.md): Fix the versioned metadata, view/presentation, visual-rule, process, and state-machine contracts, using pinned P-Plan 1.3 and separating local SHACL from cross-file diagnostics.
 - [Choose dependency snapshot and resolution mechanics](issues/12-dependency-resolution-architecture.md): Acquire bounded original-byte snapshots with optional installed Git and a narrow RDF/XML parser; preserve source bindings, detect interpretation drift, and resolve effective ontologies before full-project query registration while retaining losing snapshots for isolated access.
+- [Choose the shared CLI and loopback web architecture](issues/13-cli-web-runtime-boundary.md): Ship one Node/npm package with a shared operation core and React/Vite interface; use one reconnectable server per project, explicit detach/status/stop controls, authenticated loopback APIs, and revision-bound web previews.
 
 ## Not yet specified
 
