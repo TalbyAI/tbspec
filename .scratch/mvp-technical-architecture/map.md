@@ -1,6 +1,7 @@
 # MVP Technical Architecture Wayfinder
 
 Label: wayfinder:map
+State: resolved
 
 ## Destination
 
@@ -32,10 +33,11 @@ An implementation-ready technical architecture for the closed [MVP functional sp
 - [Choose the shared CLI and loopback web architecture](issues/13-cli-web-runtime-boundary.md): Ship one Node/npm package with a shared operation core and React/Vite interface; use one reconnectable server per project, explicit detach/status/stop controls, authenticated loopback APIs, and revision-bound web previews.
 - [Define concrete project file and machine-output schemas](issues/14-concrete-file-and-output-schemas.md): Use independent version-1 TOML/JSON contracts, explicit source-context lock inventories and deterministic signatures, `dep:<id>/<file-key>` retained-file selectors, separate runtime/control records, and `--accepted-preview` bindings for changed-preview rejection. See the [concrete contract](contracts/file-and-output-schemas.md).
 - [Choose graph layout and exploration behavior](issues/15-layout-and-exploration-policy.md): Keep React Flow with worker-based ELK layered layout, preserve existing per-view positions, preview explicit reorganization, and combine search/focus with navigable exact relationships; the 100/1,000-resource proof supports this baseline without justifying another renderer or persistent index.
+- [Choose specialized form bindings and generic fallback](issues/16-specialized-form-boundary.md): Bind forms to exact RDF terms with shared ontology/conceptual fields, selectable type sections and lossless term edits; use explicit Flow/Transition creation and confirmed graph-scoped deletion with view/presentation synchronization.
 
 ## Not yet specified
 
-No additional in-scope fog is currently identified. Remaining decisions are covered by existing child tickets.
+No additional in-scope fog is identified. All child tickets are resolved; the decision map is complete and ready to hand off to implementation planning. Production implementation remains outside this effort.
 
 ## Out of scope
 
