@@ -108,7 +108,9 @@ function App() {
       setMetrics(m => ({ ...m, previewLayoutMs: Math.round(result.ms) }));
       setMessage('Preview only. Apply or cancel before editing.');
       requestAnimationFrame(() => flow.current?.fitView({ padding: 0.15, minZoom: 0.005, maxZoom: 1 }));
-    } catch (error) { setBusy(false); setMessage('Layout failed: ' + error.message); }
+    } catch (error) {
+      if (request === sequence.current) { setBusy(false); setMessage('Layout failed: ' + error.message); }
+    }
   }
   function cancelPreview() { renderPositions(caches.current[mode]); setPreview(null); setMessage('Preview canceled. Previous positions restored.'); }
   function applyPreview() { caches.current[mode] = preview; setPreview(null); setMessage(mode === 'all' ? 'Applied to temporary complete-graph positions.' : 'Applied to this view presentation in memory.'); }
