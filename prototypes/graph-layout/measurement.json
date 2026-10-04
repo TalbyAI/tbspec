@@ -1,0 +1,34 @@
+{
+  "executedAt": "2026-10-04T08:17:41.277Z",
+  "platform": "win32",
+  "node": "v24.14.1",
+  "elk": "0.12.0",
+  "results": [
+    {
+      "count": 100,
+      "edges": 98,
+      "nodeLayoutMs": 181,
+      "finiteCoordinates": true,
+      "elkOverlaps": 0,
+      "gridOverlaps": 0,
+      "repeatPositionsEqual": true,
+      "existingPositionsPreservedOnAdd": true,
+      "overlapsAfterAdd": 0,
+      "literalEditPositionsEqual": true,
+      "sourceUnchangedByLayout": true
+    },
+    {
+      "count": 1000,
+      "edges": 998,
+      "nodeLayoutMs": 417,
+      "finiteCoordinates": true,
+      "elkOverlaps": 0,
+      "gridOverlaps": 0,
+      "repeatPositionsEqual": true,
+      "existingPositionsPreservedOnAdd": true,
+      "overlapsAfterAdd": 0,
+      "literalEditPositionsEqual": true,
+      "sourceUnchangedByLayout": true
+    }
+  ]
+}
