@@ -15,6 +15,12 @@ A maintainer can install one actual npm artifact and use the complete CLI and lo
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close only after all feature tickets and their mapped extension obligations are implemented and verified, then demonstrate all seven assembled acceptance scenarios using the actual installed artifact and actual Windows/macOS/Linux process/filesystem checks. Missing platform execution is incomplete evidence. This ticket verifies integration/distribution; it does not absorb unfinished feature implementation or authorize public publication/deployment. Documentary audit coverage is not runtime evidence.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [ ] Produce one packed artifact containing compiled TypeScript CLI/server entry points, matching prebuilt local React/Vite/React Flow assets and ELK worker, pinned production dependencies, immutable starter releases/digests/parser contexts, and complete license/source inventory.
@@ -24,13 +30,13 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 - [ ] Document stop-before-replacement guidance and verify compatible reconnection versus incompatible protocol refusal. Browser assets/API remain tied to the launched server release, and status reports that actual version.
 - [ ] Run platform-sensitive ownership/protected records, process identity/lifecycle, path/link/alias confinement, staged publication/rollback, acquisition, and package checks on Windows, macOS, and Linux with real processes/filesystem boundaries before claiming support for all three.
 - [ ] Execute all seven original functional acceptance scenarios against the assembled application: project/conceptual/concrete/schema creation; acquisition/check/update; accepted vocabulary replacement; independent views/design ties; retained ontology conflicts; breaking removal/repair/GC; and malformed RDF with isolated querying/partial diagnostics.
-- [ ] Check every public command family has exact routing/help/guidance and one-envelope JSON/error/exit behavior. Use focused real browser/HTTP checks for bootstrap, drafts, forms, canvas/views/layout, staged previews, and lifecycle rather than duplicating all core permutations.
+- [ ] Check every public command family has exact routing/help/guidance and one-envelope JSON/error/exit behavior, including version-1 field/nullability conformance, partial-result and exit precedence, completed intentional-invalidity results, and exact ServerRecord states. Verify transient opening-link output is labeled as specified and excluded from operation previews/fingerprints. Use focused real browser/HTTP checks for bootstrap, drafts, forms, canvas/views/layout, staged previews, and lifecycle rather than duplicating all core permutations.
 - [ ] Record artifact identity, Node/OS versions, exact install/run/check commands, measured outcomes, and material limitations. Missing platform execution is explicit incomplete evidence, not a passed mock or an assumption from prototype verdicts.
 - [ ] Tests introduced by earlier tickets remain the primary public-operation seam; broaden integration only to installed-artifact, cross-platform, and cross-feature risks that those checks cannot establish. Do not claim multi-file crash atomicity, network-share guarantees, public publication, or vocabulary hosting.
 
 ## Blocked by
 
-- [01 - Initialize and discover an offline project](01-initialize-offline-project.md).
+- [01 - Initialize an offline project with bundled resources and safe publication](01-initialize-offline-project.md).
 - [02 - Inspect the project from CLI and an authenticated browser](02-inspect-project-and-authenticated-web.md).
 - [03 - Create and import editable ontologies and domain models](03-create-and-import-owned-resources.md).
 - [04 - Validate models, schema associations, and constraints offline](04-validate-models-schemas-and-shacl.md).
@@ -62,4 +68,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

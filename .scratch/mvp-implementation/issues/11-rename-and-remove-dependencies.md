@@ -15,6 +15,12 @@ A maintainer can preview and apply an administrative dependency-ID rename or con
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on administrative dependency rename/removal for the available inventories and owned reference kinds, preserving locked bytes/IRIs/signatures and reporting deliberate invalidity. Owned saved-view/presentation handling is assigned to 13, which now depends on this ticket; complete authored-design integration belongs to 14. Those resource-owning tickets must demonstrate the extensions before closing, not merely cite the earlier workflow.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [ ] Implement dependency rename/remove and matching browser actions through shared operations with bare administration IDs and exact retained graph selectors in output.

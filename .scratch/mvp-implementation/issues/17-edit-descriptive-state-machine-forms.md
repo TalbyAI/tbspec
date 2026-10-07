@@ -15,6 +15,12 @@ A state-machine author can describe machines, states, initial/final status, and 
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on all settled exact state-machine form fields, explicit status/membership/endpoint mutations, descriptive constraints, generic fallback, and stale/read-only protection. When saved views are present, edits must use the shared synchronization delivered by 13; this cannot be omitted from the combined story's eventual evidence. Element deletion is owned by 18, not implicit field or type removal.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [ ] Recognize only the exact settled state-machine namespace/types in a valid state-machine graph. InitialState/FinalState expose their fixed State fields without inferred superclass persistence; form selection is independent of appearance, aliases, and hierarchy.

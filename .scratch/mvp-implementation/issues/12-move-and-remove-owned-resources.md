@@ -15,6 +15,12 @@ A maintainer can inspect removal impact, confirm deletion of an owned ontology, 
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on impact and reviewed movement/removal of owned ontology/model/shapes resources and custom model types, including convention-linked support, declared/generated identities, and safe coupled publication. Saved-view/presentation impact and move integration belongs to 13, which now depends on this ticket; full authored-design integration belongs to 14; orphaned-support collection and reference repair to 19. These obligations remain visible until their owners implement and verify them.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [ ] Implement impact, ontology/model/shapes remove, custom model-type remove, and resource move with matching browser workflows, exact selectors, explicit apply/confirm flags, and selective CLI guidance.

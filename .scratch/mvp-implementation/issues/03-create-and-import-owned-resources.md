@@ -15,6 +15,12 @@ An author can create, list, and inspect project-owned ontologies and conceptual,
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on ontology/model creation, listing, inspection, and editable import for local inputs and bundled locked snapshots, with immediate safe publication and read-only originals. Full constraint validation belongs to 04, graph/form editing to 05/16/17, and acquired-snapshot import integration to 08. Views and authored designs have separate creation owners, 13 and 14.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [ ] Ontology and model list/show/create/import commands and matching browser actions expose identity, selector, kind, configured association, support, and provenance through shared operations.

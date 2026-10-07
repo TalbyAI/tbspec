@@ -15,6 +15,12 @@ A user can inspect discoverable source inventories and add one selected ontology
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on directory/HTTP/Git acquisition, original-byte locked closure, format/security/limit enforcement, snapshot integrity, and acquired-resource integration with existing inspection, import, and validation workflows. Issue 09, which depends on both 06 and 08, owns acquired full/selected query assembly, winner/losing resolution, and drift; 08 must not assume that independent query ticket 06 is already implemented. Updates/manual support belong to 10; rename/removal to 11; owned views of locked sources to 13; complete design resolution/editing to 14. Acquisition itself must already preserve all existing canonical content on failure or cancellation.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [ ] Implement dependency inspect/add/list/show with explicit selection where inventory requires it, stable administration IDs, and reusable dep: primary/retained-file selectors. Browser actions expose sources, file inventory, signatures, bindings, support, and staged impact.
@@ -28,6 +34,7 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 - [ ] CLI add requires the accepted-preview fingerprint, returning a concrete preview/conflict when absent, then reacquiring once and rejecting any changed fingerprint before publication. It gains no extra accept-impact flag. Browser apply uses only authenticated server-staged bytes with no refetch.
 - [ ] Verify local snapshot digests/signatures before use and report corruption without automatic repair. Snapshots are read-only; ordinary query/validation/rendering uses them offline and remains responsive to status/cancel/navigation during bounded acquisition.
 - [ ] Controlled directory/Git/HTTP fixtures and public-operation/CLI/browser checks cover selected closure, cycles, inherited snapshots, relative bases, source-bound models, malformed declared files, standalone unresolved references, vetted/modified XML, unsafe Git features, redirect/limit/cancellation failures, redaction, changed fingerprints, and integrity failure with no canonical writes.
+- [ ] Extend issue 03's editable import to an actually acquired locked ontology/model, verifying a new owned graph-root identity and provenance, preserved class/property/individual terms and unknown statements, explicit receiving model type, missing-vocabulary diagnostics without hidden rebinding, and byte-for-byte unchanged locked originals through public operations and CLI/browser workflows.
 
 ## Blocked by
 
@@ -44,4 +51,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-
