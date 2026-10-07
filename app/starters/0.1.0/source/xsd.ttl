@@ -1,0 +1,31 @@
+@prefix tbspec: <https://talby.ai/ontology/tbspec#> .
+@prefix proc: <https://talby.ai/ontology/process#> .
+@prefix sm: <https://talby.ai/ontology/state-machine#> .
+@prefix p-plan: <http://purl.org/net/p-plan#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+xsd:string a rdfs:Datatype ; rdfs:label "string"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:boolean a rdfs:Datatype ; rdfs:label "boolean"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:integer a rdfs:Datatype ; rdfs:label "integer"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:decimal a rdfs:Datatype ; rdfs:label "decimal"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:double a rdfs:Datatype ; rdfs:label "double"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:float a rdfs:Datatype ; rdfs:label "float"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:date a rdfs:Datatype ; rdfs:label "date"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:dateTime a rdfs:Datatype ; rdfs:label "dateTime"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:anyURI a rdfs:Datatype ; rdfs:label "anyURI"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:nonNegativeInteger a rdfs:Datatype ; rdfs:label "nonNegativeInteger"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:positiveInteger a rdfs:Datatype ; rdfs:label "positiveInteger"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:int a rdfs:Datatype ; rdfs:label "int"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:long a rdfs:Datatype ; rdfs:label "long"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:unsignedInt a rdfs:Datatype ; rdfs:label "unsignedInt"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:unsignedLong a rdfs:Datatype ; rdfs:label "unsignedLong"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:duration a rdfs:Datatype ; rdfs:label "duration"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:base64Binary a rdfs:Datatype ; rdfs:label "base64Binary"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:hexBinary a rdfs:Datatype ; rdfs:label "hexBinary"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:normalizedString a rdfs:Datatype ; rdfs:label "normalizedString"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:token a rdfs:Datatype ; rdfs:label "token"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .
+xsd:language a rdfs:Datatype ; rdfs:label "language"@en ; rdfs:isDefinedBy <http://www.w3.org/2001/XMLSchema> .

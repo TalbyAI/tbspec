@@ -1,0 +1,64 @@
+@prefix tbspec: <https://talby.ai/ontology/tbspec#> .
+@prefix proc: <https://talby.ai/ontology/process#> .
+@prefix sm: <https://talby.ai/ontology/state-machine#> .
+@prefix p-plan: <http://purl.org/net/p-plan#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+<https://talby.ai/ontology/tbspec> a owl:Ontology ; owl:versionIRI <https://talby.ai/ontology/tbspec/0.1.0> ; rdfs:label "tbspec vocabulary"@en .
+<https://talby.ai/ontology/tbspec> owl:imports <http://www.w3.org/1999/02/22-rdf-syntax-ns> .
+<https://talby.ai/ontology/tbspec> owl:imports <http://www.w3.org/2000/01/rdf-schema> .
+<https://talby.ai/ontology/tbspec> owl:imports <http://www.w3.org/2002/07/owl> .
+tbspec:Model a owl:Class ; rdfs:label "Model"@en ; rdfs:comment "A domain-model graph."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:DataModel a owl:Class ; rdfs:label "Data Model"@en ; rdfs:comment "A domain model of data."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:ConceptualDataModel a owl:Class ; rdfs:label "Conceptual Data Model"@en ; rdfs:comment "A model describing data classes and properties."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:ConcreteDataModel a owl:Class ; rdfs:label "Concrete Data Model"@en ; rdfs:comment "A model containing individual resources and values."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:ProcessModel a owl:Class ; rdfs:label "Process Model"@en ; rdfs:comment "A descriptive process-model graph."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:StateMachineModel a owl:Class ; rdfs:label "State Machine Model"@en ; rdfs:comment "A descriptive state-machine-model graph."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:ViewModel a owl:Class ; rdfs:label "View Model"@en ; rdfs:comment "A selected perspective on one source graph."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:PresentationGraph a owl:Class ; rdfs:label "Presentation Graph"@en ; rdfs:comment "Appearance and placement of elements in one view."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:VisualDesignModel a owl:Class ; rdfs:label "Visual Design Model"@en ; rdfs:comment "Reusable declarative rules for exact concept types."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:ShapesGraph a owl:Class ; rdfs:label "Shapes Graph"@en ; rdfs:comment "A graph containing SHACL constraints."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:VisualRule a owl:Class ; rdfs:label "Visual Rule"@en ; rdfs:comment "An appearance rule for an exact concept."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:NodeVisualRule a owl:Class ; rdfs:label "Node Visual Rule"@en ; rdfs:comment "An appearance rule targeting an exact class."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:EdgeVisualRule a owl:Class ; rdfs:label "Edge Visual Rule"@en ; rdfs:comment "An appearance rule targeting an exact property."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:schema a owl:ObjectProperty ; rdfs:label "schema"@en ; rdfs:comment "A conceptual-schema graph associated with a concrete model."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:sourceGraph a owl:ObjectProperty ; rdfs:label "source Graph"@en ; rdfs:comment "The source ontology or model of a view."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:forView a owl:ObjectProperty ; rdfs:label "for View"@en ; rdfs:comment "The view described by a presentation graph."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:member a owl:ObjectProperty ; rdfs:label "member"@en ; rdfs:comment "An IRI element selected from the source graph."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:relationship a owl:ObjectProperty ; rdfs:label "relationship"@en ; rdfs:comment "A local descriptor of a selected exact RDF relationship."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:nodePresentation a owl:ObjectProperty ; rdfs:label "node Presentation"@en ; rdfs:comment "A node appearance record local to this presentation graph."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:relationshipPresentation a owl:ObjectProperty ; rdfs:label "relationship Presentation"@en ; rdfs:comment "An exact relationship appearance record local to this graph."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:element a owl:ObjectProperty ; rdfs:label "element"@en ; rdfs:comment "The selected source IRI described by a node record."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:chosenRule a owl:ObjectProperty ; rdfs:label "chosen Rule"@en ; rdfs:comment "The applicable exact visual rule chosen in this view."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:rule a owl:ObjectProperty ; rdfs:label "rule"@en ; rdfs:comment "A rule defined in this visual design."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:targetConcept a owl:ObjectProperty ; rdfs:label "target Concept"@en ; rdfs:comment "The exact class or property targeted by a visual rule."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:labelProperty a owl:ObjectProperty ; rdfs:label "label Property"@en ; rdfs:comment "The vocabulary property supplying literal labels."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:modelType a owl:DatatypeProperty ; rdfs:label "model Type"@en ; rdfs:comment "The configured model-type name."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:x a owl:DatatypeProperty ; rdfs:label "x"@en ; rdfs:comment "Absolute horizontal canvas coordinate."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:y a owl:DatatypeProperty ; rdfs:label "y"@en ; rdfs:comment "Absolute vertical canvas coordinate."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:group a owl:DatatypeProperty ; rdfs:label "group"@en ; rdfs:comment "A nonempty flat visual group name scoped to this view."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:nodeShape a owl:DatatypeProperty ; rdfs:label "node Shape"@en ; rdfs:comment "A supported generic node shape."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:fillColor a owl:DatatypeProperty ; rdfs:label "fill Color"@en ; rdfs:comment "A hexadecimal node fill color."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:strokeColor a owl:DatatypeProperty ; rdfs:label "stroke Color"@en ; rdfs:comment "A hexadecimal outline color."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:textColor a owl:DatatypeProperty ; rdfs:label "text Color"@en ; rdfs:comment "A hexadecimal label color."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:strokeWidth a owl:DatatypeProperty ; rdfs:label "stroke Width"@en ; rdfs:comment "A nonnegative stroke width in canvas pixels."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:fontFamily a owl:DatatypeProperty ; rdfs:label "font Family"@en ; rdfs:comment "A supported built-in font family."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:fontSize a owl:DatatypeProperty ; rdfs:label "font Size"@en ; rdfs:comment "A positive font size in canvas pixels."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:fontWeight a owl:DatatypeProperty ; rdfs:label "font Weight"@en ; rdfs:comment "A supported integer font weight."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:fontStyle a owl:DatatypeProperty ; rdfs:label "font Style"@en ; rdfs:comment "A normal or italic font style."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:lineStyle a owl:DatatypeProperty ; rdfs:label "line Style"@en ; rdfs:comment "A supported line pattern."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:edgeRouting a owl:DatatypeProperty ; rdfs:label "edge Routing"@en ; rdfs:comment "A supported generic relationship routing mode."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:arrowHead a owl:DatatypeProperty ; rdfs:label "arrow Head"@en ; rdfs:comment "The supported relationship arrow style."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:labelMode a owl:DatatypeProperty ; rdfs:label "label Mode"@en ; rdfs:comment "The supported deterministic label-selection mode."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:labelText a owl:DatatypeProperty ; rdfs:label "label Text"@en ; rdfs:comment "A literal label when label mode is text."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
+tbspec:DataModel rdfs:subClassOf tbspec:Model .
+tbspec:ConceptualDataModel rdfs:subClassOf tbspec:DataModel .
+tbspec:ConcreteDataModel rdfs:subClassOf tbspec:DataModel .
+tbspec:ProcessModel rdfs:subClassOf tbspec:Model .
+tbspec:StateMachineModel rdfs:subClassOf tbspec:Model .
+tbspec:NodeVisualRule rdfs:subClassOf tbspec:VisualRule .
+tbspec:EdgeVisualRule rdfs:subClassOf tbspec:VisualRule .

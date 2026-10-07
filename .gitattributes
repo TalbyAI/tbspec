@@ -23,3 +23,7 @@
 **/fixtures/** -text
 **/package-lock.json -text
 **/measurement.json -text
+
+# Starter signatures bind original bytes across Git checkouts and operating systems.
+app/starters/**/inventory.toml -text
+app/starters/**/source/** -text

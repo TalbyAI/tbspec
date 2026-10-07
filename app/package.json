@@ -1,0 +1,36 @@
+{
+  "name": "tbspec",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "bin": {
+    "tbspec": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "starters"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "test": "node --test tests/*.test.ts",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@comunica/query-sparql-rdfjs-lite": "5.4.1",
+    "@comunica/utils-bindings-factory": "5.4.0",
+    "@traqula/parser-sparql-1-1": "1.4.0",
+    "n3": "2.7.12",
+    "rdfxml-streaming-parser": "3.3.0",
+    "shacl-engine": "1.1.2",
+    "smol-toml": "1.9.0"
+  },
+  "devDependencies": {
+    "@types/n3": "1.26.1",
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}
