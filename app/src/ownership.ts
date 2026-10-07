@@ -68,10 +68,11 @@ export async function readMacOSProcessRecord(pid: number): Promise<Buffer> {
     function run() {
       var name = $.NSData.alloc.initWithBase64EncodedStringOptions('${mib.toString("base64")}', 0);
       var length = Ref('unsigned long');
-      length[0] = 648;
+      length[0] = '648';
       var buffer = $.NSMutableData.dataWithLength(648);
       var status = $.sysctl(name.bytes, 4, buffer.mutableBytes, length, null, 0);
-      if (status !== 0 || length[0] !== 648)
+      // JXA represents C unsigned long values as strings.
+      if (status !== 0 || length[0] !== '648')
         throw new Error('macOS process record unavailable or unsupported: status=' + status + ', length=' + length[0] + ', type=' + typeof length[0]);
       return ObjC.unwrap(buffer.base64EncodedStringWithOptions(0));
     }
