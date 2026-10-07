@@ -12,7 +12,7 @@ import { capture, preparePlan, publishPlan } from "../src/transactions.ts";
 const holder = fileURLToPath(new URL("fixtures/lock-holder.ts", import.meta.url));
 const interrupted = fileURLToPath(new URL("fixtures/transaction-holder.ts", import.meta.url));
 async function root() {
-  return fs.mkdtemp(join(tmpdir(), "tbspec-ownership-"));
+  return fs.realpath(await fs.mkdtemp(join(tmpdir(), "tbspec-ownership-")));
 }
 test("unavailable process identity fails before creating coordination files and preserves existing evidence", async () => {
   const lockModule = new URL("../src/lock.ts", import.meta.url).href;

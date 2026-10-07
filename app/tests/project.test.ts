@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -21,8 +21,8 @@ test("offline initialization supplies locked defaults and discovers them from a 
   await assert.rejects(access(join(root, ".git")));
   const child = join(root, "models", "nested");
   await mkdir(child, { recursive: true });
-  assert.equal(await discoverProject({ cwd: child }), root);
-  assert.equal(await discoverProject({ cwd: parent, project: root }), root);
+  assert.equal(await discoverProject({ cwd: child }), await realpath(root));
+  assert.equal(await discoverProject({ cwd: parent, project: root }), await realpath(root));
   const repeated = await initializeProject({ directory: root });
   assert.equal(repeated.status, "conflict");
   assert.equal(await readFile(join(root, "tbspec.toml"), "utf8"), manifest);

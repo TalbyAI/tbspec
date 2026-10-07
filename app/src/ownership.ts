@@ -64,20 +64,15 @@ export async function readMacOSProcessRecord(pid: number): Promise<Buffer> {
   for (const [index, value] of [1, 14, 1, pid].entries()) mib.writeInt32LE(value, index * 4);
   const script = `
     ObjC.import('Foundation');
-    ObjC.import('stdlib');
     ObjC.bindFunction('sysctl', ['int', ['void *', 'unsigned int', 'void *', 'unsigned long *', 'void *', 'unsigned long']]);
     function run() {
       var name = $.NSData.alloc.initWithBase64EncodedStringOptions('${mib.toString("base64")}', 0);
       var length = Ref('unsigned long');
       length[0] = 648;
-      var buffer = $.malloc(648);
-      try {
-        if ($.sysctl(name.bytes, 4, buffer, length, null, 0) !== 0 || length[0] !== 648)
-          throw new Error('macOS process record unavailable or unsupported.');
-        return ObjC.unwrap($.NSData.dataWithBytesLength(buffer, 648).base64EncodedStringWithOptions(0));
-      } finally {
-        $.free(buffer);
-      }
+      var buffer = $.NSMutableData.dataWithLength(648);
+      if ($.sysctl(name.bytes, 4, buffer.mutableBytes, length, null, 0) !== 0 || length[0] !== 648)
+        throw new Error('macOS process record unavailable or unsupported.');
+      return ObjC.unwrap(buffer.base64EncodedStringWithOptions(0));
     }
   `;
   const { stdout } = await execute("/usr/bin/osascript", ["-l", "JavaScript", "-e", script], {

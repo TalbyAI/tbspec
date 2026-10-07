@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { link, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -55,7 +55,7 @@ test("selected root junctions canonicalize to one project and publish independen
   const alias = join(parent, "alias");
   await symlink(root, alias, process.platform === "win32" ? "junction" : "dir");
   const snapshot = await capture(alias, ["new.ttl"]);
-  assert.equal(snapshot.projectRoot, root);
+  assert.equal(snapshot.projectRoot, await realpath(root));
   const plan = preparePlan(snapshot, "source.save", [
     { file: "new.ttl", bytes: Buffer.from("published through canonical root") },
   ]);

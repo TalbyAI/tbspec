@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -95,7 +95,7 @@ test("CLI init works with Node alone, preserves ignore bytes and explicit root o
   await initializeProject({ directory: other });
   const child = join(root, "subdirectory");
   await mkdir(child);
-  assert.equal(await discoverProject({ cwd: child, project: other }), other);
+  assert.equal(await discoverProject({ cwd: child, project: other }), await realpath(other));
   await assert.rejects(discoverProject({ cwd: child, project: parent }), /Explicit directory/);
   const missingParent = invoke(["init", join(root, "tbspec.toml", "cannot-be-directory")], parent);
   assert.equal(missingParent.status, 4);
