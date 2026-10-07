@@ -1,7 +1,8 @@
 # Inspect the project from CLI and an authenticated browser
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 01
 User stories covered: 5, 6, 8, 24, 25, 26, 110, 111, 112, 113, 114
 
@@ -43,4 +44,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

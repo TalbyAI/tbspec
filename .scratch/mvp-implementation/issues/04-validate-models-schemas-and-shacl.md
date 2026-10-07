@@ -1,7 +1,8 @@
 # Validate models, schema associations, and constraints offline
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 03
 User stories covered: 2, 5, 25, 26, 29, 30, 89, 90, 91, 92, 93, 94, 101
 
@@ -43,4 +44,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

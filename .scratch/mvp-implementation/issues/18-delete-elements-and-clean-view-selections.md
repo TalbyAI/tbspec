@@ -1,7 +1,8 @@
 # Delete elements precisely and clean affected views
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 05, 13
 User stories covered: 87, 94, 101
 
@@ -43,4 +44,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

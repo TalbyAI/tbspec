@@ -1,7 +1,8 @@
 # Update dependencies and manage explicit support
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 04, 09
 User stories covered: 45, 46, 47, 50, 51, 53, 115, 116
 
@@ -19,7 +20,7 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 
 - [ ] Implement dependency update and support set/clear in CLI/browser with exact source/file selection, source/interpretation changes, downstream diagnostics, expected revisions, staged content, and the common preview contract.
 - [ ] Compare complete baseline/proposed diagnostic multisets using normative semantic identities, severity, and multiplicity, not prose, locations, totals, or output order. Resolved errors never offset new conditions; warning-to-error and increased error occurrences are worsened impact.
-- [ ] Require update accept-impact for introduced/worsened errors or affected required blocked/unassessable coverage. Unchanged unrelated baseline failures and warning-only changes do not gate adoption; explicit acceptance never bypasses acquisition/parse/I/O failures.
+- [ ] Require update accept-impact for introduced/worsened errors or affected required checks that are skipped or otherwise unassessable. Unchanged unrelated baseline failures and warning-only changes do not gate adoption; explicit acceptance never bypasses acquisition/parse/I/O failures.
 - [ ] Match anonymous shape/path/focus/value identities only in unchanged source graph signatures using normalized source-parser blank-node identities. Changed/untraceable anonymous terms make affected checks unassessable; repeated fingerprints are independent of validator blank labels.
 - [ ] CLI update/support acquisition requires an accepted fingerprint in addition to existing flags, reacquires once, and rejects changes in bytes/context/support/output lock/impact/inventories/root without writes. Support set gains no unapproved accept-impact flag.
 - [ ] Browser apply uses the exact session/instance-owned staged bytes without reacquisition, validates expiry/fingerprint/acceptance/revisions, and consumes on success. Detach preserves the preview; cancel/restart/relevant changes invalidate it; uncertain response outcomes require inspection.
@@ -45,4 +46,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

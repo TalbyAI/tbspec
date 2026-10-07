@@ -1,7 +1,8 @@
 # Configure model types and accept vocabulary changes
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 04, 05
 User stories covered: 6, 13, 14, 15, 16, 17, 18, 19, 115
 
@@ -44,4 +45,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

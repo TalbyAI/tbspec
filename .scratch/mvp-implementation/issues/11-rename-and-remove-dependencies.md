@@ -1,7 +1,8 @@
 # Rename and deliberately remove dependencies
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 10
 User stories covered: 52, 101
 
@@ -39,4 +40,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

@@ -50,4 +50,3 @@ These requirements apply to every relevant acceptance criterion without becoming
 ## Story coverage
 
 The ticket references cover every numbered user story from 1 through 117. Shared safety, machine-output, and responsiveness stories apply across the feature workflows even where their primary ownership is initialization, server lifecycle, acquisition, or packaging. The seven original acceptance scenarios are exercised by their feature tickets and assembled again in ticket 20.
-

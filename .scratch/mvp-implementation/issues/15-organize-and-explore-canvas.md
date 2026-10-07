@@ -1,7 +1,8 @@
 # Organize and explore the canvas without losing positions
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 14
 User stories covered: 73, 74, 75, 76, 77, 115, 116
 
@@ -41,4 +42,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

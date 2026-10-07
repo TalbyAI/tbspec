@@ -1,7 +1,8 @@
 # Install and verify the complete application on supported platforms
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
 User stories covered: 9, 54, 117
 
@@ -62,4 +63,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

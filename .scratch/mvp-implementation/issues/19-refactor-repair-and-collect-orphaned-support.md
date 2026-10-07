@@ -1,7 +1,8 @@
 # Refactor identities, repair references, and collect orphaned support
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 11, 12, 14, 18
 User stories covered: 94, 101, 102, 103, 104
 
@@ -44,4 +45,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

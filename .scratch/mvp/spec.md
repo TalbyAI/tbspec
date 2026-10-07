@@ -100,7 +100,7 @@ CLI commands identify project-owned RDF resources by paths relative to the proje
 | `tbspec dependency inspect` | List selectable resources and support graphs when the source exposes a discoverable inventory. |
 | `tbspec dependency add` | Snapshot one selected ontology, domain model, or visual design model from a directory, Git repository, or URL, including discoverable dependency closure, directly associated support graphs, and design choices. |
 | `tbspec dependency check` | Detect source drift without changing locked snapshots. |
-| `tbspec dependency update` | Preview a newer source snapshot and its validation impact by default; apply an explicit update atomically, accepting any reported project impact explicitly. |
+| `tbspec dependency update` | Preview a newer source snapshot and its validation impact by default; apply an explicit update atomically; require impact acceptance only for newly introduced or worsened errors or affected required checks that are skipped or otherwise unassessable. |
 | `tbspec dependency rename` | Preview or apply a dependency ID change in the lockfile and project-owned references without changing snapshot content. |
 | `tbspec dependency select` | Resolve competing versions of the same ontology IRI by explicitly choosing one locked dependency. |
 | `tbspec dependency clear` | Remove an explicit ontology-version choice and return to precedence-based resolution. |

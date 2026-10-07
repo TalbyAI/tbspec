@@ -1,7 +1,8 @@
 # Edit RDF through the canvas, Turtle, and ontology forms
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 04
 User stories covered: 56, 57, 58, 59, 60, 61, 62, 78, 79, 80, 81, 85
 
@@ -43,4 +44,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

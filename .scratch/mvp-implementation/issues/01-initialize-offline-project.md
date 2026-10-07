@@ -1,7 +1,8 @@
 # Initialize and discover an offline project
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: None
 User stories covered: 1, 2, 3, 4, 7, 9, 10, 11, 12, 105, 106, 107, 108, 109
 
@@ -45,4 +46,3 @@ None - can start immediately.
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

@@ -1,7 +1,8 @@
 # Move and remove owned resources with impact review
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 03, 04, 07
 User stories covered: 20, 21, 32, 101, 105
 
@@ -43,4 +44,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-

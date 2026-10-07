@@ -1,7 +1,8 @@
 # Acquire dependencies from directories, HTTP, and Git
 
-Type: AFK
+Type: task
 Status: ready-for-agent
+State: open
 Blocked by: 07
 User stories covered: 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 53, 54, 55, 115, 116
 
@@ -44,4 +45,3 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
-
