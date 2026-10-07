@@ -1,0 +1,53 @@
+# MVP implementation issues
+
+The user approved this grouped breakdown of 20 AFK vertical slices on 2026-10-04. The [parent specification](../spec.md) remains unchanged. All tickets are `ready-for-agent`; that status indicates specification readiness, not that blockers are complete.
+
+## Issue index
+
+| Issue | Blocked by | User stories covered |
+| --- | --- | --- |
+| [01 - Initialize and discover an offline project](01-initialize-offline-project.md) | None | 1, 2, 3, 4, 7, 9, 10, 11, 12, 105, 106, 107, 108, 109 |
+| [02 - Inspect the project from CLI and an authenticated browser](02-inspect-project-and-authenticated-web.md) | 01 | 5, 6, 8, 24, 25, 26, 110, 111, 112, 113, 114 |
+| [03 - Create and import editable ontologies and domain models](03-create-and-import-owned-resources.md) | 02 | 7, 21, 22, 23, 24, 27, 28, 31, 62 |
+| [04 - Validate models, schema associations, and constraints offline](04-validate-models-schemas-and-shacl.md) | 03 | 2, 5, 25, 26, 29, 30, 89, 90, 91, 92, 93, 94, 101 |
+| [05 - Edit RDF through the canvas, Turtle, and ontology forms](05-edit-rdf-source-and-ontology-forms.md) | 04 | 56, 57, 58, 59, 60, 61, 62, 78, 79, 80, 81, 85 |
+| [06 - Run and manage reproducible SPARQL queries](06-run-and-manage-sparql-queries.md) | 04 | 11, 95, 96, 97, 98, 99, 100 |
+| [07 - Configure model types and accept vocabulary changes](07-configure-model-types-and-vocabulary-changes.md) | 04, 05 | 6, 13, 14, 15, 16, 17, 18, 19, 115 |
+| [08 - Acquire dependencies from directories, HTTP, and Git](08-acquire-directory-http-and-git-dependencies.md) | 07 | 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 53, 54, 55, 115, 116 |
+| [09 - Resolve ontology versions and detect source drift](09-resolve-ontology-versions-and-check-drift.md) | 06, 08 | 43, 44, 48, 49, 97, 98 |
+| [10 - Update dependencies and manage explicit support](10-update-dependencies-and-manual-support.md) | 04, 09 | 45, 46, 47, 50, 51, 53, 115, 116 |
+| [11 - Rename and deliberately remove dependencies](11-rename-and-remove-dependencies.md) | 10 | 52, 101 |
+| [12 - Move and remove owned resources with impact review](12-move-and-remove-owned-resources.md) | 03, 04, 07 | 20, 21, 32, 101, 105 |
+| [13 - Maintain independent views and synchronize their selections](13-maintain-independent-saved-views.md) | 05, 08 | 63, 64, 65, 66, 67, 68 |
+| [14 - Create reusable designs and customize each view](14-author-designs-and-view-appearance.md) | 09, 12, 13 | 69, 70, 71, 72 |
+| [15 - Organize and explore the canvas without losing positions](15-organize-and-explore-canvas.md) | 14 | 73, 74, 75, 76, 77, 115, 116 |
+| [16 - Edit descriptive processes with specialized forms](16-edit-descriptive-process-forms.md) | 05 | 79, 80, 81, 82, 83, 85, 86, 88 |
+| [17 - Edit descriptive state machines](17-edit-descriptive-state-machine-forms.md) | 05 | 79, 80, 81, 84, 85, 86, 88 |
+| [18 - Delete elements precisely and clean affected views](18-delete-elements-and-clean-view-selections.md) | 05, 13 | 87, 94, 101 |
+| [19 - Refactor identities, repair references, and collect orphaned support](19-refactor-repair-and-collect-orphaned-support.md) | 11, 12, 14, 18 | 94, 101, 102, 103, 104 |
+| [20 - Install and verify the complete application on supported platforms](20-install-and-verify-packed-application.md) | 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 | 9, 54, 117 |
+
+## Iteration and completion
+
+- Start with issue 01. A later ticket can start when all its listed blockers are implemented and verified; numeric order is a valid dependency order, but independent unblocked tickets need not wait for unrelated lower numbers.
+- Each ticket is a complete demoable workflow through shared operations and its applicable interfaces. Individual RDF statement editing belongs to the web editors; do not invent statement-edit CLI commands.
+- Story references can span tickets: early workflows cover the resource kinds available at that point, and later slices extend discovery, validation, query assembly, guidance, impact, moves, and editing for newly introduced kinds. A story is fully delivered only when all its mapped scope is complete. Do not report absent checks as complete clean validation.
+- The approved dependencies are preserved. Ticket 20 depends on all preceding tickets because installed-artifact, cross-platform, and assembled acceptance checks require the complete application.
+- Append implementation discussion under the ticket's Comments section. Do not close or modify the parent specification as part of these issues.
+
+## Shared delivery requirements
+
+These requirements apply to every relevant acceptance criterion without becoming separate horizontal implementation tickets.
+
+- **Normative sources:** Follow the [functional command signatures and acceptance scenarios](../../mvp/spec.md), [implementation/testing decisions](../spec.md#implementation-decisions), [resolved architecture map](../../mvp-technical-architecture/map.md), [version-1 schemas and machine contract](../../mvp-technical-architecture/contracts/file-and-output-schemas.md), [domain glossary](../../../CONTEXT.md), and [ADRs](../../../docs/adr/). Exact terms, fields, flags, lifetimes, and policies come from those sources; reversible library/module choices do not reopen product decisions.
+- **Shared behavior:** Use transport-independent project operations, called directly by ordinary CLI commands and by authenticated HTTP adapters. Preserve exact RDF terms, declared identities, source-bound locked contexts, and owned/read-only boundaries. Serve local assets; acquire external content only through explicit dependency actions. Implement applicable CLI and browser workflows within the feature ticket, not as a later adapter sweep.
+- **CLI contracts:** Update exact command routing/help and recursive focused llms guidance as commands are added. Every JSON invocation emits one version-1 envelope, including errors/help/version, with no progress stdout; human diagnostics go to stderr. Preserve exits 0 success/preview, 1 invalidity/drift, 2 invalid arguments/policy, 3 conflict/acceptance/recovery, and 4 unavailability/I/O with normative precedence. Completed deliberate semantic invalidation is success with resulting validity.
+- **Safe publication:** Use coherent captured reads, full-identity short-lived project locking, SHA-256 file/absence/inventory revisions, same-filesystem staging/before-images, confined owned writes, commit-time rechecks, and guarded rollback. Preserve unrelated human TOML keys/comments/line endings and unknown RDF statements. Busy/unknown ownership, pending recovery, stale inputs, and malformed required rewritten graphs never authorize a partial mutation or automatic clearing/replanning.
+- **Accepted previews:** Existing apply/confirm/accept-impact flags remain required independently of a fingerprint. CLI external-content application reacquires once and compares the accepted fingerprint; browser application uses only session/instance-owned staged bytes with expiry, revision checks, and single successful consumption. Uncertain transport outcomes require inspection, not automatic write retries.
+- **Focused evidence:** Test public shared operations with temporary real projects and assert records, diagnostics, coverage, resulting bytes/RDF, and failure preservation. Add focused CLI process and real HTTP/browser checks for contracts the core alone cannot establish. Use actual process/filesystem fault and concurrency boundaries for OS-sensitive behavior; prototypes supply evidence, not production imports or proof of unimplemented behavior.
+- **Distribution and scope:** Keep production dependencies pinned and prototypes isolated. Ordinary installed use requires Node 24, with Git optional for Git acquisition. Cross-platform support needs actual Windows/macOS/Linux evidence in ticket 20. These tickets authorize production implementation and offline resource authoring/bundling, not external npm publication, application deployment, or public vocabulary hosting.
+
+## Story coverage
+
+The ticket references cover every numbered user story from 1 through 117. Shared safety, machine-output, and responsiveness stories apply across the feature workflows even where their primary ownership is initialization, server lifecycle, acquisition, or packaging. The seven original acceptance scenarios are exercised by their feature tickets and assembled again in ticket 20.
+
