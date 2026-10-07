@@ -56,6 +56,40 @@ export function parseMacOSIdentity(
     processStartId: osIdentity("macos-kinfo-proc64-start-time", macOSTimeval(processRecord)),
   };
 }
+export async function readMacOSProcessRecord(pid: number): Promise<Buffer> {
+  if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 2147483647)
+    throw new Error("Invalid process ID.");
+  // kern.proc.pid needs a numeric MIB; the sysctl CLI cannot resolve its trailing PID.
+  const mib = Buffer.alloc(16);
+  for (const [index, value] of [1, 14, 1, pid].entries()) mib.writeInt32LE(value, index * 4);
+  const script = `
+    ObjC.import('Foundation');
+    ObjC.import('stdlib');
+    ObjC.bindFunction('sysctl', ['int', ['void *', 'unsigned int', 'void *', 'unsigned long *', 'void *', 'unsigned long']]);
+    function run() {
+      var name = $.NSData.alloc.initWithBase64EncodedStringOptions('${mib.toString("base64")}', 0);
+      var length = Ref('unsigned long');
+      length[0] = 648;
+      var buffer = $.malloc(648);
+      try {
+        if ($.sysctl(name.bytes, 4, buffer, length, null, 0) !== 0 || length[0] !== 648)
+          throw new Error('macOS process record unavailable or unsupported.');
+        return ObjC.unwrap($.NSData.dataWithBytesLength(buffer, 648).base64EncodedStringWithOptions(0));
+      } finally {
+        $.free(buffer);
+      }
+    }
+  `;
+  const { stdout } = await execute("/usr/bin/osascript", ["-l", "JavaScript", "-e", script], {
+    timeout: 10000,
+    maxBuffer: 65536,
+  });
+  const encoded = stdout.trim();
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.length !== 648 || bytes.toString("base64") !== encoded)
+    throw new Error("Incomplete macOS process record.");
+  return bytes;
+}
 let ownIdentity: Promise<ProcessIdentity> | undefined;
 export async function processIdentity(pid = process.pid): Promise<ProcessIdentity> {
   if (pid !== process.pid) return readProcessIdentity(pid);
@@ -111,9 +145,9 @@ async function readProcessIdentity(pid: number): Promise<ProcessIdentity> {
     const [host, boot, processRecord] = await Promise.all([
       execute("/usr/sbin/ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], options),
       execute("/usr/sbin/sysctl", ["-b", "kern.boottime"], options),
-      execute("/usr/sbin/sysctl", ["-b", `kern.proc.pid.${pid}`], options),
+      readMacOSProcessRecord(pid),
     ]);
-    return parseMacOSIdentity(host.stdout.toString("utf8"), boot.stdout, processRecord.stdout, pid);
+    return parseMacOSIdentity(host.stdout.toString("utf8"), boot.stdout, processRecord, pid);
   }
   throw new Error(`Full OS process identity is not implemented for ${process.platform}.`);
 }

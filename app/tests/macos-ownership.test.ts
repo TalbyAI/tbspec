@@ -77,7 +77,7 @@ test("native macOS verifies independent processes and rejects a terminated owner
 }, async (context) => {
   const self = await ownership.processIdentity();
   assert.equal(await ownership.verifyIdentity(self), true);
-  const bytes = execFileSync("/usr/sbin/sysctl", ["-b", `kern.proc.pid.${process.pid}`]);
+  const bytes = await ownership.readMacOSProcessRecord(process.pid);
   const boot = execFileSync("/usr/sbin/sysctl", ["-b", "kern.boottime"]);
   context.diagnostic(
     `Darwin ${release()} ${process.arch}: kinfo_proc=${bytes.length}, timeval=${boot.length}`,
