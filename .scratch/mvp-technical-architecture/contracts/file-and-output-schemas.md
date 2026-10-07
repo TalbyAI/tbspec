@@ -15,10 +15,10 @@ This is the concrete encoding contract for [issue 14](../issues/14-concrete-file
 
 ## Selectors and generated identities
 
-| Selector | Meaning |
-| --- | --- |
-| `models/orders.ttl` | Project-owned file, relative to the canonical project root. |
-| `dep:orders` | The `primary` file of dependency `orders`. |
+| Selector                                 | Meaning                                                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `models/orders.ttl`                      | Project-owned file, relative to the canonical project root.                                      |
+| `dep:orders`                             | The `primary` file of dependency `orders`.                                                       |
 | `dep:orders/source/ontologies/sales.ttl` | Exact file key in that dependency's retained inventory, including losing ontologies and support. |
 
 The grammar is `dep:<ID>` or `dep:<ID>/<Path>`; the path is the literal `file.key`, not a URL, original upstream locator, or arbitrary path inside `.tbspec/`. No percent-decoding is applied. A `dep:` prefix always denotes a dependency; ordinary project paths cannot contain `:`. Dependency administration still takes a bare ID. `graph show` and `query run --graph` accept all three selector forms. `graph list` keeps its owned-resource scope; `dependency show` lists every retained file's exact selector. Return the expanded nested selector whenever identifying a specific locked file; also return its physical project-relative `file` path for diagnostics.
@@ -31,23 +31,23 @@ Declared managed graph roots keep their original IRIs. An unrooted graph gets `u
 
 `schema_version` is required. All other top-level settings are optional; an empty versioned manifest uses that project's locked starter defaults. A missing required starter lock is diagnostic, never permission to use the installed package's newer defaults.
 
-| Field/table | Type and behavior |
-| --- | --- |
-| `base_iri` | Optional absolute IRI ending in `/` or `#`. Creation without explicit `--iri` appends the percent-encoded UTF-8 resource stem (final filename without `.ttl`); explicit IRIs take precedence. Reject derived identity collisions. |
-| `[model_types.<name>]` | Optional replacement of a whole locked default row, or a new custom row. Required `ontology` selector; optional `enabled` boolean defaults true; optional `design` selector, absent means disconnected. No field-by-field fallback to an old default design. |
-| `[ontology_choices]` | Quoted ontology IRI keys to bare dependency IDs. Written by `dependency select/clear`; resolve ambiguity within one ID using its recorded source winner, never the first file. |
-| `[design_choices]` | Quoted exact target-concept IRI keys to design graph selectors. These are whole-design winners, separate from per-view RDF `chosenRule`. |
-| `[[associations]]` | Required `resource` selector, `role` enum `shacl` or `design`, and `support` selector. For owned-resource associations not inferred by names. Additive to conventions; deduplicate identical associations. Dependency support administration writes the lock attachment records, not this table. |
-| `[[views]]` | Required `view` owned-file path, `source` ontology/model selector, `presentation` owned-file path; optional `protocol` graph selector. Records only associations not inferable from filenames. RDF `sourceGraph`/`forView` IRIs must agree; no manifest override of contradictory RDF. |
-| `[acquisition]` | Optional settings in the next table. Affect explicit acquisition only, not ordinary local operations or signatures. |
+| Field/table            | Type and behavior                                                                                                                                                                                                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `base_iri`             | Optional absolute IRI ending in `/` or `#`. Creation without explicit `--iri` appends the percent-encoded UTF-8 resource stem (final filename without `.ttl`); explicit IRIs take precedence. Reject derived identity collisions.                                                                |
+| `[model_types.<name>]` | Optional replacement of a whole locked default row, or a new custom row. Required `ontology` selector; optional `enabled` boolean defaults true; optional `design` selector, absent means disconnected. No field-by-field fallback to an old default design.                                     |
+| `[ontology_choices]`   | Quoted ontology IRI keys to bare dependency IDs. Written by `dependency select/clear`; resolve ambiguity within one ID using its recorded source winner, never the first file.                                                                                                                   |
+| `[design_choices]`     | Quoted exact target-concept IRI keys to design graph selectors. These are whole-design winners, separate from per-view RDF `chosenRule`.                                                                                                                                                         |
+| `[[associations]]`     | Required `resource` selector, `role` enum `shacl` or `design`, and `support` selector. For owned-resource associations not inferred by names. Additive to conventions; deduplicate identical associations. Dependency support administration writes the lock attachment records, not this table. |
+| `[[views]]`            | Required `view` owned-file path, `source` ontology/model selector, `presentation` owned-file path; optional `protocol` graph selector. Records only associations not inferable from filenames. RDF `sourceGraph`/`forView` IRIs must agree; no manifest override of contradictory RDF.           |
+| `[acquisition]`        | Optional settings in the next table. Affect explicit acquisition only, not ordinary local operations or signatures.                                                                                                                                                                              |
 
-| Acquisition setting | Default | Unit/constraint |
-| --- | --- | --- |
-| `max_graph_bytes` | `67108864` | Decoded bytes per graph, positive. |
-| `max_total_bytes` | `268435456` | Included bytes per complete acquisition, positive. |
-| `max_files` | `1000` | Included file count, positive. |
-| `max_redirects` | `5` | HTTP redirects, nonnegative. |
-| `deadline_ms` | `300000` | Overall acquisition duration, positive. |
+| Acquisition setting       | Default      | Unit/constraint                                       |
+| ------------------------- | ------------ | ----------------------------------------------------- |
+| `max_graph_bytes`         | `67108864`   | Decoded bytes per graph, positive.                    |
+| `max_total_bytes`         | `268435456`  | Included bytes per complete acquisition, positive.    |
+| `max_files`               | `1000`       | Included file count, positive.                        |
+| `max_redirects`           | `5`          | HTTP redirects, nonnegative.                          |
+| `deadline_ms`             | `300000`     | Overall acquisition duration, positive.               |
 | `max_git_workspace_bytes` | `1073741824` | Best-effort temporary Git workspace budget, positive. |
 
 Report effective limits when a limit fails; increasing one is an explicit manifest edit. Initialize explicit rows for all three built-in model types, using selectors from the copied starter lock inventory. `reset` restores its locked default row; custom-type removal removes its row. Built-in types are disabled rather than removed. Changing ontology removes its previous `design` field, preserving all unrelated text. Source model/schema/view/presentation content and model type-name statements stay in RDF, not duplicated as authoritative manifest metadata.
@@ -85,16 +85,16 @@ The lock may be serialized as a whole. Required top-level fields are `schema_ver
 
 ### Starters and acquisition records
 
-| Record | Required fields and optional fields |
-| --- | --- |
-| `[starters]` | `common_contract` graph selector and `model_types` table. |
-| `[starters.model_types.<name>]` | `enabled` boolean, `ontology` selector; optional `design` selector. Contains locked reset/default associations for `data`, `process`, `state-machine`, independent of current overrides. |
-| `[dependencies.<id>]` | `kind` enum `ontology`, `model`, `design`; `primary` file key; `snapshot_path` exactly `.tbspec/dependencies/<id>`; `interpretation_signature` Digest; arrays `sources`, `files`, `edges`, `bindings`, `associations`, `choices`, `attachments`. Empty arrays are explicit. |
-| `sources[]` | `id` scoped Path identifying an acquisition/source context, `kind` enum `directory`, `git`, `url`, `bundle`; `locator` credential-free string; `selected_resource` source-relative Path (use `resource.<suffix>` for URL); optional source-specific fields below. |
-| Git source extras | Required `revision_kind` enum `default`, `ref`, `commit`; required `resolved_commit` lowercase full Git object ID; `requested_ref` required for `ref`/`commit`, absent for `default`. `commit` must resolve to that commit. Object ID length is 40 or 64 according to the repository object format; no abbreviated hashes. |
-| Directory source | `locator` canonical absolute local directory path, native spelling; not an RDF IRI. Source-relative paths still use `/`. |
-| URL source extras | Required `effective_locator`, credential-free final response URL after redirects. Original requested URL is `locator`; parser `base_iri` records the actual effective base separately. |
-| Bundle source extras | `locator` is `tbspec:bundle/<bundle-name>/<release>`; required `release` string and `inventory_digest` Digest. Exact requested release must be present in the installed package. |
+| Record                          | Required fields and optional fields                                                                                                                                                                                                                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[starters]`                    | `common_contract` graph selector and `model_types` table.                                                                                                                                                                                                                                                                  |
+| `[starters.model_types.<name>]` | `enabled` boolean, `ontology` selector; optional `design` selector. Contains locked reset/default associations for `data`, `process`, `state-machine`, independent of current overrides.                                                                                                                                   |
+| `[dependencies.<id>]`           | `kind` enum `ontology`, `model`, `design`; `primary` file key; `snapshot_path` exactly `.tbspec/dependencies/<id>`; `interpretation_signature` Digest; arrays `sources`, `files`, `edges`, `bindings`, `associations`, `choices`, `attachments`. Empty arrays are explicit.                                                |
+| `sources[]`                     | `id` scoped Path identifying an acquisition/source context, `kind` enum `directory`, `git`, `url`, `bundle`; `locator` credential-free string; `selected_resource` source-relative Path (use `resource.<suffix>` for URL); optional source-specific fields below.                                                          |
+| Git source extras               | Required `revision_kind` enum `default`, `ref`, `commit`; required `resolved_commit` lowercase full Git object ID; `requested_ref` required for `ref`/`commit`, absent for `default`. `commit` must resolve to that commit. Object ID length is 40 or 64 according to the repository object format; no abbreviated hashes. |
+| Directory source                | `locator` canonical absolute local directory path, native spelling; not an RDF IRI. Source-relative paths still use `/`.                                                                                                                                                                                                   |
+| URL source extras               | Required `effective_locator`, credential-free final response URL after redirects. Original requested URL is `locator`; parser `base_iri` records the actual effective base separately.                                                                                                                                     |
+| Bundle source extras            | `locator` is `tbspec:bundle/<bundle-name>/<release>`; required `release` string and `inventory_digest` Digest. Exact requested release must be present in the installed package.                                                                                                                                           |
 
 Each dependency includes `sources` for its selected source, retained transitive provenance, and manual attachments. `source.id` represents a source context's inventory address, such as `source` or `source/.tbspec/dependencies/p-plan`, rather than its current commit. The same upstream can occur in several independent source contexts. Preserve original Git commits/locators when copying source snapshots; never replace them with the consumer acquisition's provenance. Transport changes are observable but do not alone constitute interpretation drift.
 
@@ -102,22 +102,22 @@ The packaged `starters/<release>/inventory.toml` uses `schema_version = 1`, `rel
 
 ### File inventory and interpretation context
 
-| `files[]` field | Type/invariant |
-| --- | --- |
-| `key` | Unique scoped Path; also the relative path below `snapshot_path`. |
-| `source` | Matching `sources[].id`. |
-| `source_resource` | Original source-relative inventory address. |
-| `context` | Scoped Path naming the original resolution context, e.g. `source` or `source/.tbspec/dependencies/p-plan`. |
-| `roles` | Nonempty unique array of `primary`, `closure`, `shacl`, `design`, `vocabulary`; a file can have several roles. Detached retained files keep their descriptive role. Activity is determined by association/reachability, not role alone. |
-| `kind` | `ontology`, `model`, `conceptual-data-model`, `concrete-data-model`, `process-model`, `state-machine-model`, `design`, `shapes`, or `unclassified`. Locked inventories exclude upstream views/presentations/queries. |
-| `classification` | `declared`, `override`, or `unclassified`; optional `kind_override` only for an undeclared graph classified by explicit acquisition choice. Contradictory overrides fail. |
-| `graph_iri`, `identity` | Current consumer graph IRI and `declared`/`generated`. |
-| `source_graph_iri` | Original source graph IRI, even when generated there. |
-| `byte_digest`, `byte_length` | Digest of exact copied bytes, nonnegative integer byte count. |
-| `media_type` | Exactly `text/turtle`, `application/n-triples`, or `application/rdf+xml`. |
-| `base_iri` | Original effective absolute parser base; never the moved snapshot's file URL. |
-| `parser_profile` | `turtle-strict-v1`, `ntriples-strict-v1`, `rdfxml-no-dtd-v1`, or `rdfxml-vetted-bundle-v1`. Profiles fix parsing semantics, not current package versions. |
-| `graph_signature` | Digest over byte digest and parser context, defined below. |
+| `files[]` field              | Type/invariant                                                                                                                                                                                                                          |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `key`                        | Unique scoped Path; also the relative path below `snapshot_path`.                                                                                                                                                                       |
+| `source`                     | Matching `sources[].id`.                                                                                                                                                                                                                |
+| `source_resource`            | Original source-relative inventory address.                                                                                                                                                                                             |
+| `context`                    | Scoped Path naming the original resolution context, e.g. `source` or `source/.tbspec/dependencies/p-plan`.                                                                                                                              |
+| `roles`                      | Nonempty unique array of `primary`, `closure`, `shacl`, `design`, `vocabulary`; a file can have several roles. Detached retained files keep their descriptive role. Activity is determined by association/reachability, not role alone. |
+| `kind`                       | `ontology`, `model`, `conceptual-data-model`, `concrete-data-model`, `process-model`, `state-machine-model`, `design`, `shapes`, or `unclassified`. Locked inventories exclude upstream views/presentations/queries.                    |
+| `classification`             | `declared`, `override`, or `unclassified`; optional `kind_override` only for an undeclared graph classified by explicit acquisition choice. Contradictory overrides fail.                                                               |
+| `graph_iri`, `identity`      | Current consumer graph IRI and `declared`/`generated`.                                                                                                                                                                                  |
+| `source_graph_iri`           | Original source graph IRI, even when generated there.                                                                                                                                                                                   |
+| `byte_digest`, `byte_length` | Digest of exact copied bytes, nonnegative integer byte count.                                                                                                                                                                           |
+| `media_type`                 | Exactly `text/turtle`, `application/n-triples`, or `application/rdf+xml`.                                                                                                                                                               |
+| `base_iri`                   | Original effective absolute parser base; never the moved snapshot's file URL.                                                                                                                                                           |
+| `parser_profile`             | `turtle-strict-v1`, `ntriples-strict-v1`, `rdfxml-no-dtd-v1`, or `rdfxml-vetted-bundle-v1`. Profiles fix parsing semantics, not current package versions.                                                                               |
+| `graph_signature`            | Digest over byte digest and parser context, defined below.                                                                                                                                                                              |
 
 Use suffixes `.ttl`, `.nt`, `.rdf`/`.owl` according to the approved format dispatch. Record the final chosen media type, never a generic MIME type as an interpretation mode. All parsed quads must be in the default graph before assigning identity. Retain original bytes, including XML entities in the exact vetted P-Plan release. Profile changes require an explicit update/new interpretation, not an unnoticed installed-parser change.
 
@@ -127,13 +127,13 @@ Exactly the dependency's `primary` entry carries the `primary` role; an upstream
 
 All references below are file keys within the same dependency, never consumer dependency IDs. This lets an ID rename preserve content signatures. References to a retained-but-detached file are valid only where expressly inactive. Missing discovered targets are represented by `target_iri`, not an invented file key.
 
-| Array | Fields and invariants |
-| --- | --- |
-| `edges[]` | Required `context`, `from` file key, `relation` enum `import`, `ontology`, `schema`, `vocabulary`; exactly one of `to` file key or `target_iri` unresolved IRI. Imports keep cycles; distances are computed by shortest paths from consuming additions. |
-| `bindings[]` | Required `context`, `resource` model file key, `ontologies` array of file keys, `schemas` array of file keys; optional `model_type` original source string and `unresolved_iris` array (defaults empty). Source-bound models never consult consuming model-type names. An unresolved binding is diagnostic, not automatic acquisition. |
-| `associations[]` | Required `context`, `resource` file key, `role` `shacl`/`design`, `support` file key, `origin` `source`/`manual`, `active` boolean; required `attachment` ID only for manual origin. A cleared manual association becomes inactive and keeps its files. |
-| `choices[]` | Required `context`, `kind` `ontology`/`design`, `target_iri`, `selected` file key. Retain only choices relevant to included interpretation closure; they operate in their source context. |
-| `attachments[]` | Required unique `id`, `role` `shacl`/`design`, `resource` attached-to file key, `source` acquisition record ID, `primary` support file key, `active` boolean. For a new manual attachment allocate `attachment-<n>` using the smallest positive decimal integer not in the captured owner inventory; preserve existing IDs. This is deterministic across equivalent CLI previews, not random. Do not treat it as a winning design choice. |
+| Array            | Fields and invariants                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `edges[]`        | Required `context`, `from` file key, `relation` enum `import`, `ontology`, `schema`, `vocabulary`; exactly one of `to` file key or `target_iri` unresolved IRI. Imports keep cycles; distances are computed by shortest paths from consuming additions.                                                                                                                                                                                   |
+| `bindings[]`     | Required `context`, `resource` model file key, `ontologies` array of file keys, `schemas` array of file keys; optional `model_type` original source string and `unresolved_iris` array (defaults empty). Source-bound models never consult consuming model-type names. An unresolved binding is diagnostic, not automatic acquisition.                                                                                                    |
+| `associations[]` | Required `context`, `resource` file key, `role` `shacl`/`design`, `support` file key, `origin` `source`/`manual`, `active` boolean; required `attachment` ID only for manual origin. A cleared manual association becomes inactive and keeps its files.                                                                                                                                                                                   |
+| `choices[]`      | Required `context`, `kind` `ontology`/`design`, `target_iri`, `selected` file key. Retain only choices relevant to included interpretation closure; they operate in their source context.                                                                                                                                                                                                                                                 |
+| `attachments[]`  | Required unique `id`, `role` `shacl`/`design`, `resource` attached-to file key, `source` acquisition record ID, `primary` support file key, `active` boolean. For a new manual attachment allocate `attachment-<n>` using the smallest positive decimal integer not in the captured owner inventory; preserve existing IDs. This is deterministic across equivalent CLI previews, not random. Do not treat it as a winning design choice. |
 
 Bindings, edges, and source choices are distinct: a model can preserve its source-bound losing ontology while a full-project query loads the consumer's winner. Check that referenced keys exist, roles/classifications agree, and each context's ontology choice is unambiguous. A standalone URL may have empty bindings and unresolved RDF associations; report those without silently rebinding it. Source-derived SHACL/design associations remain distinct from manually retained ones when main-source updates occur. Here `manual`/`attachments` describes explicit attachments owned by this consuming addition; an upstream project's manual support is discoverable source support in this inventory, preserving its original file addresses/provenance without importing its attachment IDs into the consumer namespace. Inactive attachments and their unreachable closure are retained for isolated inspection/integrity checks but excluded from source checks, active resolution, and interpretation drift. An active attachment's complete interpretation participates in drift.
 
@@ -195,21 +195,21 @@ All execution, including saved queries, passes the existing AST/local-dataset ga
 
 Every `--json` command, including help/version and malformed/unknown arguments, emits exactly one UTF-8 JSON object to stdout followed by a newline. Recognize the global `--json` output mode before full argument validation; parsing failures emit `invalid_arguments`, exit 2, `data: null`, and structured diagnostics. No progress/log stream appears on stdout. All four fields are required:
 
-| Field | Type |
-| --- | --- |
-| `schemaVersion` | Integer `1`. |
-| `status` | Enum below, describing command outcome rather than server state or project validity. |
-| `data` | Command-specific object, or null when no result can be produced. Partial result objects remain present on errors. |
-| `diagnostics` | Array of diagnostic objects, possibly empty. |
+| Field           | Type                                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `schemaVersion` | Integer `1`.                                                                                                      |
+| `status`        | Enum below, describing command outcome rather than server state or project validity.                              |
+| `data`          | Command-specific object, or null when no result can be produced. Partial result objects remain present on errors. |
+| `diagnostics`   | Array of diagnostic objects, possibly empty.                                                                      |
 
-| `status` | Exit | Meaning |
-| --- | --- | --- |
-| `ok` | 0 | Successful operation/inspection, including stopped web status or ASK false. |
-| `preview` | 0 | Successful non-mutating preview. |
-| `invalid` | 1 | `status` reports invalid/incomplete project, validation errors/skipped blocking checks, or dependency drift detected. |
-| `invalid_arguments` | 2 | Invalid CLI input, binding, query policy/syntax, or unsupported wire argument version. |
-| `conflict` | 3 | Busy/stale state, identity/resolution conflict preventing an operation, recovery required, or explicit acceptance required. |
-| `unavailable` | 4 | Source, filesystem, runtime authentication/availability, or needed data unavailable. |
+| `status`            | Exit | Meaning                                                                                                                     |
+| ------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------- |
+| `ok`                | 0    | Successful operation/inspection, including stopped web status or ASK false.                                                 |
+| `preview`           | 0    | Successful non-mutating preview.                                                                                            |
+| `invalid`           | 1    | `status` reports invalid/incomplete project, validation errors/skipped blocking checks, or dependency drift detected.       |
+| `invalid_arguments` | 2    | Invalid CLI input, binding, query policy/syntax, or unsupported wire argument version.                                      |
+| `conflict`          | 3    | Busy/stale state, identity/resolution conflict preventing an operation, recovery required, or explicit acceptance required. |
+| `unavailable`       | 4    | Source, filesystem, runtime authentication/availability, or needed data unavailable.                                        |
 
 For multiple problems select exit precedence `4 > 3 > 2 > 1 > 0`, retaining all diagnostics. An invalid manifest/lock/query declaration on disk is a validation error (1) for status/validate; an inability to read it is 4. A query needing malformed RDF reports invalid (1); an unresolved resolution/identity collision preventing dataset assembly is conflict (3). Local locked-byte corruption reports invalid (1) for validation/status and blocks dependent operations. Malformed runtime registration/unverifiable ownership and incompatible control protocol report conflict (3), while a verified-compatible live process whose endpoint/authentication cannot be reached reports unavailable (4). No runtime failure is automatically project invalidity.
 
@@ -219,25 +219,25 @@ A successful accepted mutation has status `ok` and exit 0 even when it intention
 
 Required fields: `code` string, `severity` enum `error`, `warning`, `info`, `message` string, `file` nullable project-relative Path. Optional fields:
 
-| Field | Meaning |
-| --- | --- |
-| `selector` | Expanded selector of the affected graph/file, if known. |
-| `line`, `column` | Positive one-based location, only when available. No invented RDF-result location. |
-| `related` | Array of `{file: Path\|null, selector?: string, message: string}` for collisions/blockers. |
-| `shacl` | `{graphIri: IRI, selector: string, focusNode?: Term, sourceShape?: Term, constraintComponent?: IriTerm, path?: Term, value?: Term, messages?: LiteralTerm[]}`. Preserve complex-path blank-node identity instead of pretending it is one predicate. |
-| `check` | `{kind: "syntax"\|"classification"\|"vocabulary"\|"association"\|"view"\|"presentation"\|"shacl", state: "failed"\|"skipped", blockedBy: string[]}`. Empty blockers allowed for a failure; skipped checks name blockers. |
-| `details` | Typed code-specific object; sensitive credentials/URLs must never appear. |
+| Field            | Meaning                                                                                                                                                                                                                                             |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `selector`       | Expanded selector of the affected graph/file, if known.                                                                                                                                                                                             |
+| `line`, `column` | Positive one-based location, only when available. No invented RDF-result location.                                                                                                                                                                  |
+| `related`        | Array of `{file: Path\|null, selector?: string, message: string}` for collisions/blockers.                                                                                                                                                          |
+| `shacl`          | `{graphIri: IRI, selector: string, focusNode?: Term, sourceShape?: Term, constraintComponent?: IriTerm, path?: Term, value?: Term, messages?: LiteralTerm[]}`. Preserve complex-path blank-node identity instead of pretending it is one predicate. |
+| `check`          | `{kind: "syntax"\|"classification"\|"vocabulary"\|"association"\|"view"\|"presentation"\|"shacl", state: "failed"\|"skipped", blockedBy: string[]}`. Empty blockers allowed for a failure; skipped checks name blockers.                            |
+| `details`        | Typed code-specific object; sensitive credentials/URLs must never appear.                                                                                                                                                                           |
 
 The stable version-1 code vocabulary is:
 
-| Category | Codes |
-| --- | --- |
-| Input/schema | `ARGUMENT_INVALID`, `SCHEMA_UNSUPPORTED`, `MANIFEST_INVALID`, `LOCK_INVALID`, `QUERY_DECLARATION_INVALID`, `BINDING_INVALID`, `QUERY_REJECTED`. |
-| RDF/identity | `RDF_SYNTAX`, `GRAPH_CLASSIFICATION`, `GRAPH_IRI_COLLISION`, `RESOURCE_MISSING`, `VOCABULARY_UNKNOWN`, `ASSOCIATION_BROKEN`, `VIEW_INVALID`, `PRESENTATION_INVALID`. |
-| Validation | `SHACL_GRAPH_INVALID`, `SHACL_FORM_UNSUPPORTED`, `SHACL_QUERY_REJECTED`, `SHACL_RESULT`, `CHECK_SKIPPED`. Map SHACL Violation/Warning/Info to error/warning/info. |
-| Dependency | `SOURCE_UNAVAILABLE`, `ACQUISITION_LIMIT`, `SOURCE_FEATURE_UNSUPPORTED`, `RDF_FORMAT_UNSUPPORTED`, `DECLARED_FILE_MISSING`, `SNAPSHOT_INTEGRITY`, `DEPENDENCY_DRIFT`, `ONTOLOGY_CONFLICT`, `DESIGN_CONFLICT`, `SOURCE_SELECTION_AMBIGUOUS`. |
-| Transactions | `PROJECT_BUSY`, `REVISION_CONFLICT`, `ACCEPTANCE_REQUIRED`, `PREVIEW_CHANGED`, `PREVIEW_EXPIRED`, `PREVIEW_OWNER_MISMATCH`, `PATH_UNSAFE`, `RECOVERY_REQUIRED`, `IO_FAILURE`, `CLEANUP_RETAINED`. Cleanup after completed publication is a warning. |
-| Runtime/canvas | `RUNTIME_UNAVAILABLE`, `RUNTIME_OWNERSHIP_UNKNOWN`, `RUNTIME_PROTOCOL_UNSUPPORTED`, `RUNTIME_AUTH_FAILED`, `WEB_PORT_CONFLICT`, `VISUAL_RULE_MISSING`, `VISUAL_RULE_AMBIGUOUS`. Visual fallback warnings do not invalidate the model. |
+| Category       | Codes                                                                                                                                                                                                                                               |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Input/schema   | `ARGUMENT_INVALID`, `SCHEMA_UNSUPPORTED`, `MANIFEST_INVALID`, `LOCK_INVALID`, `QUERY_DECLARATION_INVALID`, `BINDING_INVALID`, `QUERY_REJECTED`.                                                                                                     |
+| RDF/identity   | `RDF_SYNTAX`, `GRAPH_CLASSIFICATION`, `GRAPH_IRI_COLLISION`, `RESOURCE_MISSING`, `VOCABULARY_UNKNOWN`, `ASSOCIATION_BROKEN`, `VIEW_INVALID`, `PRESENTATION_INVALID`.                                                                                |
+| Validation     | `SHACL_GRAPH_INVALID`, `SHACL_FORM_UNSUPPORTED`, `SHACL_QUERY_REJECTED`, `SHACL_RESULT`, `CHECK_SKIPPED`. Map SHACL Violation/Warning/Info to error/warning/info.                                                                                   |
+| Dependency     | `SOURCE_UNAVAILABLE`, `ACQUISITION_LIMIT`, `SOURCE_FEATURE_UNSUPPORTED`, `RDF_FORMAT_UNSUPPORTED`, `DECLARED_FILE_MISSING`, `SNAPSHOT_INTEGRITY`, `DEPENDENCY_DRIFT`, `ONTOLOGY_CONFLICT`, `DESIGN_CONFLICT`, `SOURCE_SELECTION_AMBIGUOUS`.         |
+| Transactions   | `PROJECT_BUSY`, `REVISION_CONFLICT`, `ACCEPTANCE_REQUIRED`, `PREVIEW_CHANGED`, `PREVIEW_EXPIRED`, `PREVIEW_OWNER_MISMATCH`, `PATH_UNSAFE`, `RECOVERY_REQUIRED`, `IO_FAILURE`, `CLEANUP_RETAINED`. Cleanup after completed publication is a warning. |
+| Runtime/canvas | `RUNTIME_UNAVAILABLE`, `RUNTIME_OWNERSHIP_UNKNOWN`, `RUNTIME_PROTOCOL_UNSUPPORTED`, `RUNTIME_AUTH_FAILED`, `WEB_PORT_CONFLICT`, `VISUAL_RULE_MISSING`, `VISUAL_RULE_AMBIGUOUS`. Visual fallback warnings do not invalidate the model.               |
 
 Codes identify conditions, not automatic exit codes; the command context above determines status. Diagnostic order is deterministic by file/selector, location, code, then message using UTF-8 ordering. Consumers rely on codes/severity/typed fields rather than parsing prose. Human diagnostics go to stderr and may duplicate structured diagnostics, with redaction.
 
@@ -245,19 +245,19 @@ Codes identify conditions, not automatic exit codes; the command context above d
 
 Use these reusable records rather than embedding an engine's private report:
 
-| Record/commands | Concrete fields |
-| --- | --- |
+| Record/commands           | Concrete fields                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Resource (`list`, `show`) | `{selector, file, graphIri: IRI\|null, identity: "declared"\|"generated"\|null, kind, classification, ownership: "project"\|"dependency", revision: Revision, associations: [{role, selector}]}`; optional `dependencyId`, `sourceGraphIri`, `kindOverride`. Kind additionally allows `view` and `presentation` for owned resources. Unparseable resources have null unknown identities, with diagnostics. |
-| Lists | `{items: Record[]}`. Sort by canonical selector/name/ID. `show` uses `{resource: Record}` plus command-specific terms/content; source text is a UTF-8 `sourceText` string. |
-| Dependency show/list | `{id, kind, primarySelector, snapshotPath, interpretationSignature, sources, files, bindings, edges, associations, choices, attachments}` with camelCase equivalents of lock fields and expanded selectors alongside referenced keys. |
-| Dependency check | `{items: [{id, state: "unchanged"\|"changed"\|"unavailable", lockedSignature, observedSignature: Digest\|null, comparison: "complete"\|"partial"\|"unavailable", observedSources: SourceRecord[]}]}`. Malformed changed bytes yield changed/partial and parse diagnostics; no unusable replacement is applied. |
-| Status | `{project: {root: absolute-path, validity: "valid"\|"invalid", validationComplete: boolean}, counts: {resources, dependencies, errors, warnings, information}, validation: ValidationRecord}`. Validity is derived from errors/blocking skipped checks, never server state. |
-| Validate | `{validity: "valid"\|"invalid", validationComplete: boolean, resources: [{selector, state: "passed"\|"failed"\|"partial", checks: [{kind, state: "passed"\|"failed"\|"skipped", shapesSelector?: string, blockedBy: string[]}]}]}` (`ValidationRecord`). |
-| Config show/list | Effective `baseIri` (nullable), `modelTypes` rows `{name, enabled, ontology, design: selector\|null, origin: "manifest"\|"locked-default"}`, `ontologyChoices`, `designChoices`, `associations`, `views`, and `acquisition`, using camelCase contract fields. List commands wrap the relevant rows in `items`. |
-| Query list/show | `{name, queryFile, parametersFile, parameters: [{name, kind, required, datatype?, language?}]}`; show adds `queryText` and both file `revisions`. |
-| References/impact | `{items: [{file, selector?: string, position: "subject"\|"predicate"\|"object"\|"configuration", targetIri, subject?: Term, predicate?: IriTerm, object?: Term}], affectedFiles: Path[]}`. Impact adds `kind`, `selector`, and `preview` when a concrete write plan is prepared. |
-| Mutations | `{applied: true, changes: Change[], projectValidity: "valid"\|"invalid"\|"unchecked"}`; never claim valid without checking. Preview data uses `{applied: false, preview: Preview}`. |
-| Guidance/help/version | `{text: string, topics: [{invocation, description}]}` for guidance/help (empty topics valid); `{applicationVersion: string}` for version. No project required. |
+| Lists                     | `{items: Record[]}`. Sort by canonical selector/name/ID. `show` uses `{resource: Record}` plus command-specific terms/content; source text is a UTF-8 `sourceText` string.                                                                                                                                                                                                                                 |
+| Dependency show/list      | `{id, kind, primarySelector, snapshotPath, interpretationSignature, sources, files, bindings, edges, associations, choices, attachments}` with camelCase equivalents of lock fields and expanded selectors alongside referenced keys.                                                                                                                                                                      |
+| Dependency check          | `{items: [{id, state: "unchanged"\|"changed"\|"unavailable", lockedSignature, observedSignature: Digest\|null, comparison: "complete"\|"partial"\|"unavailable", observedSources: SourceRecord[]}]}`. Malformed changed bytes yield changed/partial and parse diagnostics; no unusable replacement is applied.                                                                                             |
+| Status                    | `{project: {root: absolute-path, validity: "valid"\|"invalid", validationComplete: boolean}, counts: {resources, dependencies, errors, warnings, information}, validation: ValidationRecord}`. Validity is derived from errors/blocking skipped checks, never server state.                                                                                                                                |
+| Validate                  | `{validity: "valid"\|"invalid", validationComplete: boolean, resources: [{selector, state: "passed"\|"failed"\|"partial", checks: [{kind, state: "passed"\|"failed"\|"skipped", shapesSelector?: string, blockedBy: string[]}]}]}` (`ValidationRecord`).                                                                                                                                                   |
+| Config show/list          | Effective `baseIri` (nullable), `modelTypes` rows `{name, enabled, ontology, design: selector\|null, origin: "manifest"\|"locked-default"}`, `ontologyChoices`, `designChoices`, `associations`, `views`, and `acquisition`, using camelCase contract fields. List commands wrap the relevant rows in `items`.                                                                                             |
+| Query list/show           | `{name, queryFile, parametersFile, parameters: [{name, kind, required, datatype?, language?}]}`; show adds `queryText` and both file `revisions`.                                                                                                                                                                                                                                                          |
+| References/impact         | `{items: [{file, selector?: string, position: "subject"\|"predicate"\|"object"\|"configuration", targetIri, subject?: Term, predicate?: IriTerm, object?: Term}], affectedFiles: Path[]}`. Impact adds `kind`, `selector`, and `preview` when a concrete write plan is prepared.                                                                                                                           |
+| Mutations                 | `{applied: true, changes: Change[], projectValidity: "valid"\|"invalid"\|"unchecked"}`; never claim valid without checking. Preview data uses `{applied: false, preview: Preview}`.                                                                                                                                                                                                                        |
+| Guidance/help/version     | `{text: string, topics: [{invocation, description}]}` for guidance/help (empty topics valid); `{applicationVersion: string}` for version. No project required.                                                                                                                                                                                                                                             |
 
 HTTP project endpoints use the same envelope and term/diagnostic records. JSON-schema version negotiation is explicit; do not conflate it with HTTP status or control protocol. Browser HTTP mapping is 200 for ok/preview, 422 for invalid, 400 for invalid arguments, 409 for conflict, 503 for unavailable; unauthenticated requests use 401/403 and redact project data. Domain operations remain in the shared core.
 
@@ -285,14 +285,14 @@ Compare complete baseline and proposed diagnostic multisets, including warning/i
 
 A matching key is the canonical JSON tuple `[target, code, checkKind, condition]`. `target` is the expanded affected selector, falling back to `file` for configuration/file diagnostics; `checkKind` is `check.kind` or null. For `SHACL_RESULT`, `condition` is `[shacl.selector, focusNode, sourceShape, constraintComponent, path, value]`, using typed terms and null for an absent term. Severity and SHACL messages are excluded. For other validation codes, put the following semantic discriminator in the existing typed `details.identity` object and use it as `condition`:
 
-| Condition | `details.identity` fields |
-| --- | --- |
-| Unknown vocabulary use | `{kind: "term", term: Term, position: "type"\|"predicate"\|"datatype"}`. Group occurrences of the same unavailable term/role within the target; retain their multiplicity. |
-| Broken association/missing required resource | `{kind: "association", owner: string, role: string, target: string}`. Owner is the referring RDF IRI or canonical configuration setting path; role is the exact metadata predicate IRI or manifest/lock field name; target is the required IRI or expanded selector. |
-| View/presentation statement invariant | `{kind: "statement", subject: Term, predicate: IriTerm, object: Term}` for the offending statement. |
-| Configuration/declaration field | `{kind: "setting", path: string}` using its canonical TOML key path. |
-| IRI/resolution collision | `{kind: "collision", iri: IriTerm, candidates: string[]}` with sorted unique expanded candidate selectors. A changed candidate set is a different condition. |
-| File-level syntax, integrity, classification, or shapes-profile failure | `{kind: "file"}`. These are one condition per code/target; failed prerequisites also affect coverage below. |
+| Condition                                                               | `details.identity` fields                                                                                                                                                                                                                                            |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unknown vocabulary use                                                  | `{kind: "term", term: Term, position: "type"\|"predicate"\|"datatype"}`. Group occurrences of the same unavailable term/role within the target; retain their multiplicity.                                                                                           |
+| Broken association/missing required resource                            | `{kind: "association", owner: string, role: string, target: string}`. Owner is the referring RDF IRI or canonical configuration setting path; role is the exact metadata predicate IRI or manifest/lock field name; target is the required IRI or expanded selector. |
+| View/presentation statement invariant                                   | `{kind: "statement", subject: Term, predicate: IriTerm, object: Term}` for the offending statement.                                                                                                                                                                  |
+| Configuration/declaration field                                         | `{kind: "setting", path: string}` using its canonical TOML key path.                                                                                                                                                                                                 |
+| IRI/resolution collision                                                | `{kind: "collision", iri: IriTerm, candidates: string[]}` with sorted unique expanded candidate selectors. A changed candidate set is a different condition.                                                                                                         |
+| File-level syntax, integrity, classification, or shapes-profile failure | `{kind: "file"}`. These are one condition per code/target; failed prerequisites also affect coverage below.                                                                                                                                                          |
 
 Selectors, RDF terms, and field paths retain their contract equality. Include no prose, line/column, severity, byte digest, or observed numeric measurement in `details.identity`. Emit one diagnostic per semantic occurrence, including each unknown vocabulary use and offending statement; repeated SHACL results remain repeated. File/setting/association/collision conditions emit one diagnostic per distinct key. If an affected diagnostic cannot be represented by these identities, or lacks a stable target, treat its check as unassessable rather than guessing that an error is unchanged. These discriminator fields specialize the existing optional `details` output without changing project-file schemas.
 
@@ -302,17 +302,17 @@ For each comparable key, pair equal-severity occurrences first, then pair remain
 
 Compare coverage by `(target selector, check.kind, shapesSelector or null)` from the validation records. `skippedChecks` records proposed skipped checks and synthetic `CHECK_SKIPPED` diagnostics for unassessable comparisons, with blockers and `details.reason: "impact_identity_unassessable"` for the latter. A newly skipped required check is worsened coverage; an affected required check skipped in either state also makes its impact unassessable, even if its blocker is unchanged. Unrelated baseline skipped checks do not gate the update. Checks deliberately deactivated by a removed association are disclosed as association changes, not fabricated as skipped checks. Dependency update requires `accept-impact` when introduced/worsened errors exist or affected required impact is unassessable; this never bypasses acquisition/parse/I/O rejection.
 
-| Baseline to proposal | Classification / extra update acceptance |
-| --- | --- |
-| Same error, changed message or location only | Unchanged / no. |
-| Same key, warning to error | Worsened / yes. |
-| Same key, two errors to three | One worsened occurrence / yes. |
-| Same key, three errors to two | Improvement / no. |
-| One error resolves and a different key becomes an error | Introduced error / yes, despite equal totals. |
-| Warning-only increase with complete comparable coverage | No new invalidity / no. |
-| Same anonymous shape in unchanged source bytes/parser context | Comparable; apply the severity/multiplicity rules. |
-| Anonymous shape/path/focus/value in a changed source graph | Unassessable affected check / yes, even if labels look equal. |
-| Affected required check becomes skipped, or remains blocked | Unassessable affected impact / yes. |
+| Baseline to proposal                                          | Classification / extra update acceptance                      |
+| ------------------------------------------------------------- | ------------------------------------------------------------- |
+| Same error, changed message or location only                  | Unchanged / no.                                               |
+| Same key, warning to error                                    | Worsened / yes.                                               |
+| Same key, two errors to three                                 | One worsened occurrence / yes.                                |
+| Same key, three errors to two                                 | Improvement / no.                                             |
+| One error resolves and a different key becomes an error       | Introduced error / yes, despite equal totals.                 |
+| Warning-only increase with complete comparable coverage       | No new invalidity / no.                                       |
+| Same anonymous shape in unchanged source bytes/parser context | Comparable; apply the severity/multiplicity rules.            |
+| Anonymous shape/path/focus/value in a changed source graph    | Unassessable affected check / yes, even if labels look equal. |
+| Affected required check becomes skipped, or remains blocked   | Unassessable affected impact / yes.                           |
 
 The accepted-preview fingerprint remains sensitive to exact staged bytes and disclosed impact independently of whether `accept-impact` is required. All CLI/web adapters use this shared comparison rule.
 

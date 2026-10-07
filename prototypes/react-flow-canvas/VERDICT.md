@@ -14,11 +14,11 @@ The result is positive for the small MVP fixture: React Flow displayed the compl
 
 ## User feedback and corrections
 
-| Observation | Cause | Change |
-| --- | --- | --- |
-| Saving a literal moved or reordered labels | The edited quad was removed and appended, and complete-graph fallback positions depended on quad iteration order | Replace the quad in place and sort resource IDs before assigning fallback positions |
-| Adding Customer to Customer view omitted Alice → Customer | Node addition selected only the node, although Alice was already selected | Include existing relationships from the new node to resources already in the view |
-| Applying Turtle lengthened the blank-node ID | N3 prefixes explicit blank-node labels on each parse to avoid cross-document collisions | Disable that prefix for this isolated single-source prototype; view blank nodes remain in separate RDF files |
+| Observation                                               | Cause                                                                                                            | Change                                                                                                       |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Saving a literal moved or reordered labels                | The edited quad was removed and appended, and complete-graph fallback positions depended on quad iteration order | Replace the quad in place and sort resource IDs before assigning fallback positions                          |
+| Adding Customer to Customer view omitted Alice → Customer | Node addition selected only the node, although Alice was already selected                                        | Include existing relationships from the new node to resources already in the view                            |
+| Applying Turtle lengthened the blank-node ID              | N3 prefixes explicit blank-node labels on each parse to avoid cross-document collisions                          | Disable that prefix for this isolated single-source prototype; view blank nodes remain in separate RDF files |
 
 ## What this establishes
 
@@ -32,3 +32,9 @@ The result is positive for the small MVP fixture: React Flow displayed the compl
 - Browser interaction confirmed switching views, selecting a resource and an edge, and editing a predicate. Dragging a node, drawing a new connection, downloaded file contents, and source parse-error recovery are backed by the runnable check or code paths but were not manually exercised in the browser run.
 - The provisional `urn:canvas-proof:` membership vocabulary and in-memory download flow do not settle production file schemas, file conflicts, or persistence. Those belong to later architecture tickets.
 - The user considered the interaction mostly correct and confirmed the three corrections. Large-graph behavior and layout still need their own evidence under ticket 15. If a concrete React Flow gap appears later, investigate another renderer then.
+
+## Repository quality revalidation (2026-10-07)
+
+After applying repository formatting and lint rules, `npm ci`, `npm run check`, and `npm run build` passed from this prototype directory on Windows with Node 24.14.1 and npm 11.17.0. The existing RDF projection, view, relationship-edit, blank-node, and round-trip assertions passed. Fixtures and the dependency lockfile were preserved.
+
+Browser checks against the production build confirmed view switching and resource selection. Literal labels now reference their inputs with stable React IDs, graph mode uses a named navigation element, and buttons have explicit types. The intentional control-character exclusion in RDF IRI validation has a documented local lint suppression. The existing non-fatal React Flow `use client` bundler warning remains.

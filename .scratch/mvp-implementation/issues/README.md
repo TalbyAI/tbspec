@@ -4,28 +4,28 @@ The user approved this grouped breakdown of 20 AFK vertical slices on 2026-10-04
 
 ## Issue index
 
-| Issue | Blocked by | User stories covered |
-| --- | --- | --- |
-| [01 - Initialize and discover an offline project](01-initialize-offline-project.md) | None | 1, 2, 3, 4, 7, 9, 10, 11, 12, 105, 106, 107, 108, 109 |
-| [02 - Inspect the project from CLI and an authenticated browser](02-inspect-project-and-authenticated-web.md) | 01 | 5, 6, 8, 24, 25, 26, 110, 111, 112, 113, 114 |
-| [03 - Create and import editable ontologies and domain models](03-create-and-import-owned-resources.md) | 02 | 7, 21, 22, 23, 24, 27, 28, 31, 62 |
-| [04 - Validate models, schema associations, and constraints offline](04-validate-models-schemas-and-shacl.md) | 03 | 2, 5, 25, 26, 29, 30, 89, 90, 91, 92, 93, 94, 101 |
-| [05 - Edit RDF through the canvas, Turtle, and ontology forms](05-edit-rdf-source-and-ontology-forms.md) | 04 | 56, 57, 58, 59, 60, 61, 62, 78, 79, 80, 81, 85 |
-| [06 - Run and manage reproducible SPARQL queries](06-run-and-manage-sparql-queries.md) | 04 | 11, 95, 96, 97, 98, 99, 100 |
-| [07 - Configure model types and accept vocabulary changes](07-configure-model-types-and-vocabulary-changes.md) | 04, 05 | 6, 13, 14, 15, 16, 17, 18, 19, 115 |
-| [08 - Acquire dependencies from directories, HTTP, and Git](08-acquire-directory-http-and-git-dependencies.md) | 07 | 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 53, 54, 55, 115, 116 |
-| [09 - Resolve ontology versions and detect source drift](09-resolve-ontology-versions-and-check-drift.md) | 06, 08 | 43, 44, 48, 49, 97, 98 |
-| [10 - Update dependencies and manage explicit support](10-update-dependencies-and-manual-support.md) | 04, 09 | 45, 46, 47, 50, 51, 53, 115, 116 |
-| [11 - Rename and deliberately remove dependencies](11-rename-and-remove-dependencies.md) | 10 | 52, 101 |
-| [12 - Move and remove owned resources with impact review](12-move-and-remove-owned-resources.md) | 03, 04, 07 | 20, 21, 32, 101, 105 |
-| [13 - Maintain independent views and synchronize their selections](13-maintain-independent-saved-views.md) | 05, 08 | 63, 64, 65, 66, 67, 68 |
-| [14 - Create reusable designs and customize each view](14-author-designs-and-view-appearance.md) | 09, 12, 13 | 69, 70, 71, 72 |
-| [15 - Organize and explore the canvas without losing positions](15-organize-and-explore-canvas.md) | 14 | 73, 74, 75, 76, 77, 115, 116 |
-| [16 - Edit descriptive processes with specialized forms](16-edit-descriptive-process-forms.md) | 05 | 79, 80, 81, 82, 83, 85, 86, 88 |
-| [17 - Edit descriptive state machines](17-edit-descriptive-state-machine-forms.md) | 05 | 79, 80, 81, 84, 85, 86, 88 |
-| [18 - Delete elements precisely and clean affected views](18-delete-elements-and-clean-view-selections.md) | 05, 13 | 87, 94, 101 |
-| [19 - Refactor identities, repair references, and collect orphaned support](19-refactor-repair-and-collect-orphaned-support.md) | 11, 12, 14, 18 | 94, 101, 102, 103, 104 |
-| [20 - Install and verify the complete application on supported platforms](20-install-and-verify-packed-application.md) | 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 | 9, 54, 117 |
+| Issue                                                                                                                           | Blocked by                                                                 | User stories covered                                         |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| [01 - Initialize and discover an offline project](01-initialize-offline-project.md)                                             | None                                                                       | 1, 2, 3, 4, 7, 9, 10, 11, 12, 105, 106, 107, 108, 109        |
+| [02 - Inspect the project from CLI and an authenticated browser](02-inspect-project-and-authenticated-web.md)                   | 01                                                                         | 5, 6, 8, 24, 25, 26, 110, 111, 112, 113, 114                 |
+| [03 - Create and import editable ontologies and domain models](03-create-and-import-owned-resources.md)                         | 02                                                                         | 7, 21, 22, 23, 24, 27, 28, 31, 62                            |
+| [04 - Validate models, schema associations, and constraints offline](04-validate-models-schemas-and-shacl.md)                   | 03                                                                         | 2, 5, 25, 26, 29, 30, 89, 90, 91, 92, 93, 94, 101            |
+| [05 - Edit RDF through the canvas, Turtle, and ontology forms](05-edit-rdf-source-and-ontology-forms.md)                        | 04                                                                         | 56, 57, 58, 59, 60, 61, 62, 78, 79, 80, 81, 85               |
+| [06 - Run and manage reproducible SPARQL queries](06-run-and-manage-sparql-queries.md)                                          | 04                                                                         | 11, 95, 96, 97, 98, 99, 100                                  |
+| [07 - Configure model types and accept vocabulary changes](07-configure-model-types-and-vocabulary-changes.md)                  | 04, 05                                                                     | 6, 13, 14, 15, 16, 17, 18, 19, 115                           |
+| [08 - Acquire dependencies from directories, HTTP, and Git](08-acquire-directory-http-and-git-dependencies.md)                  | 07                                                                         | 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 53, 54, 55, 115, 116 |
+| [09 - Resolve ontology versions and detect source drift](09-resolve-ontology-versions-and-check-drift.md)                       | 06, 08                                                                     | 43, 44, 48, 49, 97, 98                                       |
+| [10 - Update dependencies and manage explicit support](10-update-dependencies-and-manual-support.md)                            | 04, 09                                                                     | 45, 46, 47, 50, 51, 53, 115, 116                             |
+| [11 - Rename and deliberately remove dependencies](11-rename-and-remove-dependencies.md)                                        | 10                                                                         | 52, 101                                                      |
+| [12 - Move and remove owned resources with impact review](12-move-and-remove-owned-resources.md)                                | 03, 04, 07                                                                 | 20, 21, 32, 101, 105                                         |
+| [13 - Maintain independent views and synchronize their selections](13-maintain-independent-saved-views.md)                      | 05, 08                                                                     | 63, 64, 65, 66, 67, 68                                       |
+| [14 - Create reusable designs and customize each view](14-author-designs-and-view-appearance.md)                                | 09, 12, 13                                                                 | 69, 70, 71, 72                                               |
+| [15 - Organize and explore the canvas without losing positions](15-organize-and-explore-canvas.md)                              | 14                                                                         | 73, 74, 75, 76, 77, 115, 116                                 |
+| [16 - Edit descriptive processes with specialized forms](16-edit-descriptive-process-forms.md)                                  | 05                                                                         | 79, 80, 81, 82, 83, 85, 86, 88                               |
+| [17 - Edit descriptive state machines](17-edit-descriptive-state-machine-forms.md)                                              | 05                                                                         | 79, 80, 81, 84, 85, 86, 88                                   |
+| [18 - Delete elements precisely and clean affected views](18-delete-elements-and-clean-view-selections.md)                      | 05, 13                                                                     | 87, 94, 101                                                  |
+| [19 - Refactor identities, repair references, and collect orphaned support](19-refactor-repair-and-collect-orphaned-support.md) | 11, 12, 14, 18                                                             | 94, 101, 102, 103, 104                                       |
+| [20 - Install and verify the complete application on supported platforms](20-install-and-verify-packed-application.md)          | 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 | 9, 54, 117                                                   |
 
 ## Iteration and completion
 
