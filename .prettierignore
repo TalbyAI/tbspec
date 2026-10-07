@@ -1,0 +1,11 @@
+**/node_modules/
+**/dist/
+**/coverage/
+**/target/
+**/.m2/
+**/.tools/
+**/.worktrees/
+**/.firecrawl/
+**/fixtures/
+**/package-lock.json
+**/measurement.json

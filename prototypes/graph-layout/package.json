@@ -14,5 +14,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
-  "devDependencies": { "vite": "8.3.1" }
+  "devDependencies": {
+    "vite": "8.3.1"
+  }
 }

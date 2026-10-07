@@ -1,0 +1,36 @@
+{
+  "name": "tbspec",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "format": "npm run format:code && npm run format:docs",
+    "format:code": "biome check --write --error-on-warnings --diagnostic-level=warn .",
+    "format:docs": "prettier --write \"**/*.{md,markdown,yml,yaml}\" && markdownlint-cli2 --fix",
+    "lint": "biome lint --error-on-warnings --diagnostic-level=warn . && markdownlint-cli2",
+    "check": "npm run check:code && npm run check:docs",
+    "check:code": "biome ci --error-on-warnings --diagnostic-level=warn .",
+    "check:docs": "prettier --check \"**/*.{md,markdown,yml,yaml}\" && markdownlint-cli2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "husky": "9.1.7",
+    "lint-staged": "17.6.0",
+    "markdownlint-cli2": "0.23.3",
+    "prettier": "3.9.9"
+  },
+  "overrides": {
+    "smol-toml": "1.9.0"
+  },
+  "lint-staged": {
+    "*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,json,jsonc,css,graphql,gql}": "biome check --write --error-on-warnings --diagnostic-level=warn --no-errors-on-unmatched",
+    "*.{md,markdown}": [
+      "prettier --write",
+      "markdownlint-cli2 --fix --no-globs"
+    ],
+    "*.{yml,yaml}": "prettier --write"
+  }
+}
