@@ -19,6 +19,43 @@ function osIdentity(provider: string, value: string): string {
   if (!value) throw new Error("OS identity unavailable.");
   return `os:v1:${Buffer.from(canonical({ provider, value })).toString("base64url")}`;
 }
+function macOSTimeval(bytes: Buffer): string {
+  const seconds = bytes.readBigInt64LE(0);
+  // Darwin user64_timeval has a signed 32-bit tv_usec followed by padding.
+  const micros = bytes.readInt32LE(8);
+  if (seconds <= 0n || seconds > BigInt(Number.MAX_SAFE_INTEGER) || micros < 0 || micros >= 1000000)
+    throw new Error("Invalid macOS OS timestamp.");
+  return `${seconds}:${micros}`;
+}
+export function parseMacOSIdentity(
+  host: string,
+  boot: Buffer,
+  processRecord: Buffer,
+  pid: number,
+): ProcessIdentity {
+  const hosts = [...host.matchAll(/"IOPlatformUUID"\s*=\s*"([^"]*)"/g)];
+  const uuid = hosts[0]?.[1];
+  if (
+    hosts.length !== 1 ||
+    !uuid ||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(uuid) ||
+    boot.length !== 16 ||
+    processRecord.length !== 648 ||
+    !Number.isSafeInteger(pid) ||
+    pid <= 0 ||
+    processRecord.readInt32LE(40) !== pid ||
+    ![2, 3, 4].includes(processRecord.readInt8(36))
+  )
+    throw new Error("Incomplete or unsupported macOS process identity.");
+  // LP64 user64_kinfo_proc: start timeval at 0, status at 36, pid at 40.
+  // Reject other layouts rather than guessing offsets or falling back to ps/PID.
+  return {
+    hostId: osIdentity("macos-platform-uuid", uuid.toUpperCase()),
+    bootId: osIdentity("macos-kernel-boot-time", macOSTimeval(boot)),
+    pid,
+    processStartId: osIdentity("macos-kinfo-proc64-start-time", macOSTimeval(processRecord)),
+  };
+}
 let ownIdentity: Promise<ProcessIdentity> | undefined;
 export async function processIdentity(pid = process.pid): Promise<ProcessIdentity> {
   if (pid !== process.pid) return readProcessIdentity(pid);
@@ -68,6 +105,15 @@ async function readProcessIdentity(pid: number): Promise<ProcessIdentity> {
       pid,
       processStartId: osIdentity("linux-proc-start-ticks", fields[19] ?? ""),
     };
+  }
+  if (process.platform === "darwin" && ["arm64", "x64"].includes(process.arch)) {
+    const options = { timeout: 10000, maxBuffer: 65536, encoding: "buffer" as const };
+    const [host, boot, processRecord] = await Promise.all([
+      execute("/usr/sbin/ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], options),
+      execute("/usr/sbin/sysctl", ["-b", "kern.boottime"], options),
+      execute("/usr/sbin/sysctl", ["-b", `kern.proc.pid.${pid}`], options),
+    ]);
+    return parseMacOSIdentity(host.stdout.toString("utf8"), boot.stdout, processRecord.stdout, pid);
   }
   throw new Error(`Full OS process identity is not implemented for ${process.platform}.`);
 }

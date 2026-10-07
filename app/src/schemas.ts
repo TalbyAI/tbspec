@@ -89,13 +89,14 @@ function integer(value: unknown, minimum: number) {
 function digest(value: unknown) {
   if (!digestPattern.test(string(value))) invalid("Invalid SHA-256 digest.");
 }
-function hasCredentials(url: URL): boolean {
-  if (url.username || url.password) return true;
-  return [...url.searchParams.keys()].some((name) =>
-    /^(?:(?:access|refresh|id|auth|oauth)?token|(?:api|access|secret|private)?key|(?:client)?secret|password|passwd|authorization|auth|credentials?|signature|sig|xamzcredential|xamzsignature|xgoogcredential|xgoogsignature)$/.test(
-      name.replace(/[^a-z0-9]/gi, "").toLowerCase(),
-    ),
-  );
+function httpLocator(value: unknown): URL {
+  const url = new URL(string(value));
+  if (!["http:", "https:"].includes(url.protocol)) invalid("URL source requires HTTP(S).");
+  if (url.username || url.password || url.href.includes("?") || url.href.includes("#"))
+    invalid(
+      "Persisted HTTP(S) URLs require a stable locator without userinfo, query strings or fragments. Use transient or external authentication; do not strip credentials to fabricate a locator.",
+    );
+  return url;
 }
 function array(value: unknown): unknown[] {
   if (!Array.isArray(value)) invalid("Expected an array.");
@@ -353,9 +354,13 @@ export function parseLock(text: string, bundled = false): Lock {
         );
         const locator = string(source.locator);
         path(source.selected_resource);
-        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(locator)) {
+        const parsedLocator = URL.canParse(locator) ? new URL(locator) : undefined;
+        if (parsedLocator && ["http:", "https:"].includes(parsedLocator.protocol))
+          httpLocator(locator);
+        else if (/^[a-z][a-z0-9+.-]*:\/\//i.test(locator)) {
           const url = new URL(locator);
-          if (hasCredentials(url) || url.hash) invalid("Source locator may contain credentials.");
+          if (url.username || url.password || url.hash)
+            invalid("Source locator may contain credentials.");
         }
         if (source.kind === "bundle") {
           string(source.release);
@@ -370,16 +375,8 @@ export function parseLock(text: string, bundled = false): Lock {
         if (source.kind === "url") {
           if (!/^resource\.(?:ttl|nt|rdf)$/.test(string(source.selected_resource)))
             invalid("URL selection requires resource.<ttl|nt|rdf>.");
-          const requested = new URL(locator);
-          if (!["http:", "https:"].includes(requested.protocol))
-            invalid("URL source requires HTTP(S).");
-          const effective = new URL(string(source.effective_locator));
-          if (
-            !["http:", "https:"].includes(effective.protocol) ||
-            hasCredentials(effective) ||
-            effective.hash
-          )
-            invalid("Unsafe effective URL.");
+          httpLocator(locator);
+          httpLocator(source.effective_locator);
         }
         if (
           source.kind === "directory" &&
@@ -480,6 +477,7 @@ export function parseLock(text: string, bundled = false): Lock {
         iri(file.graph_iri);
         iri(file.source_graph_iri);
         iri(file.base_iri);
+        if (/^https?:/i.test(String(file.base_iri))) httpLocator(file.base_iri);
         digest(file.byte_digest);
         digest(file.graph_signature);
         integer(file.byte_length, 0);

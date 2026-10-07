@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fork, spawn } from "node:child_process";
+import { fork, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,6 +14,42 @@ const interrupted = fileURLToPath(new URL("fixtures/transaction-holder.ts", impo
 async function root() {
   return fs.mkdtemp(join(tmpdir(), "tbspec-ownership-"));
 }
+test("unavailable process identity fails before creating coordination files and preserves existing evidence", async () => {
+  const lockModule = new URL("../src/lock.ts", import.meta.url).href;
+  const script = `
+    Object.defineProperty(process, "platform", { value: "unsupported-test-platform" });
+    const { acquireLock } = await import(${JSON.stringify(lockModule)});
+    try {
+      await acquireLock(process.argv[1]);
+      process.exitCode = 1;
+    } catch (error) {
+      console.log(JSON.stringify({ status: error.status, message: error.message }));
+    }
+  `;
+  for (const existing of [false, true]) {
+    const project = await root();
+    const directory = join(project, ".tbspec");
+    const filename = join(directory, "operation.lock");
+    const partial = '{"recordVersion":1,';
+    if (existing) {
+      await fs.mkdir(directory);
+      await fs.writeFile(filename, partial);
+    }
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", script, project], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 10000,
+    });
+    assert.equal(child.status, 0, child.stderr);
+    const result = JSON.parse(child.stdout);
+    assert.equal(result.status, "unavailable");
+    if (existing) assert.equal(await fs.readFile(filename, "utf8"), partial);
+    else await assert.rejects(fs.access(directory), { code: "ENOENT" });
+    assert.match(result.message, /identity.*unavailable/i);
+    assert.doesNotMatch(result.message, /clearing|manual recovery/i);
+  }
+});
+
 test("process interruption retains before-images and blocks normal operations without replay", async () => {
   const project = await root();
   await fs.writeFile(join(project, "a.ttl"), "original A");

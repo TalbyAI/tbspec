@@ -12,10 +12,11 @@ permissions:
 jobs:
   application:
     name: Node 24 application (${{ matrix.os }})
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -35,5 +36,8 @@ jobs:
         run: npm ci
       - name: Typecheck and compile
         run: npm run typecheck && npm run build
+      - name: Verify native macOS process identity
+        if: runner.os == 'macOS'
+        run: node --test tests/macos-ownership.test.ts
       - name: Test public operations and processes
         run: npm test

@@ -15,6 +15,16 @@ export async function acquireLock(
   root: string,
   fs: FileSystem = nativeFileSystem,
 ): Promise<Ownership> {
+  let identity: ProcessIdentity;
+  try {
+    identity = await processIdentity();
+  } catch {
+    throw new ProjectError(
+      "unavailable",
+      "IO_FAILURE",
+      "Full OS process identity is unavailable. Check the platform identity facilities and permissions before retrying; no coordination file was created.",
+    );
+  }
   await fs.mkdir(await safePath(root, ".tbspec", true), { recursive: true, mode: 0o700 });
   const target = await safePath(root, ".tbspec/operation.lock", true);
   let handle: FileHandle;
@@ -51,7 +61,7 @@ export async function acquireLock(
     ownership = {
       recordVersion: 1,
       acquisitionId: token(),
-      ...(await processIdentity()),
+      ...identity,
       createdAt: new Date().toISOString(),
     };
     await handle.writeFile(canonical(ownership));

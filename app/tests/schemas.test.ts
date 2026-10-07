@@ -129,8 +129,8 @@ test("missing and incompatible schemas, malformed semantic locks and corruption 
   assert.ok(urlSource && urlFile);
   Object.assign(urlSource, {
     kind: "url",
-    locator: "https://example.org/download?format=ttl",
-    effective_locator: "https://example.org/download?format=ttl",
+    locator: "https://example.org/download.ttl",
+    effective_locator: "https://example.org/download.ttl",
     selected_resource: "resource.ttl",
   });
   delete urlSource.release;
@@ -143,7 +143,7 @@ test("missing and incompatible schemas, malformed semantic locks and corruption 
   for (const field of ["locator", "effective_locator"]) {
     const safe = urlSource[field];
     urlSource[field] = "https://example.org/download?api_key=private";
-    assert.throws(() => parseLock(writeToml(urlLock)), /credential|Unsafe effective URL/);
+    assert.throws(() => parseLock(writeToml(urlLock)), /query strings/);
     urlSource[field] = safe;
   }
   urlSource.selected_resource = "resource.json";

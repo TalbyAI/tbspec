@@ -52,7 +52,7 @@ const tree: Record<string, Guidance> = {
     topics: [],
   },
   dependencies: {
-    text: "Init copies immutable 0.1.0 releases, standard vocabularies and attributed P-Plan 1.3 into versionable .tbspec/dependencies snapshots. The lock binds exact original bytes, parser bases, identities, signatures and source contexts. No network acquisition occurs. Dependency list/show/check/update commands arrive in later tickets; use list/show for live inspection once available.",
+    text: "Init copies immutable 0.1.0 releases, standard vocabularies and attributed P-Plan 1.3 into versionable .tbspec/dependencies snapshots. The lock binds exact original bytes, parser bases, identities, signatures and source contexts. Persisted HTTP(S) locators and parser bases reject userinfo, query strings and fragments; use transient or external authentication, not signed/query-bearing URLs. URL syntax cannot identify every secret in a path or host. No network acquisition occurs. Dependency list/show/check/update commands arrive in later tickets; use list/show for live inspection once available.",
     topics: [
       {
         invocation: "tbspec llms projects init",
