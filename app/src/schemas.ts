@@ -359,7 +359,8 @@ export function parseLock(text: string, bundled = false): Lock {
           httpLocator(locator);
         else if (/^[a-z][a-z0-9+.-]*:\/\//i.test(locator)) {
           const url = new URL(locator);
-          if (url.username || url.password || url.hash)
+          const sshAccount = url.protocol === "ssh:" || url.protocol === "git+ssh:";
+          if ((url.username && !sshAccount) || url.password || url.hash)
             invalid("Source locator may contain credentials.");
         }
         if (source.kind === "bundle") {

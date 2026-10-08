@@ -9,9 +9,8 @@
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 
 <https://talby.ai/ontology/tbspec> a owl:Ontology ; owl:versionIRI <https://talby.ai/ontology/tbspec/0.1.0> ; rdfs:label "tbspec vocabulary"@en .
-<https://talby.ai/ontology/tbspec> owl:imports <http://www.w3.org/1999/02/22-rdf-syntax-ns> .
-<https://talby.ai/ontology/tbspec> owl:imports <http://www.w3.org/2000/01/rdf-schema> .
-<https://talby.ai/ontology/tbspec> owl:imports <http://www.w3.org/2002/07/owl> .
+<https://talby.ai/ontology/tbspec> owl:imports <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+<https://talby.ai/ontology/tbspec> owl:imports <http://www.w3.org/2000/01/rdf-schema#> .
 tbspec:Model a owl:Class ; rdfs:label "Model"@en ; rdfs:comment "A domain-model graph."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
 tbspec:DataModel a owl:Class ; rdfs:label "Data Model"@en ; rdfs:comment "A domain model of data."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .
 tbspec:ConceptualDataModel a owl:Class ; rdfs:label "Conceptual Data Model"@en ; rdfs:comment "A model describing data classes and properties."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/tbspec> .

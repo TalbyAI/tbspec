@@ -9,9 +9,8 @@
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 
 <https://talby.ai/ontology/state-machine> a owl:Ontology ; owl:versionIRI <https://talby.ai/ontology/state-machine/0.1.0> ; rdfs:label "sm vocabulary"@en .
-<https://talby.ai/ontology/state-machine> owl:imports <http://www.w3.org/1999/02/22-rdf-syntax-ns> .
-<https://talby.ai/ontology/state-machine> owl:imports <http://www.w3.org/2000/01/rdf-schema> .
-<https://talby.ai/ontology/state-machine> owl:imports <http://www.w3.org/2002/07/owl> .
+<https://talby.ai/ontology/state-machine> owl:imports <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+<https://talby.ai/ontology/state-machine> owl:imports <http://www.w3.org/2000/01/rdf-schema#> .
 sm:StateMachine a owl:Class ; rdfs:label "State Machine"@en ; rdfs:comment "A descriptive collection of states and transitions."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
 sm:State a owl:Class ; rdfs:label "State"@en ; rdfs:comment "A condition or mode of a subject within one machine."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
 sm:InitialState a owl:Class ; rdfs:label "Initial State"@en ; rdfs:comment "An optional designated starting state."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .

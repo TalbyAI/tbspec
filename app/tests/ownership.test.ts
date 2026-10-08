@@ -14,6 +14,57 @@ const interrupted = fileURLToPath(new URL("fixtures/transaction-holder.ts", impo
 async function root() {
   return fs.realpath(await fs.mkdtemp(join(tmpdir(), "tbspec-ownership-")));
 }
+test("own process identity retries after a failed lookup and caches a successful lookup", () => {
+  const module = new URL("../src/ownership.ts", import.meta.url).href;
+  const script = `
+    import assert from "node:assert/strict";
+    const platform = process.platform;
+    Object.defineProperty(process, "platform", { value: "unsupported-test-platform" });
+    const { processIdentity } = await import(${JSON.stringify(module)});
+    await assert.rejects(processIdentity(), /not implemented/);
+    Object.defineProperty(process, "platform", { value: platform });
+    const identity = await processIdentity();
+    assert.equal(identity.pid, process.pid);
+    Object.defineProperty(process, "platform", { value: "unsupported-test-platform" });
+    assert.deepEqual(await processIdentity(), identity);
+  `;
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 20000,
+  });
+  assert.equal(child.status, 0, child.stderr);
+});
+test("Linux exited process states cannot verify lock ownership", () => {
+  const module = new URL("../src/ownership.ts", import.meta.url).href;
+  const script = `
+    import assert from "node:assert/strict";
+    import fs from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    Object.defineProperty(process, "platform", { value: "linux" });
+    let state = "S";
+    fs.readFile = async (path) => {
+      if (path === "/etc/machine-id") return "host";
+      if (path === "/proc/sys/kernel/random/boot_id") return "boot";
+      assert.equal(path, "/proc/123/stat");
+      return "123 (name with ) parentheses) " + [state, ...Array(18).fill("0"), "42"].join(" ");
+    };
+    syncBuiltinESMExports();
+    const { processIdentity, verifyIdentity } = await import(${JSON.stringify(module)});
+    const identity = await processIdentity(123);
+    assert.equal(await verifyIdentity(identity), true);
+    for (state of ["Z", "X"]) {
+      await assert.rejects(processIdentity(123), /not live/);
+      assert.equal(await verifyIdentity(identity), false);
+    }
+  `;
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 10000,
+  });
+  assert.equal(child.status, 0, child.stderr);
+});
 test("unavailable process identity fails before creating coordination files and preserves existing evidence", async () => {
   const lockModule = new URL("../src/lock.ts", import.meta.url).href;
   const script = `

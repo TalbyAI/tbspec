@@ -90,7 +90,10 @@ export async function readMacOSProcessRecord(pid: number): Promise<Buffer> {
 let ownIdentity: Promise<ProcessIdentity> | undefined;
 export async function processIdentity(pid = process.pid): Promise<ProcessIdentity> {
   if (pid !== process.pid) return readProcessIdentity(pid);
-  ownIdentity ??= readProcessIdentity(pid);
+  ownIdentity ??= readProcessIdentity(pid).catch((error: unknown) => {
+    ownIdentity = undefined;
+    throw error;
+  });
   return ownIdentity;
 }
 async function readProcessIdentity(pid: number): Promise<ProcessIdentity> {
@@ -130,6 +133,7 @@ async function readProcessIdentity(pid: number): Promise<ProcessIdentity> {
       readFile(`/proc/${pid}/stat`, "utf8"),
     ]);
     const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    if (fields[0] === "Z" || fields[0] === "X") throw new Error("Linux process is not live.");
     return {
       hostId: osIdentity("linux-machine-id", host.trim()),
       bootId: osIdentity("linux-boot-id", boot.trim()),

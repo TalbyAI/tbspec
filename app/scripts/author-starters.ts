@@ -135,10 +135,7 @@ const terms: Record<
 for (const [prefix, definition] of Object.entries(terms)) {
   const root = ns[prefix as keyof typeof ns].slice(0, -1);
   let text = `${prefixes}\n\n<${root}> a owl:Ontology ; owl:versionIRI <${root}/0.1.0> ; rdfs:label ${JSON.stringify(`${prefix} vocabulary`)}@en .\n`;
-  const imports =
-    prefix === "proc"
-      ? ["http://purl.org/net/p-plan#"]
-      : [ns.rdf.slice(0, -1), ns.rdfs.slice(0, -1), ns.owl.slice(0, -1)];
+  const imports = prefix === "proc" ? ["http://purl.org/net/p-plan#"] : [ns.rdf, ns.rdfs];
   for (const imported of imports) text += `<${root}> owl:imports <${imported}> .\n`;
   for (const [type, entries] of [
     ["Class", definition.classes],

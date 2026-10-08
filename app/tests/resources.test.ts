@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Parser } from "n3";
 import { validateStarterGraph } from "../src/starter-validation.ts";
 import { loadStarters } from "../src/starters.ts";
 
@@ -26,6 +27,30 @@ test("immutable bundles have exact identities, attributed P-Plan 1.3 and indepen
   assert.match(pplan, /creativecommons.org\/licenses\/by\/4.0/);
   assert.match(pplan, /isPrecededBy/);
   assert.doesNotMatch(pplan, /isPreceededBy/);
+});
+test("authored ontology imports match bundled roots and exclude the OWL Full vocabulary", async () => {
+  const bundle = await loadStarters();
+  for (const name of ["metadata", "process", "state-machine"]) {
+    const dependency = bundle.lock.dependencies[`tbspec-${name}`];
+    assert.ok(dependency);
+    const bytes = bundle.files[`${dependency.snapshot_path}/${dependency.primary}`];
+    assert.ok(bytes);
+    const imports = new Parser()
+      .parse(bytes.toString("utf8"))
+      .filter((quad) => quad.predicate.value === "http://www.w3.org/2002/07/owl#imports")
+      .map((quad) => quad.object.value);
+    assert.deepEqual(
+      imports,
+      name === "process"
+        ? ["http://purl.org/net/p-plan#"]
+        : ["http://www.w3.org/1999/02/22-rdf-syntax-ns#", "http://www.w3.org/2000/01/rdf-schema#"],
+    );
+    for (const imported of imports)
+      assert.ok(
+        dependency.files.some((file) => file.graph_iri === imported),
+        imported,
+      );
+  }
 });
 test("empty starters, shared plans, inverse variables and descriptive state cycles validate offline", async () => {
   const cases: [string, string][] = [

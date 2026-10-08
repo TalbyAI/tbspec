@@ -95,11 +95,19 @@ test("Git HTTPS provenance follows the same query policy and SSH account names r
     "https://example.org/repo.git?format=public",
     " https://example.org/repo.git?session=synthetic-secret",
     "ht\ttps://example.org/repo.git?session=synthetic-secret",
+    "ssh://git:synthetic-secret@example.org/repo.git",
+    "ssh://git@example.org/repo.git#synthetic-secret",
+    "git+ssh://git:synthetic-secret@example.org/repo.git",
   ]) {
     source.locator = locator;
     assert.throws(() => parseLock(writeToml(lock), true), /query|credential/i);
   }
-  for (const locator of ["https://example.org/repo.git", "git@example.org:repo.git"]) {
+  for (const locator of [
+    "https://example.org/repo.git",
+    "git@example.org:repo.git",
+    "ssh://git@example.org/repo.git",
+    "git+ssh://git@example.org/repo.git",
+  ]) {
     source.locator = locator;
     assert.doesNotThrow(() => parseLock(writeToml(lock), true));
   }
