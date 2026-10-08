@@ -1,6 +1,6 @@
 import { posix, win32 } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { parse, stringify } from "smol-toml";
+import { parse, stringify, TomlError } from "smol-toml";
 import { digest as bytesDigest, canonical, graphSignature, hash, sortedSet } from "./canonical.ts";
 import { ProjectError } from "./output.ts";
 import { absoluteIri, id, portablePath } from "./paths.ts";
@@ -93,16 +93,23 @@ function boolean(value: unknown) {
   if (typeof value !== "boolean") invalid("Expected boolean.");
 }
 function integer(value: unknown, minimum: number) {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum)
+  if (typeof value !== "bigint" || !Number.isSafeInteger(Number(value)) || value < minimum)
     invalid("Expected a safe integer in range.");
 }
 function digest(value: unknown) {
   if (!digestPattern.test(string(value))) invalid("Invalid SHA-256 digest.");
 }
 function httpLocator(value: unknown): URL {
-  const url = new URL(string(value));
+  const raw = string(value);
+  const url = new URL(raw);
   if (!["http:", "https:"].includes(url.protocol)) invalid("URL source requires HTTP(S).");
-  if (url.username || url.password || url.href.includes("?") || url.href.includes("#"))
+  if (
+    url.username ||
+    url.password ||
+    /^https?:[/\\]*[^/\\?#]*@/i.test(raw.replace(/[\t\n\r]/g, "").trim()) ||
+    url.href.includes("?") ||
+    url.href.includes("#")
+  )
     invalid(
       "Persisted HTTP(S) URLs require a stable locator without userinfo, query strings or fragments. Use transient or external authentication; do not strip credentials to fabricate a locator.",
     );
@@ -115,15 +122,20 @@ function array(value: unknown): unknown[] {
 function strings(value: unknown): string[] {
   return sortedSet(array(value).map(string));
 }
-function checkIntegers(value: unknown): void {
+function normalizeIntegers(value: unknown): unknown {
+  if (typeof value === "bigint") {
+    if (!Number.isSafeInteger(Number(value))) invalid("Integer exceeds the exact wire range.");
+    return Number(value);
+  }
   if (typeof value === "number" && Number.isInteger(value) && !Number.isSafeInteger(value))
     invalid("Integer exceeds the exact wire range.");
-  if (Array.isArray(value)) for (const item of value) checkIntegers(item);
+  if (Array.isArray(value)) return value.map(normalizeIntegers);
   else if (value && typeof value === "object")
-    for (const item of Object.values(value)) checkIntegers(item);
+    for (const [key, item] of Object.entries(value)) (value as Row)[key] = normalizeIntegers(item);
+  return value;
 }
 function version(row: Row, file: string) {
-  if (row.schema_version !== 1)
+  if (row.schema_version !== 1n)
     throw new ProjectError(
       "invalid",
       "SCHEMA_UNSUPPORTED",
@@ -154,9 +166,8 @@ function modelType(value: unknown, defaultRow: boolean): ModelType {
 }
 export function parseManifest(text: string): Row {
   try {
-    const row = object(parse(text));
+    const row = object(parse(text, { integersAsBigInt: true }));
     version(row, "tbspec.toml");
-    checkIntegers(row);
     if (row.base_iri !== undefined && (!absoluteIri(row.base_iri) || !/[#/]$/.test(row.base_iri)))
       invalid("base_iri must be an absolute IRI ending in / or #.");
     if (row.model_types !== undefined)
@@ -200,6 +211,7 @@ export function parseManifest(text: string): Row {
           ].includes(key)
         )
           integer(value, key === "max_redirects" ? 0 : 1);
+    normalizeIntegers(row);
     return row;
   } catch (error) {
     if (error instanceof ProjectError && error.diagnostic.code === "SCHEMA_UNSUPPORTED")
@@ -207,7 +219,11 @@ export function parseManifest(text: string): Row {
     throw new ProjectError(
       "invalid",
       "MANIFEST_INVALID",
-      error instanceof Error ? error.message : "Invalid manifest.",
+      error instanceof TomlError
+        ? `Invalid TOML at line ${error.line}, column ${error.column}.`
+        : error instanceof Error
+          ? error.message
+          : "Invalid manifest.",
       "tbspec.toml",
     );
   }
@@ -295,9 +311,8 @@ export function interpretationSignature(dependency: Dependency): string {
 }
 export function parseLock(text: string, bundled = false): Lock {
   try {
-    const row = object(parse(text));
+    const row = object(parse(text, { integersAsBigInt: true }));
     version(row, bundled ? "inventory.toml" : "tbspec.lock");
-    checkIntegers(row);
     fields(row, ["schema_version", "starters", "dependencies"], bundled ? ["release"] : []);
     if (bundled && row.release !== "0.1.0") invalid("Unavailable starter release.");
     const starters = object(row.starters);
@@ -412,6 +427,7 @@ export function parseLock(text: string, bundled = false): Lock {
               : source.requested_ref === undefined
           )
             invalid("Invalid requested ref.");
+          if (source.revision_kind !== "default") string(source.requested_ref);
           if (source.revision_kind === "commit" && source.requested_ref !== source.resolved_commit)
             invalid("Commit policy mismatch.");
         }
@@ -600,23 +616,36 @@ export function parseLock(text: string, bundled = false): Lock {
         if (keys.get(choice.selected as string)?.kind !== choice.kind)
           invalid("Choice kind mismatch.");
       }
-      const attachments = new Set<string>();
+      const attachments = new Map<string, Row>();
       for (const value of array(dep.attachments)) {
         const attachment = object(value);
         fields(attachment, ["id", "role", "resource", "source", "primary", "active"]);
         const name = id(string(attachment.id));
         if (attachments.has(name)) invalid("Duplicate attachment.");
-        attachments.add(name);
+        attachments.set(name, attachment);
         enumeration(attachment.role, ["shacl", "design"]);
         reference(attachment.resource);
         reference(attachment.primary);
+        if (
+          keys.get(attachment.primary as string)?.kind !==
+          (attachment.role === "shacl" ? "shapes" : "design")
+        )
+          invalid("Attachment support kind mismatch.");
         if (!sourceIds.has(path(attachment.source))) invalid("Attachment source missing.");
         boolean(attachment.active);
       }
       for (const value of array(dep.associations)) {
         const association = object(value);
-        if (association.origin === "manual" && !attachments.has(association.attachment as string))
-          invalid("Association attachment missing.");
+        if (association.origin === "manual") {
+          const attachment = attachments.get(association.attachment as string);
+          if (!attachment) invalid("Association attachment missing.");
+          if (
+            attachment.role !== association.role ||
+            attachment.resource !== association.resource ||
+            attachment.primary !== association.support
+          )
+            invalid("Attachment contradicts its association.");
+        }
       }
       const dependency = dep as unknown as Dependency;
       if (interpretationSignature(dependency) !== dependency.interpretation_signature)
@@ -654,6 +683,7 @@ export function parseLock(text: string, bundled = false): Lock {
       resolve(type.ontology, "ontology");
       if (type.design !== undefined) resolve(type.design, "design");
     }
+    normalizeIntegers(row);
     return row as unknown as Lock;
   } catch (error) {
     if (error instanceof ProjectError && error.diagnostic.code === "SCHEMA_UNSUPPORTED")
@@ -661,7 +691,11 @@ export function parseLock(text: string, bundled = false): Lock {
     throw new ProjectError(
       "invalid",
       "LOCK_INVALID",
-      error instanceof Error ? error.message : "Invalid lock.",
+      error instanceof TomlError
+        ? `Invalid TOML at line ${error.line}, column ${error.column}.`
+        : error instanceof Error
+          ? error.message
+          : "Invalid lock.",
       bundled ? "inventory.toml" : "tbspec.lock",
     );
   }

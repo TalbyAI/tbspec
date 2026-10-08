@@ -1062,6 +1062,27 @@ test("CLI authors and inspects every model family and imports locked vocabulary 
   );
   assert.equal(accepted.status, 0, accepted.stderr);
 });
+
+test("CLI malformed TOML never echoes URL secrets to stdout or stderr", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "tbspec-cli-secret-"));
+  const text =
+    'schema_version = 1\nlocator = "https://user:synthetic-secret@example.org/?token=synthetic-secret" trailing';
+  for (const file of ["tbspec.toml", "tbspec.lock"]) {
+    const root = join(parent, file);
+    await mkdir(root);
+    await writeFile(join(root, file), text);
+    const result = invoke(["init", root], parent);
+    assert.equal(result.status, 1);
+    assert.equal(result.envelope.status, "invalid");
+    assert.equal(result.envelope.diagnostics[0].file, file);
+    for (const output of [result.stdout, result.stderr]) {
+      assert.match(output, /line 2, column \d+/);
+      assert.ok(!output.includes("synthetic-secret"));
+      assert.ok(!output.includes("https://"));
+    }
+    assert.equal(await readFile(join(root, file), "utf8"), text);
+  }
+});
 test("help/version, argument errors and recursive llms produce exactly one envelope without a project", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "tbspec-cli-"));
   for (const args of [

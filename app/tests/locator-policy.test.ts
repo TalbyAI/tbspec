@@ -16,7 +16,7 @@ async function urlInventory() {
   assert.ok(source && file);
   Object.assign(source, {
     kind: "url",
-    locator: "https://example.org/resource.ttl",
+    locator: "https://example.org/path@name/resource.ttl",
     effective_locator: "https://cdn.example.org/resource.ttl",
     selected_resource: "resource.ttl",
   });
@@ -42,6 +42,11 @@ test("HTTP source URLs reject all queries, fragments and userinfo without exposi
       "https://example.org/resource.ttl#",
       "https://user:synthetic-secret@example.org/resource.ttl",
       "https://user@example.org/resource.ttl",
+      "https://@example.org/resource.ttl",
+      "https://:@example.org/resource.ttl",
+      " ht\ttps://:@example.org/resource.ttl",
+      "https:\\\\@example.org/resource.ttl",
+      "https:@example.org/resource.ttl",
       "https:example.org/resource.ttl?session=synthetic-secret",
     ]) {
       source[field] = unsafe;
@@ -67,6 +72,8 @@ test("HTTP parser bases cannot persist transport credentials and RDF identities 
   for (const base of [
     "https://example.org/resource.ttl?session=synthetic-secret",
     "https://user:synthetic-secret@example.org/resource.ttl",
+    "https://@example.org/resource.ttl",
+    "https://:@example.org/resource.ttl",
   ]) {
     file.base_iri = base;
     file.graph_signature = graphSignature(file);
@@ -98,9 +105,11 @@ test("Git HTTPS provenance follows the same query policy and SSH account names r
     "ssh://git:synthetic-secret@example.org/repo.git",
     "ssh://git@example.org/repo.git#synthetic-secret",
     "git+ssh://git:synthetic-secret@example.org/repo.git",
+    "https://@example.org/repo.git",
+    "https://:@example.org/repo.git",
   ]) {
     source.locator = locator;
-    assert.throws(() => parseLock(writeToml(lock), true), /query|credential/i);
+    assert.throws(() => parseLock(writeToml(lock), true), /query|userinfo|credential/i);
   }
   for (const locator of [
     "https://example.org/repo.git",
@@ -111,4 +120,28 @@ test("Git HTTPS provenance follows the same query policy and SSH account names r
     source.locator = locator;
     assert.doesNotThrow(() => parseLock(writeToml(lock), true));
   }
+});
+
+test("Git requested refs require nonempty strings and obey revision policy", async () => {
+  const { lock, source } = await urlInventory();
+  source.kind = "git";
+  delete source.effective_locator;
+  source.revision_kind = "ref";
+  source.resolved_commit = "a".repeat(40);
+  for (const ref of [true, 42, {}, ""]) {
+    source.requested_ref = ref;
+    assert.throws(() => parseLock(writeToml(lock), true), /string|ref/i);
+  }
+  source.requested_ref = "refs/heads/main";
+  assert.doesNotThrow(() => parseLock(writeToml(lock), true));
+  delete source.requested_ref;
+  assert.throws(() => parseLock(writeToml(lock), true), /ref/i);
+  source.revision_kind = "default";
+  assert.doesNotThrow(() => parseLock(writeToml(lock), true));
+  source.requested_ref = "refs/heads/main";
+  assert.throws(() => parseLock(writeToml(lock), true), /ref/i);
+  source.revision_kind = "commit";
+  assert.throws(() => parseLock(writeToml(lock), true), /Commit policy/);
+  source.requested_ref = source.resolved_commit;
+  assert.doesNotThrow(() => parseLock(writeToml(lock), true));
 });
