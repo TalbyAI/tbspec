@@ -1,0 +1,704 @@
+schema_version = 1
+release = "0.1.0"
+
+[starters]
+common_contract = "dep:tbspec-metadata"
+
+[starters.model_types.data]
+enabled = true
+ontology = "dep:tbspec-metadata"
+design = "dep:tbspec-data-design"
+
+[starters.model_types.process]
+enabled = true
+ontology = "dep:tbspec-process"
+design = "dep:tbspec-process-design"
+
+[starters.model_types.state-machine]
+enabled = true
+ontology = "dep:tbspec-state-machine"
+design = "dep:tbspec-state-machine-design"
+
+[dependencies.tbspec-metadata]
+kind = "ontology"
+primary = "source/tbspec.ttl"
+snapshot_path = ".tbspec/dependencies/tbspec-metadata"
+interpretation_signature = "sha256:5560c4ccfa1d4664a956de74abaae6c6bd189a24d5901d87d9b6c45b242502ae"
+bindings = []
+choices = []
+attachments = []
+
+[[dependencies.tbspec-metadata.sources]]
+id = "source"
+kind = "bundle"
+locator = "tbspec:bundle/starters/0.1.0"
+selected_resource = "tbspec.ttl"
+release = "0.1.0"
+attribution = "Talby tbspec contributors; W3C standard vocabulary definitions; Daniel Garijo and Yolanda Gil, P-Plan 1.3 (pinned source 773007a6d7ed2fb0054967008cc128fa5c48ca36). See SOURCES.md for exact file sources."
+license = "Talby resources: MIT; W3C vocabulary resources: W3C Document License; P-Plan 1.3: CC BY 4.0."
+
+[[dependencies.tbspec-metadata.files]]
+key = "source/tbspec.ttl"
+source = "source"
+source_resource = "tbspec.ttl"
+context = "source"
+roles = [ "primary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "https://talby.ai/ontology/tbspec"
+identity = "declared"
+source_graph_iri = "https://talby.ai/ontology/tbspec"
+byte_digest = "sha256:908ec7e17d1a7a4a592858aff2a05212d0de19ea6b89e6c871030b21daff7469"
+byte_length = 9210
+media_type = "text/turtle"
+base_iri = "https://talby.ai/ontology/tbspec"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:8ea8190f2d8d3b58f20d1b24a7dfbc0b708cf6467ab65e1581106a5e79f6a9bd"
+
+[[dependencies.tbspec-metadata.files]]
+key = "source/tbspec.shacl.ttl"
+source = "source"
+source_resource = "tbspec.shacl.ttl"
+context = "source"
+roles = [ "shacl" ]
+kind = "shapes"
+classification = "declared"
+graph_iri = "https://talby.ai/ontology/tbspec/0.1.0/shapes"
+identity = "declared"
+source_graph_iri = "https://talby.ai/ontology/tbspec/0.1.0/shapes"
+byte_digest = "sha256:4b2f7e2b8e6684e1c3fea79641605ec13f04762535695be9a679e19c45b913eb"
+byte_length = 15758
+media_type = "text/turtle"
+base_iri = "https://talby.ai/ontology/tbspec/0.1.0/shapes"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:d63839d88d9fef02660daf6c22982b486fd5de053091a57ef8b194bcd8a779cf"
+
+[[dependencies.tbspec-metadata.files]]
+key = "source/rdf.ttl"
+source = "source"
+source_resource = "rdf.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+byte_digest = "sha256:93d52b1a5824c7dd6504ca79c16205c0b740a0ba68b7a14952780f52561186a2"
+byte_length = 6004
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/1999/02/22-rdf-syntax-ns.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:2d1d4ef0d62e6d8e982c02323510fddb594b2f4e0148ee25cc3bbfbf5da855b9"
+
+[[dependencies.tbspec-metadata.files]]
+key = "source/rdfs.ttl"
+source = "source"
+source_resource = "rdfs.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/2000/01/rdf-schema#"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/2000/01/rdf-schema#"
+byte_digest = "sha256:ecee3a011b7c13ea2a7e40b0a208bfe6be53d69fdd53ee035e09e9f9e5108ad6"
+byte_length = 3790
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/2000/01/rdf-schema.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:4a09d5e0bb542058d501376046209aa47e24b5dd9e33c7d1a80132d7d7f785e3"
+
+[[dependencies.tbspec-metadata.files]]
+key = "source/owl.ttl"
+source = "source"
+source_resource = "owl.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/2002/07/owl"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/2002/07/owl"
+byte_digest = "sha256:718fa1db7840d3315bfce94398543f91437ef6fe933054fd93f5471d19262fc5"
+byte_length = 24545
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/2002/07/owl.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:e7b58f9f2abaea45b87680f4422b2e88daa8aa2104ddf3aaed21cbdf22502f77"
+
+[[dependencies.tbspec-metadata.files]]
+key = "source/xsd.ttl"
+source = "source"
+source_resource = "xsd.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "unclassified"
+classification = "unclassified"
+graph_iri = "urn:tbspec:graph:203fc834415cee5b67d134a7bbaeb27d39a98c3f8e61e4547026499efffd631c"
+identity = "generated"
+source_graph_iri = "urn:tbspec:graph:ae852a37c3b6524942869ba20a7617c51405d4042113256d627356d4335bfde5"
+byte_digest = "sha256:abb137d61a0b2c39817e357f13af6a969303f5a6e1d3b3e2fc8d6c55dcb79d04"
+byte_length = 2843
+media_type = "text/turtle"
+base_iri = "http://www.w3.org/2001/XMLSchema"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:27f11ad703751addf6818183c4646c00d76eea2528e030eb8336b6247eee9881"
+
+[[dependencies.tbspec-metadata.files]]
+key = "source/shacl.ttl"
+source = "source"
+source_resource = "shacl.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/ns/shacl#"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/ns/shacl#"
+byte_digest = "sha256:0e5d8aea0eab98a072d4a02faaee1ee914ec99eab2ca473429726faed4a13f69"
+byte_length = 52899
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/ns/shacl.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:63ea8719b7c247f9326d7a4fa6eafccefdd08d34836ae68488ae1b1fefd48e14"
+
+[[dependencies.tbspec-metadata.edges]]
+context = "source"
+from = "source/tbspec.ttl"
+relation = "vocabulary"
+to = "source/rdf.ttl"
+
+[[dependencies.tbspec-metadata.edges]]
+context = "source"
+from = "source/tbspec.ttl"
+relation = "vocabulary"
+to = "source/rdfs.ttl"
+
+[[dependencies.tbspec-metadata.edges]]
+context = "source"
+from = "source/tbspec.ttl"
+relation = "vocabulary"
+to = "source/owl.ttl"
+
+[[dependencies.tbspec-metadata.edges]]
+context = "source"
+from = "source/tbspec.ttl"
+relation = "vocabulary"
+to = "source/xsd.ttl"
+
+[[dependencies.tbspec-metadata.edges]]
+context = "source"
+from = "source/tbspec.ttl"
+relation = "vocabulary"
+to = "source/shacl.ttl"
+
+[[dependencies.tbspec-metadata.associations]]
+context = "source"
+resource = "source/tbspec.ttl"
+role = "shacl"
+support = "source/tbspec.shacl.ttl"
+origin = "source"
+active = true
+
+[dependencies.tbspec-process]
+kind = "ontology"
+primary = "source/proc.ttl"
+snapshot_path = ".tbspec/dependencies/tbspec-process"
+interpretation_signature = "sha256:5458e896828b22f64513389a4fa3ff9b4c21c8c63875e4d9739056f697c231c1"
+bindings = []
+choices = []
+attachments = []
+
+[[dependencies.tbspec-process.sources]]
+id = "source"
+kind = "bundle"
+locator = "tbspec:bundle/starters/0.1.0"
+selected_resource = "proc.ttl"
+release = "0.1.0"
+attribution = "Talby tbspec contributors; W3C standard vocabulary definitions; Daniel Garijo and Yolanda Gil, P-Plan 1.3 (pinned source 773007a6d7ed2fb0054967008cc128fa5c48ca36). See SOURCES.md for exact file sources."
+license = "Talby resources: MIT; W3C vocabulary resources: W3C Document License; P-Plan 1.3: CC BY 4.0."
+
+[[dependencies.tbspec-process.files]]
+key = "source/proc.ttl"
+source = "source"
+source_resource = "proc.ttl"
+context = "source"
+roles = [ "primary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "https://talby.ai/ontology/process"
+identity = "declared"
+source_graph_iri = "https://talby.ai/ontology/process"
+byte_digest = "sha256:aa45c319e7b1dd597235ed9ee008cec01b224671665e8fe837c37f861582dbb9"
+byte_length = 2026
+media_type = "text/turtle"
+base_iri = "https://talby.ai/ontology/process"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:0532d13be7d13ba75d8450ca86d985dd8559ad2ca16f494e00c651eb4325d345"
+
+[[dependencies.tbspec-process.files]]
+key = "source/proc.shacl.ttl"
+source = "source"
+source_resource = "proc.shacl.ttl"
+context = "source"
+roles = [ "shacl" ]
+kind = "shapes"
+classification = "declared"
+graph_iri = "https://talby.ai/ontology/process/0.1.0/shapes"
+identity = "declared"
+source_graph_iri = "https://talby.ai/ontology/process/0.1.0/shapes"
+byte_digest = "sha256:d837dd8f9d97ba23d2c2267795322cb9691df54547944d96dbe6b0c0dce23358"
+byte_length = 4935
+media_type = "text/turtle"
+base_iri = "https://talby.ai/ontology/process/0.1.0/shapes"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:0000c3c7ba7e4bbb35b5cbc663742e28ed83568540f22880becaee1e3854ddcd"
+
+[[dependencies.tbspec-process.files]]
+key = "source/rdf.ttl"
+source = "source"
+source_resource = "rdf.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+byte_digest = "sha256:93d52b1a5824c7dd6504ca79c16205c0b740a0ba68b7a14952780f52561186a2"
+byte_length = 6004
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/1999/02/22-rdf-syntax-ns.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:2d1d4ef0d62e6d8e982c02323510fddb594b2f4e0148ee25cc3bbfbf5da855b9"
+
+[[dependencies.tbspec-process.files]]
+key = "source/rdfs.ttl"
+source = "source"
+source_resource = "rdfs.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/2000/01/rdf-schema#"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/2000/01/rdf-schema#"
+byte_digest = "sha256:ecee3a011b7c13ea2a7e40b0a208bfe6be53d69fdd53ee035e09e9f9e5108ad6"
+byte_length = 3790
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/2000/01/rdf-schema.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:4a09d5e0bb542058d501376046209aa47e24b5dd9e33c7d1a80132d7d7f785e3"
+
+[[dependencies.tbspec-process.files]]
+key = "source/owl.ttl"
+source = "source"
+source_resource = "owl.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/2002/07/owl"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/2002/07/owl"
+byte_digest = "sha256:718fa1db7840d3315bfce94398543f91437ef6fe933054fd93f5471d19262fc5"
+byte_length = 24545
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/2002/07/owl.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:e7b58f9f2abaea45b87680f4422b2e88daa8aa2104ddf3aaed21cbdf22502f77"
+
+[[dependencies.tbspec-process.files]]
+key = "source/xsd.ttl"
+source = "source"
+source_resource = "xsd.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "unclassified"
+classification = "unclassified"
+graph_iri = "urn:tbspec:graph:9bab9834b2d18c9f8a11a0c723a4bcf5f10f8459ffd52af7c70b7b17ed21e4df"
+identity = "generated"
+source_graph_iri = "urn:tbspec:graph:ae852a37c3b6524942869ba20a7617c51405d4042113256d627356d4335bfde5"
+byte_digest = "sha256:abb137d61a0b2c39817e357f13af6a969303f5a6e1d3b3e2fc8d6c55dcb79d04"
+byte_length = 2843
+media_type = "text/turtle"
+base_iri = "http://www.w3.org/2001/XMLSchema"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:27f11ad703751addf6818183c4646c00d76eea2528e030eb8336b6247eee9881"
+
+[[dependencies.tbspec-process.files]]
+key = "source/shacl.ttl"
+source = "source"
+source_resource = "shacl.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/ns/shacl#"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/ns/shacl#"
+byte_digest = "sha256:0e5d8aea0eab98a072d4a02faaee1ee914ec99eab2ca473429726faed4a13f69"
+byte_length = 52899
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/ns/shacl.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:63ea8719b7c247f9326d7a4fa6eafccefdd08d34836ae68488ae1b1fefd48e14"
+
+[[dependencies.tbspec-process.files]]
+key = "source/p-plan.owl"
+source = "source"
+source_resource = "p-plan.owl"
+context = "source"
+roles = [ "closure" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://purl.org/net/p-plan#"
+identity = "declared"
+source_graph_iri = "http://purl.org/net/p-plan#"
+byte_digest = "sha256:b426b2b8471f41a337256d3248fc0f595be8bc83e3969ac27c1dc51f689c5b32"
+byte_length = 16673
+media_type = "application/rdf+xml"
+base_iri = "https://raw.githubusercontent.com/dgarijo/Vocabularies/773007a6d7ed2fb0054967008cc128fa5c48ca36/P-PLAN/p-plan.owl"
+parser_profile = "rdfxml-vetted-bundle-v1"
+graph_signature = "sha256:2ac42b28b2a6556a6b9230f4b7867c00748e45c59deaf2626678a7e74e2f6150"
+
+[[dependencies.tbspec-process.edges]]
+context = "source"
+from = "source/proc.ttl"
+relation = "vocabulary"
+to = "source/rdf.ttl"
+
+[[dependencies.tbspec-process.edges]]
+context = "source"
+from = "source/proc.ttl"
+relation = "vocabulary"
+to = "source/rdfs.ttl"
+
+[[dependencies.tbspec-process.edges]]
+context = "source"
+from = "source/proc.ttl"
+relation = "vocabulary"
+to = "source/owl.ttl"
+
+[[dependencies.tbspec-process.edges]]
+context = "source"
+from = "source/proc.ttl"
+relation = "vocabulary"
+to = "source/xsd.ttl"
+
+[[dependencies.tbspec-process.edges]]
+context = "source"
+from = "source/proc.ttl"
+relation = "vocabulary"
+to = "source/shacl.ttl"
+
+[[dependencies.tbspec-process.edges]]
+context = "source"
+from = "source/proc.ttl"
+relation = "import"
+to = "source/p-plan.owl"
+
+[[dependencies.tbspec-process.associations]]
+context = "source"
+resource = "source/proc.ttl"
+role = "shacl"
+support = "source/proc.shacl.ttl"
+origin = "source"
+active = true
+
+[dependencies.tbspec-state-machine]
+kind = "ontology"
+primary = "source/sm.ttl"
+snapshot_path = ".tbspec/dependencies/tbspec-state-machine"
+interpretation_signature = "sha256:e0fdd8cbe8b782a10a37148a054cf75514986eca6a34822b1856ce9f3aaef6d6"
+bindings = []
+choices = []
+attachments = []
+
+[[dependencies.tbspec-state-machine.sources]]
+id = "source"
+kind = "bundle"
+locator = "tbspec:bundle/starters/0.1.0"
+selected_resource = "sm.ttl"
+release = "0.1.0"
+attribution = "Talby tbspec contributors; W3C standard vocabulary definitions; Daniel Garijo and Yolanda Gil, P-Plan 1.3 (pinned source 773007a6d7ed2fb0054967008cc128fa5c48ca36). See SOURCES.md for exact file sources."
+license = "Talby resources: MIT; W3C vocabulary resources: W3C Document License; P-Plan 1.3: CC BY 4.0."
+
+[[dependencies.tbspec-state-machine.files]]
+key = "source/sm.ttl"
+source = "source"
+source_resource = "sm.ttl"
+context = "source"
+roles = [ "primary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "https://talby.ai/ontology/state-machine"
+identity = "declared"
+source_graph_iri = "https://talby.ai/ontology/state-machine"
+byte_digest = "sha256:0b161c0145d7a1a30cf02f28e62f4707224106b549b89f8bfb812ae269301bfa"
+byte_length = 2964
+media_type = "text/turtle"
+base_iri = "https://talby.ai/ontology/state-machine"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:d095f21946c287cfb839d7d1d03331ccead5aaeae9a9a08c0a18827386bc67b5"
+
+[[dependencies.tbspec-state-machine.files]]
+key = "source/sm.shacl.ttl"
+source = "source"
+source_resource = "sm.shacl.ttl"
+context = "source"
+roles = [ "shacl" ]
+kind = "shapes"
+classification = "declared"
+graph_iri = "https://talby.ai/ontology/state-machine/0.1.0/shapes"
+identity = "declared"
+source_graph_iri = "https://talby.ai/ontology/state-machine/0.1.0/shapes"
+byte_digest = "sha256:24989301d5f7945173084f576e484230788d7569eee002d0d0f708843429ff68"
+byte_length = 4476
+media_type = "text/turtle"
+base_iri = "https://talby.ai/ontology/state-machine/0.1.0/shapes"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:770a7e0287ca97dc7ce150cfd3fd767ceb4e0c055d80c74791af38233d73b2cb"
+
+[[dependencies.tbspec-state-machine.files]]
+key = "source/rdf.ttl"
+source = "source"
+source_resource = "rdf.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+byte_digest = "sha256:93d52b1a5824c7dd6504ca79c16205c0b740a0ba68b7a14952780f52561186a2"
+byte_length = 6004
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/1999/02/22-rdf-syntax-ns.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:2d1d4ef0d62e6d8e982c02323510fddb594b2f4e0148ee25cc3bbfbf5da855b9"
+
+[[dependencies.tbspec-state-machine.files]]
+key = "source/rdfs.ttl"
+source = "source"
+source_resource = "rdfs.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/2000/01/rdf-schema#"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/2000/01/rdf-schema#"
+byte_digest = "sha256:ecee3a011b7c13ea2a7e40b0a208bfe6be53d69fdd53ee035e09e9f9e5108ad6"
+byte_length = 3790
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/2000/01/rdf-schema.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:4a09d5e0bb542058d501376046209aa47e24b5dd9e33c7d1a80132d7d7f785e3"
+
+[[dependencies.tbspec-state-machine.files]]
+key = "source/owl.ttl"
+source = "source"
+source_resource = "owl.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/2002/07/owl"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/2002/07/owl"
+byte_digest = "sha256:718fa1db7840d3315bfce94398543f91437ef6fe933054fd93f5471d19262fc5"
+byte_length = 24545
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/2002/07/owl.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:e7b58f9f2abaea45b87680f4422b2e88daa8aa2104ddf3aaed21cbdf22502f77"
+
+[[dependencies.tbspec-state-machine.files]]
+key = "source/xsd.ttl"
+source = "source"
+source_resource = "xsd.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "unclassified"
+classification = "unclassified"
+graph_iri = "urn:tbspec:graph:6b6ad0c270562d9531f13be3f7360ad80ca348cf92a910e0f9b6029c38af451e"
+identity = "generated"
+source_graph_iri = "urn:tbspec:graph:ae852a37c3b6524942869ba20a7617c51405d4042113256d627356d4335bfde5"
+byte_digest = "sha256:abb137d61a0b2c39817e357f13af6a969303f5a6e1d3b3e2fc8d6c55dcb79d04"
+byte_length = 2843
+media_type = "text/turtle"
+base_iri = "http://www.w3.org/2001/XMLSchema"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:27f11ad703751addf6818183c4646c00d76eea2528e030eb8336b6247eee9881"
+
+[[dependencies.tbspec-state-machine.files]]
+key = "source/shacl.ttl"
+source = "source"
+source_resource = "shacl.ttl"
+context = "source"
+roles = [ "vocabulary" ]
+kind = "ontology"
+classification = "declared"
+graph_iri = "http://www.w3.org/ns/shacl#"
+identity = "declared"
+source_graph_iri = "http://www.w3.org/ns/shacl#"
+byte_digest = "sha256:0e5d8aea0eab98a072d4a02faaee1ee914ec99eab2ca473429726faed4a13f69"
+byte_length = 52899
+media_type = "text/turtle"
+base_iri = "https://www.w3.org/ns/shacl.ttl"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:63ea8719b7c247f9326d7a4fa6eafccefdd08d34836ae68488ae1b1fefd48e14"
+
+[[dependencies.tbspec-state-machine.edges]]
+context = "source"
+from = "source/sm.ttl"
+relation = "vocabulary"
+to = "source/rdf.ttl"
+
+[[dependencies.tbspec-state-machine.edges]]
+context = "source"
+from = "source/sm.ttl"
+relation = "vocabulary"
+to = "source/rdfs.ttl"
+
+[[dependencies.tbspec-state-machine.edges]]
+context = "source"
+from = "source/sm.ttl"
+relation = "vocabulary"
+to = "source/owl.ttl"
+
+[[dependencies.tbspec-state-machine.edges]]
+context = "source"
+from = "source/sm.ttl"
+relation = "vocabulary"
+to = "source/xsd.ttl"
+
+[[dependencies.tbspec-state-machine.edges]]
+context = "source"
+from = "source/sm.ttl"
+relation = "vocabulary"
+to = "source/shacl.ttl"
+
+[[dependencies.tbspec-state-machine.associations]]
+context = "source"
+resource = "source/sm.ttl"
+role = "shacl"
+support = "source/sm.shacl.ttl"
+origin = "source"
+active = true
+
+[dependencies.tbspec-data-design]
+kind = "design"
+primary = "source/data.design.ttl"
+snapshot_path = ".tbspec/dependencies/tbspec-data-design"
+interpretation_signature = "sha256:ec989a127579b74c086a1bc9903af24a254acd340fa5a10deceec5aa88531e3c"
+edges = []
+bindings = []
+associations = []
+choices = []
+attachments = []
+
+[[dependencies.tbspec-data-design.sources]]
+id = "source"
+kind = "bundle"
+locator = "tbspec:bundle/starters/0.1.0"
+selected_resource = "data.design.ttl"
+release = "0.1.0"
+attribution = "Talby tbspec contributors."
+license = "MIT"
+
+[[dependencies.tbspec-data-design.files]]
+key = "source/data.design.ttl"
+source = "source"
+source_resource = "data.design.ttl"
+context = "source"
+roles = [ "primary" ]
+kind = "design"
+classification = "declared"
+graph_iri = "https://talby.ai/design/data/0.1.0"
+identity = "declared"
+source_graph_iri = "https://talby.ai/design/data/0.1.0"
+byte_digest = "sha256:a96731001cb06f852de74caad51ed8a88d7acb4f47993ee1fd8374a2e83fdf39"
+byte_length = 7429
+media_type = "text/turtle"
+base_iri = "https://talby.ai/design/data/0.1.0"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:539f02998cb61bf769730d3ce73f344344d20cf3ea6c398890a3420941203903"
+
+[dependencies.tbspec-process-design]
+kind = "design"
+primary = "source/process.design.ttl"
+snapshot_path = ".tbspec/dependencies/tbspec-process-design"
+interpretation_signature = "sha256:4de9d58f24e722ac667d07ae75a6a4eab6247ec9c6908f71fea2037246ef7588"
+edges = []
+bindings = []
+associations = []
+choices = []
+attachments = []
+
+[[dependencies.tbspec-process-design.sources]]
+id = "source"
+kind = "bundle"
+locator = "tbspec:bundle/starters/0.1.0"
+selected_resource = "process.design.ttl"
+release = "0.1.0"
+attribution = "Talby tbspec contributors."
+license = "MIT"
+
+[[dependencies.tbspec-process-design.files]]
+key = "source/process.design.ttl"
+source = "source"
+source_resource = "process.design.ttl"
+context = "source"
+roles = [ "primary" ]
+kind = "design"
+classification = "declared"
+graph_iri = "https://talby.ai/design/process/0.1.0"
+identity = "declared"
+source_graph_iri = "https://talby.ai/design/process/0.1.0"
+byte_digest = "sha256:aea060e6a66bd2d75b022161fccf1e0508d45035b6b4a6121d29106218aef038"
+byte_length = 9883
+media_type = "text/turtle"
+base_iri = "https://talby.ai/design/process/0.1.0"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:f0c5833afd55f1922e225ba4c0b7c6fa84976dd7921ceb103540abe2feef2f3e"
+
+[dependencies.tbspec-state-machine-design]
+kind = "design"
+primary = "source/state-machine.design.ttl"
+snapshot_path = ".tbspec/dependencies/tbspec-state-machine-design"
+interpretation_signature = "sha256:7a12a86bb6a9bf04dc97904201d1920de6ce8e7bb2c60311719a9117f303c6e9"
+edges = []
+bindings = []
+associations = []
+choices = []
+attachments = []
+
+[[dependencies.tbspec-state-machine-design.sources]]
+id = "source"
+kind = "bundle"
+locator = "tbspec:bundle/starters/0.1.0"
+selected_resource = "state-machine.design.ttl"
+release = "0.1.0"
+attribution = "Talby tbspec contributors."
+license = "MIT"
+
+[[dependencies.tbspec-state-machine-design.files]]
+key = "source/state-machine.design.ttl"
+source = "source"
+source_resource = "state-machine.design.ttl"
+context = "source"
+roles = [ "primary" ]
+kind = "design"
+classification = "declared"
+graph_iri = "https://talby.ai/design/state-machine/0.1.0"
+identity = "declared"
+source_graph_iri = "https://talby.ai/design/state-machine/0.1.0"
+byte_digest = "sha256:bf7a071a359a773a5461b793e3d7f5f100ab740ddabcd54704fae11c2d3067f4"
+byte_length = 5297
+media_type = "text/turtle"
+base_iri = "https://talby.ai/design/state-machine/0.1.0"
+parser_profile = "turtle-strict-v1"
+graph_signature = "sha256:601e921e23d7337763edca6e16bf1f4ce5abb5e1ba82b7787fb7202c842b49f2"

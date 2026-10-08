@@ -1,0 +1,26 @@
+@prefix tbspec: <https://talby.ai/ontology/tbspec#> .
+@prefix proc: <https://talby.ai/ontology/process#> .
+@prefix sm: <https://talby.ai/ontology/state-machine#> .
+@prefix p-plan: <http://purl.org/net/p-plan#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+<https://talby.ai/ontology/state-machine> a owl:Ontology ; owl:versionIRI <https://talby.ai/ontology/state-machine/0.1.0> ; rdfs:label "sm vocabulary"@en .
+<https://talby.ai/ontology/state-machine> owl:imports <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+<https://talby.ai/ontology/state-machine> owl:imports <http://www.w3.org/2000/01/rdf-schema#> .
+sm:StateMachine a owl:Class ; rdfs:label "State Machine"@en ; rdfs:comment "A descriptive collection of states and transitions."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
+sm:State a owl:Class ; rdfs:label "State"@en ; rdfs:comment "A condition or mode of a subject within one machine."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
+sm:InitialState a owl:Class ; rdfs:label "Initial State"@en ; rdfs:comment "An optional designated starting state."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
+sm:FinalState a owl:Class ; rdfs:label "Final State"@en ; rdfs:comment "A terminal state with no outgoing transition."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
+sm:Transition a owl:Class ; rdfs:label "Transition"@en ; rdfs:comment "A directed descriptive change between states."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
+sm:inMachine a owl:ObjectProperty ; rdfs:label "in Machine"@en ; rdfs:comment "The single local machine owning a state or transition."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
+sm:source a owl:ObjectProperty ; rdfs:label "source"@en ; rdfs:comment "The source state of a transition."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
+sm:target a owl:ObjectProperty ; rdfs:label "target"@en ; rdfs:comment "The target state of a transition."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
+sm:event a owl:DatatypeProperty ; rdfs:label "event"@en ; rdfs:comment "An optional descriptive event; never executable."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
+sm:condition a owl:DatatypeProperty ; rdfs:label "condition"@en ; rdfs:comment "An optional descriptive condition; never executable."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
+sm:action a owl:DatatypeProperty ; rdfs:label "action"@en ; rdfs:comment "An optional descriptive action; never executable."@en ; rdfs:isDefinedBy <https://talby.ai/ontology/state-machine> .
+sm:InitialState rdfs:subClassOf sm:State .
+sm:FinalState rdfs:subClassOf sm:State .

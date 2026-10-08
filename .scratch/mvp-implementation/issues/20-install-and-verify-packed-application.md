@@ -63,3 +63,5 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
+
+- On 2026-10-07, the user approved implementing the macOS full-process identity adapter in ticket 01, with foundation CI on arm64 and Intel. This ticket verifies the complete installed artifact and platform-sensitive assembled workflows; ownership of final acceptance does not defer platform implementation from earlier feature tickets.
