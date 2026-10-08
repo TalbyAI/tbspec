@@ -1,0 +1,252 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #24342f;
+  background: #f5f7f4;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: #fff;
+  border: 1px solid #cbd5ce;
+  border-radius: 6px;
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+}
+button:hover {
+  background: #eef3ed;
+}
+button:focus-visible,
+input:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #43835d;
+  outline-offset: 3px;
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid #dce4dc;
+  background: #fff;
+}
+.wordmark {
+  font-weight: 800;
+  font-size: 1.4rem;
+  letter-spacing: -0.06em;
+}
+.subtitle {
+  margin-left: 1.2rem;
+  font-size: 0.9rem;
+  color: #5e6e65;
+}
+main {
+  max-width: 1500px;
+  margin: auto;
+  padding: 2rem;
+}
+h1 {
+  font-size: clamp(1.8rem, 3vw, 2.7rem);
+  letter-spacing: -0.045em;
+  margin: 0.3rem 0;
+}
+h2 {
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+h2 span {
+  color: #617268;
+  font-size: 0.85rem;
+}
+p {
+  line-height: 1.6;
+  color: #53665a;
+}
+.eyebrow {
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  color: #38744d;
+}
+.intro {
+  margin-bottom: 1.4rem;
+}
+.project-root {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.notice {
+  background: #fbf6e7;
+  border: 1px solid #dfcf97;
+  border-radius: 8px;
+  padding: 0.9rem 1.2rem;
+  margin: 1rem 0;
+}
+.notice p {
+  margin: 0.2rem 0;
+}
+.error {
+  background: #ffefeb;
+  border-color: #d88b79;
+}
+nav {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+}
+nav button[aria-current] {
+  color: #fff;
+  background: #285f3d;
+  border-color: #285f3d;
+}
+section {
+  background: #fff;
+  border: 1px solid #dce4dc;
+  border-radius: 8px;
+  padding: 1.3rem;
+  min-width: 0;
+}
+.resource-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  gap: 1rem;
+}
+.resource-list {
+  list-style: none;
+  padding: 0;
+}
+.resource-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 0.5rem 0;
+}
+.resource-list strong,
+.resource-list span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.resource-list span {
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: #617268;
+}
+.model-type {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.8rem 0;
+  border-top: 1px solid #e7ebe5;
+}
+.model-type strong {
+  width: 100%;
+}
+.model-type button {
+  font-size: 0.8rem;
+}
+.empty {
+  padding: 4rem 1rem;
+  text-align: center;
+}
+pre {
+  padding: 1rem;
+  background: #f5f7f4;
+  overflow: auto;
+  max-height: 500px;
+  line-height: 1.6;
+  border: 1px solid #e2e8df;
+  border-radius: 5px;
+}
+code {
+  font-size: 0.85rem;
+}
+dd {
+  margin: 0.3rem 0 1rem;
+  overflow-wrap: anywhere;
+}
+dt {
+  font-weight: 600;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.8rem;
+  border-bottom: 1px solid #e2e8df;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+th {
+  background: #f5f7f4;
+}
+summary {
+  cursor: pointer;
+  padding: 1rem 0;
+}
+.diagnostics {
+  list-style: none;
+  padding: 0;
+}
+.diagnostics li {
+  margin: 0.8rem 0;
+  border-left: 3px solid #bb8658;
+  padding: 0.5rem 1rem;
+}
+.diagnostics strong,
+.diagnostics code,
+.diagnostics span {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-bottom: 0.3rem;
+}
+footer {
+  padding: 1.3rem 2rem;
+  color: #617268;
+  font-size: 0.8rem;
+  border-top: 1px solid #dce4dc;
+}
+form {
+  display: grid;
+  gap: 0.6rem;
+  margin: 1.5rem 0 0.6rem;
+}
+input {
+  min-width: 0;
+  padding: 0.7rem;
+  border: 1px solid #9aac9f;
+  border-radius: 4px;
+  font: inherit;
+}
+@media (max-width: 800px) {
+  main {
+    padding: 1rem;
+  }
+  header {
+    padding: 1rem;
+  }
+  .subtitle {
+    display: none;
+  }
+  .resource-layout {
+    grid-template-columns: 1fr;
+  }
+  nav {
+    flex-wrap: wrap;
+  }
+}

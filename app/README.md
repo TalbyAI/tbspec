@@ -13,16 +13,23 @@ npm run build
 node dist/cli.js --help
 node dist/cli.js init ./knowledge --base-iri https://example.org/knowledge/ --json
 node dist/cli.js llms projects init --json
+node dist/cli.js --project ./knowledge graph list --json
+node dist/cli.js --project ./knowledge config show --json
+node dist/cli.js --project ./knowledge web --background --json
+node dist/cli.js --project ./knowledge web status --json
+node dist/cli.js --project ./knowledge web stop --json
 npm test
 ```
 
 The compiled executable and immutable `starters/0.1.0/` assets form the package runtime. After dependency installation and compilation, initialization needs Node and the platform's built-in process-identity facilities, with no Git or network access. Source tests use Node's TypeScript stripping; installed execution uses compiled JavaScript. `npm pack` builds a local artifact and does not publish it.
 
-Only `init`, recursive `llms`, help and version are CLI commands in this ticket. The next feature ticket adds live status/configuration/resource inspection. Guidance names those inspection commands explicitly without representing documentation as live project data.
+Implemented commands are `init`, `status`, `graph list/show`, `config show`, `config model-type list`, `web`, `web status/stop`, recursive `llms`, help and version. Project inspection is read-only. Authoring and complete validation arrive in later tickets.
 
 `init [directory] [--base-iri <iri>]` defaults to the working directory. Global `--project <dir>` can select the initialization directory instead of a positional directory. Base IRIs must be absolute and end in `/` or `#`. Every `--json` invocation, including help, version and argument errors, writes one schema-version-1 envelope to stdout. Diagnostics go to stderr. Exits are 0 success/preview, 1 invalidity, 2 arguments/policy, 3 conflict/recovery/acceptance and 4 unavailable/I/O. Initialization reports resulting validity as `unchecked`; full project validation belongs to its feature ticket.
 
 ## Shared operations
+
+`inspectProject` in `src/inspection.ts` supplies the same captured records to CLI commands and authenticated HTTP adapters. Owned `.ttl`, `.nt`, `.rdf` and `.owl` files are discovered recursively, excluding dependencies, ephemeral state, Git and dependency directories; locked inventory files are captured separately. Listings retain malformed/unclassified files and report classification problems without guessing a root. `graph show <selector>` accepts an owned path, `dep:<id>` or any exact retained `dep:<id>/<file-key>`, returning expanded selectors, physical paths, revisions, identity, associations, source text and graph-scoped RDF terms. The browser's selector field accepts the same forms, including retained support files. Configuration reports whole-row manifest overrides and project-locked defaults, including disconnected designs. Status currently exits 1 with `validationComplete: false` and explicit skipped checks: syntax/classification inspection is available, while complete vocabulary/association/SHACL validation belongs to ticket 04. Argument, conflict and I/O failures retain their separate exit categories. No inspection fetches remote data.
 
 `src/project.ts` provides `initializeProject`, canonical upward/explicit `discoverProject`, coherent `readProject`, surgical `setProjectBaseIri`, and read-only `inspectRecovery`. Explicit project selection requires a manifest at that root and never falls back to another project. Manifest/lock incompatibility and corrupt/missing snapshots fail without migration, repair or acquisition. Missing starter defaults never fall back to the installed release. The common metadata binding is independent of current model-type overrides.
 
@@ -31,6 +38,18 @@ Only `init`, recursive `llms`, help and version are CLI commands in this ticket.
 The version-1 schemas, source contexts, byte/graph/interpretation signatures and canonical encoding follow the [normative contract](../.scratch/mvp-technical-architecture/contracts/file-and-output-schemas.md). Human TOML setting changes replace a verified source span and reparse it, preserving unrelated content. Unsupported source syntax fails without rewriting the document.
 
 The MVP rejects userinfo, query strings and fragments in persisted HTTP(S) source/effective URLs, HTTPS Git provenance and HTTP(S) parser bases, including empty `?`/`#` delimiters and inherited source contexts. Authentication must use transient inputs or trusted external providers. Public query URLs such as `?format=ttl` and signed redirects are unsupported; components are never stripped to manufacture a stable URL or change the RDF base. Rejection messages do not echo supplied URLs or secret values. URL syntax cannot detect every capability secret embedded in a path/host; those sources remain unsupported. RDF graph identities and terms retain their exact IRIs. Existing version-1 locks containing prohibited URL components fail without automatic rewriting; bundled initialization is unaffected. General acquisition and redirect handling belong to ticket 08.
+
+## Local web workspace and lifecycle
+
+Build before using web. The package contains prebuilt React/Vite assets; neither Vite nor a development server runs during installed use. The server loads its interface assets and one inspection worker before readiness. It accepts one inspection at a time and limits the worker's old-generation heap to 256 MiB; exhaustion makes inspection unavailable until a deliberate restart. Inspection retains only the requested parsed graph. The worker keeps RDF parsing off the control listener and loads shared operation modules once for that launched release. Stop before replacing an installed package in place.
+
+`web [--port <1-65535>]` starts a separate Node process or reconnects to the verified existing instance for the canonical project. The foreground CLI attaches a bounded recent-log/control console: enter `detach` to leave the server running, or press Ctrl+C to request verified graceful shutdown. Closing a browser or losing a terminal/console does not stop the server. `--background` and `--json` return readiness without attachment; JSON emits exactly one envelope without log stdout. Non-TTY execution never prompts; it attaches until interruption, external stop or stream loss/EOF. `web status` neither starts nor attaches; absent status/stop succeeds. Different projects have independent servers, and a conflicting explicit port never selects another port.
+
+Runtime registration at `.tbspec/runtime/web.json` and its `.tbspec`/`runtime` directories are confined and protected to the OS user (owner-only Unix permissions and checked Windows DACLs). The project root must belong to that user and disallow other users' writes; shared writable roots fail without changing the root's permissions. Privileged OS administrators can bypass user isolation. It is independent of the short-lived operation lock. Before health or control, the CLI verifies root, instance, host/boot/PID/start identity, protocol and authenticated handshake. Unknown/incompatible records are preserved with conflict/3; a verified live but unreachable service reports unavailable/4. Only startup may remove a guarded registration whose owner is demonstrably ended; transaction/operation-lock recovery remains manual. Stop succeeds only after both process shutdown and owned-registration release are verified.
+
+The listener binds `127.0.0.1` and checks the actual Host and exact Origin without trusting proxy headers or enabling CORS. Browser project APIs and native control APIs use separate bearers. Obtain a transient opening link through `web` or `web status`: its single-use fragment expires after 60 seconds and is removed by the client before loading the application. The exchanged tab bearer lasts 12 hours or until restart, remains in tab memory/session storage and never reaches cookies/local storage or project files. Do not archive opening links. A canonical base URL alone does not authorize access. Public assets and unauthenticated errors disclose no project paths/data; project source renders as text under a restrictive CSP.
+
+HTTP project endpoints are `/api/project/v1/status`, `/graphs`, `/graph?selector=...`, `/config` and `/model-types`, with bearer authorization and `X-Tbspec-Schema-Version: 1`. They return the same version-1 envelope as CLI inspection with the normative HTTP mapping. Native handshake, status, opening-link, console and stop use the independent `/api/control/v1/` protocol. The browser presents inventory, source/terms/associations, effective configuration and diagnostic coverage; editing is delivered by subsequent tickets.
 
 ## Publication and recovery
 

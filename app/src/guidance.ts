@@ -35,11 +35,32 @@ const tree: Record<string, Guidance> = {
     ],
   },
   project: {
-    text: "Initialize with tbspec init [directory] [--base-iri <iri>]. Explicit --project <dir> takes precedence over upward tbspec.toml discovery. Config inspection and editing CLI commands arrive in later tickets; use tbspec config show once available to inspect effective settings.",
+    text: "Initialize with tbspec init [directory] [--base-iri <iri>]. Explicit --project <dir> takes precedence over upward tbspec.toml discovery. Inspect effective settings with tbspec config show or tbspec config model-type list. Status reports explicit incomplete validation; configuration mutations and full validation arrive in later tickets.",
     topics: [
       {
         invocation: "tbspec llms projects init",
         description: "Exact initialization options, defaults and failures.",
+      },
+      {
+        invocation: "tbspec llms project inspect",
+        description: "Live inventory, selectors and validation coverage.",
+      },
+      {
+        invocation: "tbspec llms project web",
+        description: "Authenticated browser and independent server lifecycle.",
+      },
+    ],
+  },
+  "project inspect": {
+    text: "tbspec status; tbspec graph list; tbspec graph show <selector>; tbspec config show; tbspec config model-type list. Use --project <dir> and --json as needed. Graph list contains owned RDF only. Show accepts an owned path, dep:<id>, or an exact retained dep:<id>/<file-key>; it returns the expanded selector, physical file, declared/generated graph IRI, source text and scoped RDF terms. Unclassified graphs remain visible; ambiguous roots and malformed RDF are diagnosed. Configuration identifies manifest replacements and locked defaults; absent override design means disconnected. Status currently reports invalid/1 with validationComplete false and explicit skipped checks because full vocabulary/association/SHACL validation belongs to ticket 04. No reads fetch remote content.",
+    topics: [],
+  },
+  "project web": {
+    text: "tbspec web [--port <port>] [--background]; tbspec web status; tbspec web stop. One server per canonical project binds 127.0.0.1. Start/reconnect defaults to an attached bounded log/control console; type detach to preserve the server, and Ctrl+C to request verified graceful shutdown. Browser/terminal closure and console transport loss leave it running. Non-TTY attaches without prompting; EOF disconnects. --background and --json return readiness without attaching; JSON is one envelope with no logs. Status never starts/attaches; absent stop succeeds. Report actual running application/protocol versions, not merely the installed version. Different explicit ports conflict; incompatible control versions require the running version's CLI to stop. The canonical base URL does not authenticate. Opening links contain a single-use 60-second fragment bootstrap; treat them as transient and never archive them as configuration. Browser sessions are tab-scoped for 12 hours or until restart, independent of native-control credentials. Obtain a fresh link with web status. Stop before replacing an installed release in place. Unknown registrations are preserved; only a start with demonstrably ended ownership can clean up a stale runtime record. Operation locks and recovery artifacts always retain their independent manual-recovery rules.",
+    topics: [
+      {
+        invocation: "tbspec llms safety recovery",
+        description: "Unknown ownership and retained transaction evidence.",
       },
     ],
   },
@@ -115,6 +136,26 @@ export function guidance(topics: string[]): { found: boolean; data: Guidance } {
   };
 }
 export function help(command: string): Guidance {
+  if (["status", "graph", "config"].includes(command))
+    return {
+      text: "Usage: tbspec status\n       tbspec graph list\n       tbspec graph show <path|dep:id|dep:id/file-key>\n       tbspec config show\n       tbspec config model-type list\nOptions: --project <dir>, --json, --help\nRead-only local inspection. Status discloses incomplete validation and exits 1 until complete checks are implemented.",
+      topics: [
+        {
+          invocation: "tbspec llms project inspect",
+          description: "Exact selectors, configuration origins and coverage.",
+        },
+      ],
+    };
+  if (command === "web")
+    return {
+      text: "Usage: tbspec web [--port <port>] [--background]\n       tbspec web status\n       tbspec web stop\nOptions: --project <dir>, --json, --help\nStart/reconnect with independent server process. Foreground console: detach leaves it running; Ctrl+C stops. --json returns one readiness envelope without attaching. Non-TTY does not prompt. Opening links are transient single-use credentials; status obtains a fresh link. Report actual running versions. Stop before in-place package replacement.",
+      topics: [
+        {
+          invocation: "tbspec llms project web",
+          description: "Authentication, lifecycle and safe runtime inspection.",
+        },
+      ],
+    };
   if (command === "init")
     return {
       text: "Usage: tbspec init [directory] [--base-iri <iri>] [--project <dir>] [--json]\nExample: tbspec init knowledge --base-iri https://example.org/knowledge/ --json\nInitialize offline with locked data, process and state-machine resources. No Git repository is created.",
@@ -128,10 +169,14 @@ export function help(command: string): Guidance {
       topics: guidance([]).data.topics,
     };
   return {
-    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec init ./knowledge --base-iri https://example.org/knowledge/\nLive inspection commands (status, config, graph and dependency) are delivered by the next feature ticket.",
+    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, graph list/show, config show/model-type list, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec graph show dep:tbspec-metadata --json\nInspection and web are read-only; authoring, dependency administration and complete validation arrive in later feature tickets.",
     topics: [
       { invocation: "tbspec init --help", description: "Initialize an offline project." },
       { invocation: "tbspec llms --help", description: "Recursive agent guidance." },
+      {
+        invocation: "tbspec web --help",
+        description: "Server lifecycle and authenticated browser opening.",
+      },
     ],
   };
 }

@@ -13,6 +13,8 @@ export interface Diagnostic {
   message: string;
   file: string | null;
   details?: Record<string, unknown>;
+  selector?: string;
+  check?: { kind: string; state: "failed" | "skipped"; blockedBy: string[] };
 }
 export interface Result<T = Record<string, unknown>> {
   schemaVersion: 1;
