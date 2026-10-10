@@ -14,6 +14,7 @@ export interface Ownership extends ProcessIdentity {
 export async function acquireLock(
   root: string,
   fs: FileSystem = nativeFileSystem,
+  lockPath = ".tbspec/operation.lock",
 ): Promise<Ownership> {
   let identity: ProcessIdentity;
   try {
@@ -26,7 +27,7 @@ export async function acquireLock(
     );
   }
   await fs.mkdir(await safePath(root, ".tbspec", true), { recursive: true, mode: 0o700 });
-  const target = await safePath(root, ".tbspec/operation.lock", true);
+  const target = await safePath(root, lockPath, true);
   let handle: FileHandle;
   try {
     handle = await fs.open(target, "wx", 0o600);
@@ -53,7 +54,7 @@ export async function acquireLock(
       verified
         ? "Another operation owns the project lock. Retry after it finishes."
         : "Project lock ownership is unknown or abandoned. Preserve the lock and inspect it before manual recovery.",
-      ".tbspec/operation.lock",
+      lockPath,
     );
   }
   let ownership: Ownership | undefined;
@@ -75,7 +76,7 @@ export async function acquireLock(
     }
     if (ownership) {
       try {
-        await releaseLock(root, ownership, fs);
+        await releaseLock(root, ownership, fs, lockPath);
       } catch {
         /* Unverifiable locks are retained. */
       }
@@ -83,8 +84,8 @@ export async function acquireLock(
     throw new ProjectError(
       "unavailable",
       "IO_FAILURE",
-      `Ownership record could not be completed. Inspect .tbspec/operation.lock before clearing it: ${error instanceof Error ? error.message : "OS failure"}`,
-      ".tbspec/operation.lock",
+      `Ownership record could not be completed. Inspect ${lockPath} before clearing it: ${error instanceof Error ? error.message : "OS failure"}`,
+      lockPath,
     );
   }
 }
@@ -92,8 +93,9 @@ export async function releaseLock(
   root: string,
   ownership: Ownership,
   fs: FileSystem = nativeFileSystem,
+  lockPath = ".tbspec/operation.lock",
 ): Promise<void> {
-  const path = await safePath(root, ".tbspec/operation.lock", true);
+  const path = await safePath(root, lockPath, true);
   let current: unknown;
   try {
     current = JSON.parse(await fs.readFile(path, "utf8"));
@@ -102,7 +104,7 @@ export async function releaseLock(
       "conflict",
       "RECOVERY_REQUIRED",
       "Lock record is missing or incomplete; normal release is unsafe.",
-      ".tbspec/operation.lock",
+      lockPath,
     );
   }
   if (
@@ -120,7 +122,7 @@ export async function releaseLock(
       "conflict",
       "RECOVERY_REQUIRED",
       "Lock token or full process ownership changed; retained for recovery.",
-      ".tbspec/operation.lock",
+      lockPath,
     );
   await fs.unlink(path);
 }

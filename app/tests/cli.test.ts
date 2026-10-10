@@ -101,3 +101,44 @@ test("CLI init works with Node alone, preserves ignore bytes and explicit root o
   assert.equal(missingParent.status, 4);
   assert.equal(missingParent.envelope.status, "unavailable");
 });
+
+test("inspection CLI routes exact signatures, portable selectors and incomplete status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-cli-inspect-"));
+  await initializeProject({ directory: root });
+  await mkdir(join(root, "models"));
+  await writeFile(join(root, "models/plain.ttl"), '<urn:a> <urn:p> "value" .');
+  const cwd = join(root, "models");
+  for (const args of [
+    ["graph", "list"],
+    ["graph", "show", "models\\plain.ttl"],
+    ["graph", "show", "dep:tbspec-metadata"],
+    ["config", "show"],
+    ["config", "model-type", "list"],
+  ]) {
+    const result = invoke(args, cwd);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.envelope.status, "ok");
+  }
+  const status = invoke(["status"], cwd);
+  assert.equal(status.status, 1);
+  assert.equal(status.envelope.data.project.validationComplete, false);
+  assert.equal(status.envelope.data.counts.resources, 1);
+  for (const args of [
+    ["status", "extra"],
+    ["graph", "show"],
+    ["graph", "list", "extra"],
+    ["config", "model-type", "set", "new"],
+    ["web", "status", "--background"],
+    ["web", "--port", "0"],
+    ["web", "--port", "1e3"],
+  ])
+    assert.equal(invoke(args, cwd).status, 2);
+  for (const args of [
+    ["graph", "--help"],
+    ["config", "--help"],
+    ["web", "--help"],
+    ["llms", "project", "inspect"],
+    ["llms", "project", "web"],
+  ])
+    assert.equal(invoke(args, tmpdir()).status, 0);
+});
