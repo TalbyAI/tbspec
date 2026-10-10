@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -35,7 +35,7 @@ test("dependency selectors preserve malformed lock diagnostics before resource r
 });
 
 test("configuration and graph reads exclude unrelated bytes and preserve sibling associations", async () => {
-  const root = await mkdtemp(join(tmpdir(), "tbspec-inspect-scope-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "tbspec-inspect-scope-")));
   await initializeProject({ directory: root });
   await writeFile(join(root, "selected.ttl"), '<urn:s> <urn:p> "selected" .');
   await writeFile(join(root, "selected.shacl.ttl"), "unreadable support");
@@ -103,7 +103,7 @@ test("graph listings do not read locked dependency bytes", async () => {
 });
 
 test("selected bytes and sibling presence are coherent without binding unrelated files", async () => {
-  const root = await mkdtemp(join(tmpdir(), "tbspec-inspect-revision-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "tbspec-inspect-revision-")));
   await initializeProject({ directory: root });
   const script = `
     import assert from "node:assert/strict";

@@ -465,7 +465,7 @@ test("ended runtime ownership is cleaned only on start and restart invalidates c
     body: JSON.stringify({ protocolVersion: 1, bootstrap }),
   });
   const session = (await exchanged.json()).data.sessionToken;
-  process.kill(old.pid);
+  process.kill(old.pid, "SIGKILL");
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     try {

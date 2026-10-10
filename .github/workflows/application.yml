@@ -40,4 +40,26 @@ jobs:
         if: runner.os == 'macOS'
         run: node --test tests/macos-ownership.test.ts
       - name: Test public operations and processes
+        if: runner.os != 'Windows'
         run: npm test
+      - name: Test public operations and processes as a standard Windows user
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Elevated runner tokens create administrator-owned files; exercise OS-user isolation.
+          $password = ConvertTo-SecureString ("Tbspec!" + [guid]::NewGuid().ToString('N')) -AsPlainText -Force
+          $user = New-LocalUser -Name 'tbspec-tests' -Password $password
+          Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
+          $credential = [pscredential]::new("$env:COMPUTERNAME\tbspec-tests", $password)
+          $stdout = Join-Path $env:RUNNER_TEMP 'tbspec-tests.stdout'
+          $stderr = Join-Path $env:RUNNER_TEMP 'tbspec-tests.stderr'
+          $testTemp = Join-Path $env:PUBLIC 'tbspec-tests-temp'
+          New-Item -ItemType Directory -Path $testTemp | Out-Null
+          & icacls.exe $testTemp /grant 'tbspec-tests:(OI)(CI)F'
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the test user temporary directory.' }
+          $env:TEMP = $env:TMP = $testTemp
+          $node = (Get-Command node).Source
+          $tests = Start-Process -FilePath $node -ArgumentList '--test', 'tests/*.test.ts' -WorkingDirectory $PWD.Path -Credential $credential -LoadUserProfile -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -Wait -PassThru
+          Get-Content -LiteralPath $stdout
+          Get-Content -LiteralPath $stderr
+          exit $tests.ExitCode

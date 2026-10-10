@@ -27,6 +27,10 @@ The user approved this grouped breakdown of 20 AFK vertical slices on 2026-10-04
 | [19 - Refactor identities, repair references, and collect orphaned support](19-refactor-repair-and-collect-orphaned-support.md) | 11, 12, 14, 18                                                             | 94, 101, 102, 103, 104                                       |
 | [20 - Install and verify the complete application on supported platforms](20-install-and-verify-packed-application.md)          | 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 | 9, 54, 117                                                   |
 
+## Decisions so far
+
+- [Ticket 02](02-inspect-project-and-authenticated-web.md#answer) delivers shared, coherent read-only inspection through the CLI and an authenticated local browser. The detached server uses distinct browser/control credentials and protected runtime registration; inspection reads only operation-relevant inputs and can recover a failed worker on a subsequent read without replay. Full vocabulary/association/SHACL validation remains in ticket 04, and complete supported-platform acceptance remains in ticket 20. The 512 MiB worker heap limit is provisional and does not bound total process memory.
+
 ## Iteration and completion
 
 - Start with issue 01. A later ticket can start when all its listed blockers are implemented and verified; numeric order is a valid dependency order, but independent unblocked tickets need not wait for unrelated lower numbers.
