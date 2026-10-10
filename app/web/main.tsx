@@ -23,6 +23,9 @@ interface Resource {
   kind: string;
   ownership: string;
   associations: { role: string; selector: string }[];
+  modelType?: string;
+  provenance?: { sourceGraphIri: string; sourceSelector?: string }[];
+  schemaIris?: string[];
 }
 interface ModelType {
   name: string;
@@ -44,9 +47,19 @@ interface Triple {
   object: Term;
 }
 
-async function request(path: string, session: string): Promise<Envelope> {
+async function request(
+  path: string,
+  session: string,
+  body?: Record<string, unknown>,
+): Promise<Envelope> {
   const response = await fetch(`/api/project/v1/${path}`, {
-    headers: { Authorization: `Bearer ${session}`, "X-Tbspec-Schema-Version": "1" },
+    method: body ? "POST" : "GET",
+    headers: {
+      Authorization: `Bearer ${session}`,
+      "X-Tbspec-Schema-Version": "1",
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
   });
   if (response.status === 401)
     throw new Error(
@@ -57,7 +70,7 @@ async function request(path: string, session: string): Promise<Envelope> {
     throw new Error(
       "Incompatible project API. Stop and restart the server with a matching release.",
     );
-  if (!envelope.data)
+  if (!envelope.data && !body)
     throw new Error(envelope.diagnostics.map((d) => d.message).join(" ") || "Inspection failed.");
   return envelope;
 }
@@ -110,6 +123,7 @@ function Diagnostics({ items }: { items: Diagnostic[] }) {
 function App() {
   const [session, setSession] = useState("");
   const [resources, setResources] = useState<Resource[]>([]);
+  const [family, setFamily] = useState("all");
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [status, setStatus] = useState<Envelope | null>(null);
   const [graph, setGraph] = useState<Envelope | null>(null);
@@ -117,6 +131,16 @@ function App() {
   const [busy, setBusy] = useState(true);
   const [tab, setTab] = useState("resources");
   const [selector, setSelector] = useState("");
+  const [operation, setOperation] = useState("model.create");
+  const [receivingType, setReceivingType] = useState("data");
+  const [profile, setProfile] = useState("conceptual");
+  const [authored, setAuthored] = useState<Envelope | null>(null);
+  const [pendingPreview, setPendingPreview] = useState<{
+    schemaVersion: 1;
+    handle: string;
+    fingerprint: string;
+    accept: string[];
+  } | null>(null);
   const refresh = useCallback(async (token: string) => {
     setBusy(true);
     setError("");
@@ -145,14 +169,67 @@ function App() {
         setBusy(false);
       });
   }, [refresh]);
-  async function show(selector: string) {
+  async function show(selector: string, kind?: string) {
     setBusy(true);
     setError("");
     try {
-      setGraph(await request(`graph?selector=${encodeURIComponent(selector)}`, session));
+      const resourceKind =
+        kind ?? resources.find((resource) => resource.selector === selector)?.kind;
+      const endpoint =
+        resourceKind === "model" || resourceKind?.endsWith("-model") ? "model" : "graph";
+      setGraph(await request(`${endpoint}?selector=${encodeURIComponent(selector)}`, session));
       setTab("resources");
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : "Graph is unavailable.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function author(body: Record<string, unknown>, apply = false) {
+    setBusy(true);
+    setError("");
+    setPendingPreview(null);
+    try {
+      const result = await request(
+        apply ? "resource/apply" : operation.replace(".", "/"),
+        session,
+        body,
+      );
+      setAuthored(result);
+      if (result.status === "preview" && result.data)
+        setPendingPreview({
+          schemaVersion: 1,
+          handle: String(result.data.handle),
+          fingerprint: (result.data.preview as { fingerprint: string }).fingerprint,
+          accept: [],
+        });
+      else if (result.status === "ok") {
+        await refresh(session);
+        const resource = result.data?.resource as Resource;
+        await show(resource.selector, resource.kind);
+      }
+    } catch (problem) {
+      setError(
+        `${problem instanceof Error ? problem.message : "Resource operation failed."} Inspect the project before trying another write.`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function cancelPreview() {
+    if (!pendingPreview) return;
+    const handle = pendingPreview.handle;
+    setPendingPreview(null);
+    setAuthored(null);
+    setBusy(true);
+    try {
+      const result = await request("resource/cancel", session, { schemaVersion: 1, handle });
+      if (result.status !== "ok")
+        throw new Error(result.diagnostics.map((d) => `${d.code}: ${d.message}`).join(" "));
+    } catch (problem) {
+      setError(
+        `${problem instanceof Error ? problem.message : "Cancellation failed."} Inspect the project before another write.`,
+      );
     } finally {
       setBusy(false);
     }
@@ -163,6 +240,13 @@ function App() {
   const counts = status?.data?.counts as { resources: number; dependencies: number } | undefined;
   const modelTypes = (config?.modelTypes as ModelType[]) ?? [];
   const selected = graph?.data?.resource as Resource | undefined;
+  const visibleResources = resources.filter(
+    (resource) =>
+      family === "all" ||
+      (family === "ontology"
+        ? resource.kind === "ontology"
+        : resource.kind === "model" || resource.kind.endsWith("-model")),
+  );
   const triples = (graph?.data?.triples as Triple[]) ?? [];
   return (
     <div className="workspace">
@@ -177,9 +261,11 @@ function App() {
       </header>
       <main>
         <div className="intro">
-          <p className="eyebrow">PROJECT INSPECTION</p>
+          <p className="eyebrow">PROJECT WORKSPACE</p>
           <h1>Your knowledge, on disk.</h1>
-          <p>Inspect owned graphs, locked resources and effective configuration.</p>
+          <p>
+            Create and import owned resources. Inspect graphs, locked snapshots and configuration.
+          </p>
           {project && <code className="project-root">{project.root}</code>}
         </div>
         {error && (
@@ -222,11 +308,21 @@ function App() {
               <div className="resource-layout">
                 <section aria-label="Project graphs">
                   <h2>
-                    Owned graphs <span>{resources.length}</span>
+                    Owned graphs <span>{visibleResources.length}</span>
                   </h2>
-                  {resources.length === 0 && <p>No owned RDF graphs yet.</p>}
+                  <label htmlFor="resource-family">List resource family</label>
+                  <select
+                    id="resource-family"
+                    value={family}
+                    onChange={(event) => setFamily(event.target.value)}
+                  >
+                    <option value="all">All graphs</option>
+                    <option value="ontology">Ontologies</option>
+                    <option value="model">Models</option>
+                  </select>
+                  {visibleResources.length === 0 && <p>No matching owned RDF graphs yet.</p>}
                   <ul className="resource-list">
-                    {resources.map((resource) => (
+                    {visibleResources.map((resource) => (
                       <li key={resource.selector}>
                         <button
                           type="button"
@@ -283,6 +379,150 @@ function App() {
                       )}
                     </div>
                   ))}
+                  <h2>Create or import</h2>
+                  <form
+                    onChange={() => void cancelPreview()}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const values = new FormData(event.currentTarget);
+                      const model = operation.startsWith("model.");
+                      const importing = operation.endsWith(".import");
+                      const schemas = String(values.get("schemas") ?? "")
+                        .split(/\r?\n/)
+                        .map((value) => value.trim())
+                        .filter(Boolean);
+                      void author({
+                        path: String(values.get("path")),
+                        ...(values.get("iri") ? { iri: String(values.get("iri")) } : {}),
+                        ...(model ? { type: receivingType } : {}),
+                        ...(importing ? { source: String(values.get("source")) } : {}),
+                        ...(!importing && model && receivingType === "data"
+                          ? { profile, schemas }
+                          : {}),
+                      });
+                    }}
+                  >
+                    <label htmlFor="author-operation">Resource operation</label>
+                    <select
+                      id="author-operation"
+                      value={operation}
+                      onChange={(event) => setOperation(event.target.value)}
+                      disabled={busy}
+                    >
+                      <option value="model.create">Create model</option>
+                      <option value="ontology.create">Create ontology</option>
+                      <option value="model.import">Import editable model</option>
+                      <option value="ontology.import">Import editable ontology</option>
+                    </select>
+                    <label htmlFor="author-path">Destination path</label>
+                    <input
+                      id="author-path"
+                      name="path"
+                      placeholder="models/orders.ttl"
+                      required
+                      disabled={busy}
+                    />
+                    <label htmlFor="author-iri">New graph IRI</label>
+                    <input
+                      id="author-iri"
+                      name="iri"
+                      placeholder="Optional with configured base IRI"
+                      disabled={busy}
+                    />
+                    {operation.endsWith(".import") && (
+                      <>
+                        <label htmlFor="author-source">Import source</label>
+                        <input
+                          id="author-source"
+                          name="source"
+                          placeholder="Local file or dep:tbspec-state-machine"
+                          required
+                          disabled={busy}
+                        />
+                        <p>
+                          The editable copy gets a new graph identity. Original terms and snapshots
+                          are preserved.
+                        </p>
+                      </>
+                    )}
+                    {operation.startsWith("model.") && (
+                      <>
+                        <label htmlFor="author-type">Receiving model type</label>
+                        <select
+                          id="author-type"
+                          value={receivingType}
+                          onChange={(event) => setReceivingType(event.target.value)}
+                          disabled={busy}
+                        >
+                          {modelTypes.map((type) => (
+                            <option key={type.name} value={type.name} disabled={!type.enabled}>
+                              {type.name}
+                              {type.enabled ? "" : " (disabled)"}
+                            </option>
+                          ))}
+                        </select>
+                        {operation === "model.create" && receivingType === "data" && (
+                          <>
+                            <label htmlFor="author-profile">Data profile</label>
+                            <select
+                              id="author-profile"
+                              value={profile}
+                              onChange={(event) => setProfile(event.target.value)}
+                              disabled={busy}
+                            >
+                              <option value="conceptual">
+                                Conceptual — classes and properties
+                              </option>
+                              <option value="concrete">Concrete — individuals and values</option>
+                            </select>
+                            {profile === "concrete" && (
+                              <>
+                                <label htmlFor="author-schemas">
+                                  Conceptual schema selectors (one per line)
+                                </label>
+                                <textarea id="author-schemas" name="schemas" disabled={busy} />
+                              </>
+                            )}
+                          </>
+                        )}
+                      </>
+                    )}
+                    <button type="submit" disabled={busy || pendingPreview !== null}>
+                      {operation.endsWith(".import")
+                        ? "Preview editable import"
+                        : "Preview resource"}
+                    </button>
+                  </form>
+                  {authored && (
+                    <section aria-label="Authoring result">
+                      <h3>
+                        {authored.status === "preview" ? "Resource preview" : "Resource result"}
+                      </h3>
+                      <pre>{JSON.stringify(authored.data?.resource, null, 2)}</pre>
+                      <Diagnostics items={authored.diagnostics} />
+                      {pendingPreview && (
+                        <p>Preview expires at {String(authored.data?.expiresAt)}.</p>
+                      )}
+                      {pendingPreview && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void author(pendingPreview, true)}
+                        >
+                          Apply reviewed resource
+                        </button>
+                      )}
+                      {pendingPreview && (
+                        <button type="button" disabled={busy} onClick={() => void cancelPreview()}>
+                          Cancel preview
+                        </button>
+                      )}
+                      <p>
+                        Full constraint validation is pending. Missing vocabulary is reported
+                        without changing term IRIs.
+                      </p>
+                    </section>
+                  )}
                 </section>
                 <section aria-label="Graph details" className="detail">
                   {selected ? (
@@ -300,7 +540,29 @@ function App() {
                         </dd>
                         <dt>Kind</dt>
                         <dd>{selected.kind}</dd>
+                        {selected.modelType && (
+                          <>
+                            <dt>Configured model type</dt>
+                            <dd>{selected.modelType}</dd>
+                          </>
+                        )}
+                        {!!selected.schemaIris?.length && (
+                          <>
+                            <dt>Conceptual schema IRIs</dt>
+                            <dd>
+                              {selected.schemaIris.map((iri) => (
+                                <code key={iri}>{iri} </code>
+                              ))}
+                            </dd>
+                          </>
+                        )}
                       </dl>
+                      {selected.provenance?.length ? (
+                        <>
+                          <h3>Provenance</h3>
+                          <pre>{JSON.stringify(selected.provenance, null, 2)}</pre>
+                        </>
+                      ) : null}
                       <Diagnostics items={graph?.diagnostics ?? []} />
                       <h3>Associations</h3>
                       {selected.associations.length ? (

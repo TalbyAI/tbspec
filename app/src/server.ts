@@ -3,9 +3,10 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
+import type { AuthoringOptions } from "./authoring.ts";
 import { canonical } from "./canonical.ts";
 import type { InspectionCommand } from "./inspection.ts";
-import type { InspectionResponse } from "./inspection-worker.ts";
+import type { AuthoringRequest, InspectionResponse } from "./inspection-worker.ts";
 import { withLock } from "./lock.ts";
 import { exits, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
 import { token } from "./ownership.ts";
@@ -207,6 +208,7 @@ export async function startWebServer(
   async function inspect(
     command: InspectionCommand,
     selector?: string,
+    authoring?: AuthoringRequest,
   ): Promise<Result | InspectionResponse> {
     if (jobs.size >= 1)
       return failure(
@@ -223,7 +225,9 @@ export async function startWebServer(
           new ProjectError(
             "unavailable",
             "IO_FAILURE",
-            "Inspection worker ended unexpectedly. Retry the read; retained recovery state is never cleared automatically.",
+            authoring
+              ? "Resource worker ended unexpectedly. Inspect project files before any new write; do not automatically retry publication."
+              : "Inspection worker ended unexpectedly. Retry the read; retained recovery state is never cleared automatically.",
           ),
         ),
       );
@@ -240,7 +244,12 @@ export async function startWebServer(
         worker.once("message", finish);
         worker.once("error", failed);
         worker.once("exit", failed);
-        worker.postMessage({ project: root, command, selector });
+        worker.postMessage({
+          project: root,
+          command,
+          selector,
+          authoring: authoring ? { ...authoring, instanceId: record.instanceId } : undefined,
+        });
       });
     })();
     jobs.add(job);
@@ -511,7 +520,10 @@ export async function startWebServer(
             );
           return;
         }
-      } else if (request.method === "GET" && record.state === "running") {
+      } else if (
+        (request.method === "GET" || request.method === "POST") &&
+        record.state === "running"
+      ) {
         if (request.headers["x-tbspec-schema-version"] !== "1") {
           respond(
             response,
@@ -531,13 +543,90 @@ export async function startWebServer(
           "/api/project/v1/graph": "graph.show",
           "/api/project/v1/config": "config.show",
           "/api/project/v1/model-types": "config.model-type.list",
+          "/api/project/v1/ontologies": "ontology.list",
+          "/api/project/v1/ontology": "ontology.show",
+          "/api/project/v1/models": "model.list",
+          "/api/project/v1/model": "model.show",
         };
         const command = routes[url.pathname];
-        if (command) {
+        if (command && request.method === "GET") {
           const result = await inspect(command, url.searchParams.get("selector") ?? undefined);
           respond(response, result);
           log("log", { message: `Inspection ${command}: ${result.status}.` });
           return;
+        }
+        if (request.method === "POST") {
+          const action = url.pathname.match(
+            /^\/api\/project\/v1\/(ontology|model)\/(create|import)$/,
+          );
+          const cancellation = url.pathname === "/api/project/v1/resource/cancel";
+          if (action || url.pathname === "/api/project/v1/resource/apply" || cancellation) {
+            const body = await jsonBody(request);
+            if (!action) {
+              if (
+                Object.keys(body).some(
+                  (key) =>
+                    !(
+                      cancellation
+                        ? ["schemaVersion", "handle"]
+                        : ["schemaVersion", "handle", "fingerprint", "accept"]
+                    ).includes(key),
+                ) ||
+                body.schemaVersion !== 1 ||
+                typeof body.handle !== "string" ||
+                (!cancellation &&
+                  (typeof body.fingerprint !== "string" ||
+                    !Array.isArray(body.accept) ||
+                    body.accept.some((flag) => typeof flag !== "string")))
+              )
+                throw new ProjectError(
+                  "invalid_arguments",
+                  "ARGUMENT_INVALID",
+                  "Import application requires schemaVersion 1, handle, fingerprint and accepted flags.",
+                );
+              respond(
+                response,
+                await inspect("status", undefined, {
+                  mode: cancellation ? "cancel" : "apply",
+                  session: credential ?? "",
+                  fingerprint: body.fingerprint as string | undefined,
+                  handle: body.handle,
+                  accept: body.accept as string[] | undefined,
+                }),
+              );
+              return;
+            }
+            if (
+              Object.keys(body).some(
+                (key) => !["path", "source", "iri", "type", "profile", "schemas"].includes(key),
+              ) ||
+              typeof body.path !== "string" ||
+              ["source", "iri", "type", "profile"].some(
+                (key) => body[key] !== undefined && typeof body[key] !== "string",
+              ) ||
+              (body.schemas !== undefined &&
+                (!Array.isArray(body.schemas) ||
+                  body.schemas.some((item) => typeof item !== "string")))
+            )
+              throw new ProjectError(
+                "invalid_arguments",
+                "ARGUMENT_INVALID",
+                "Invalid resource authoring fields.",
+              );
+            const options = {
+              ...body,
+              command: `${action[1]}.${action[2]}`,
+            } as unknown as AuthoringOptions;
+            respond(
+              response,
+              await inspect("status", undefined, {
+                mode: "preview",
+                session: credential ?? "",
+                options,
+              }),
+            );
+            return;
+          }
         }
       }
       respond(

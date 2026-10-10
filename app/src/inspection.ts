@@ -9,7 +9,7 @@ import { withLock } from "./lock.ts";
 import { type Diagnostic, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
 import { portablePath, safePath } from "./paths.ts";
 import { discoverProject, projectDiscoveryScope } from "./project.ts";
-import { classifyGraph, parseGraph, parseRdf } from "./rdf.ts";
+import { classifyGraph, rdfFormats as formats, parseGraph, parseRdf } from "./rdf.ts";
 import {
   type Lock,
   type ModelType,
@@ -25,6 +25,10 @@ export type InspectionCommand =
   | "status"
   | "graph.list"
   | "graph.show"
+  | "ontology.list"
+  | "ontology.show"
+  | "model.list"
+  | "model.show"
   | "config.show"
   | "config.model-type.list";
 export interface Resource {
@@ -41,6 +45,8 @@ export interface Resource {
   sourceGraphIri?: string;
   kindOverride?: string;
   modelType?: string;
+  provenance?: { sourceGraphIri: string; sourceSelector?: string }[];
+  schemaIris?: string[];
 }
 interface Check {
   kind: string;
@@ -67,18 +73,13 @@ export interface InspectionData extends Record<string, unknown> {
   };
   validation?: Validation;
 }
-const formats: Record<string, string> = {
-  ".ttl": "text/turtle",
-  ".nt": "application/n-triples",
-  ".rdf": "application/rdf+xml",
-  ".owl": "application/rdf+xml",
-};
 const metadata = "https://talby.ai/ontology/tbspec#";
 
-async function captureInspection(
+export async function captureInspection(
   root: string,
   command: InspectionCommand,
   target?: string,
+  extraPaths: string[] = [],
 ): Promise<Snapshot & { ownedPaths: string[]; target?: string }> {
   return withLock(root, async () => {
     const scope = {
@@ -166,7 +167,7 @@ async function captureInspection(
         }
       }
     }
-    for (const path of [...new Set(paths)].sort(utf8Compare)) await read(path);
+    for (const path of [...new Set([...paths, ...extraPaths])].sort(utf8Compare)) await read(path);
     await verifyReads(root, snapshot.reads);
     // A filename association depends on presence, not on the support graph's bytes.
     if (sibling && siblingPresent !== (await ownedFile(sibling)))
@@ -227,6 +228,39 @@ export async function inspectProject(options: {
   command: InspectionCommand;
   selector?: string;
 }): Promise<Result<InspectionData>> {
+  if (options.command.startsWith("ontology.") || options.command.startsWith("model.")) {
+    const family = options.command.split(".")[0];
+    const show = options.command.endsWith(".show");
+    const result = await inspectProjectData(
+      {
+        ...options,
+        command: show ? "graph.show" : "graph.list",
+      },
+      family === "model" && show,
+    );
+    const matches = (resource: Resource) =>
+      resource.ownership === "project" &&
+      (family === "ontology"
+        ? resource.kind === "ontology"
+        : resource.kind === "model" || resource.kind.endsWith("-model"));
+    if (show && result.data?.resource && !matches(result.data.resource))
+      return failure(
+        new ProjectError(
+          "invalid",
+          "GRAPH_CLASSIFICATION",
+          `Selector is not a project-owned ${family}.`,
+          result.data.resource.file,
+        ),
+      );
+    if (!show && result.data?.items) result.data.items = result.data.items.filter(matches);
+    return result;
+  }
+  return inspectProjectData(options);
+}
+async function inspectProjectData(
+  options: Parameters<typeof inspectProject>[0],
+  schemaTargets = false,
+): Promise<Result<InspectionData>> {
   try {
     const root = await discoverProject(options);
     let target = options.selector;
@@ -245,7 +279,11 @@ export async function inspectProject(options: {
         throw new ProjectError("invalid_arguments", "ARGUMENT_INVALID", "Invalid graph selector.");
       }
     }
-    const snapshot = await captureInspection(root, options.command, target);
+    const snapshot = await captureInspection(
+      root,
+      schemaTargets ? "status" : options.command,
+      target,
+    );
     target = snapshot.target;
     const diagnostics: Diagnostic[] = [];
     let manifest: Row | undefined;
@@ -344,6 +382,24 @@ export async function inspectProject(options: {
           const types = store.getObjects(resource.graphIri, `${metadata}modelType`, null);
           if (types.length === 1 && types[0]?.termType === "Literal")
             resource.modelType = types[0].value;
+          const sourceSelector = store.getObjects(
+            resource.graphIri,
+            "http://purl.org/dc/terms/source",
+            null,
+          )[0];
+          resource.provenance = store
+            .getObjects(resource.graphIri, "http://www.w3.org/ns/prov#wasDerivedFrom", null)
+            .filter((term) => term.termType === "NamedNode")
+            .map((term) => ({
+              sourceGraphIri: term.value,
+              ...(sourceSelector?.termType === "Literal"
+                ? { sourceSelector: sourceSelector.value }
+                : {}),
+            }));
+          resource.schemaIris = store
+            .getObjects(resource.graphIri, `${metadata}schema`, null)
+            .filter((term) => term.termType === "NamedNode")
+            .map((term) => term.value);
         }
       } catch (error) {
         const problem =
@@ -375,12 +431,14 @@ export async function inspectProject(options: {
         if (resource.dependencyId) {
           const dep = lock.dependencies[resource.dependencyId];
           const key = resource.selector.slice(`dep:${resource.dependencyId}/`.length);
-          resource.associations = (dep?.associations ?? [])
-            .filter((a) => a.resource === key && a.active)
-            .map((a) => ({
-              role: String(a.role),
-              selector: `dep:${resource.dependencyId}/${a.support}`,
-            }));
+          resource.associations.push(
+            ...(dep?.associations ?? [])
+              .filter((a) => a.resource === key && a.active)
+              .map((a) => ({
+                role: String(a.role),
+                selector: `dep:${resource.dependencyId}/${a.support}`,
+              })),
+          );
           for (const binding of dep?.bindings ?? [])
             if (binding.resource === key)
               for (const [role, field] of [
@@ -393,6 +451,20 @@ export async function inspectProject(options: {
                     selector: `dep:${resource.dependencyId}/${support}`,
                   });
         } else {
+          for (const schemaIri of resource.schemaIris ?? []) {
+            for (const schema of resources.filter(
+              (candidate) =>
+                candidate.ownership === "project" &&
+                candidate.graphIri === schemaIri &&
+                candidate.kind === "conceptual-data-model",
+            ))
+              resource.associations.push({ role: "schema", selector: schema.selector });
+            for (const [id, dep] of Object.entries(lock.dependencies))
+              for (const schema of dep.files.filter(
+                (file) => file.graph_iri === schemaIri && file.kind === "conceptual-data-model",
+              ))
+                resource.associations.push({ role: "schema", selector: `dep:${id}/${schema.key}` });
+          }
           const sibling = resource.file.replace(/\.ttl$/i, ".shacl.ttl");
           if (sibling !== resource.file && snapshot.ownedPaths.includes(sibling))
             resource.associations.push({ role: "shacl", selector: sibling });

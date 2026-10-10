@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { resolve } from "node:path";
+import { type AuthoringOptions, authorResource } from "./authoring.ts";
 import { attachConsole } from "./console.ts";
 import { guidance, help } from "./guidance.ts";
 import { type InspectionCommand, inspectProject } from "./inspection.ts";
@@ -15,6 +16,7 @@ let initialized = false;
 async function dispatch(): Promise<Result> {
   const positional: string[] = [];
   const options = new Map<string, string | true>();
+  const schemas: string[] = [];
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
     if (argument === undefined) continue;
@@ -31,6 +33,11 @@ async function dispatch(): Promise<Result> {
         "--base-iri",
         "--port",
         "--background",
+        "--iri",
+        "--type",
+        "--profile",
+        "--schema",
+        "--accepted-preview",
       ].includes(argument)
     )
       throw new ProjectError(
@@ -38,13 +45,24 @@ async function dispatch(): Promise<Result> {
         "ARGUMENT_INVALID",
         `Unknown option: ${argument}. Use tbspec --help.`,
       );
-    if (options.has(argument))
+    if (options.has(argument) && argument !== "--schema")
       throw new ProjectError(
         "invalid_arguments",
         "ARGUMENT_INVALID",
         `Repeated option: ${argument}.`,
       );
-    if (["--project", "--base-iri", "--port"].includes(argument)) {
+    if (
+      [
+        "--project",
+        "--base-iri",
+        "--port",
+        "--iri",
+        "--type",
+        "--profile",
+        "--schema",
+        "--accepted-preview",
+      ].includes(argument)
+    ) {
       const value = argv[++index];
       if (value === undefined || value.startsWith("--"))
         throw new ProjectError(
@@ -53,10 +71,14 @@ async function dispatch(): Promise<Result> {
           `${argument} requires a value.`,
         );
       options.set(argument, value);
+      if (argument === "--schema") schemas.push(value);
     } else options.set(argument, true);
   }
   const command = positional.shift() ?? "";
-  if (command && !["init", "llms", "status", "graph", "config", "web"].includes(command))
+  if (
+    command &&
+    !["init", "llms", "status", "graph", "config", "web", "ontology", "model"].includes(command)
+  )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
@@ -67,6 +89,17 @@ async function dispatch(): Promise<Result> {
       "invalid_arguments",
       "ARGUMENT_INVALID",
       "--base-iri is valid only with init.",
+    );
+  if (
+    ["--iri", "--type", "--profile", "--schema", "--accepted-preview"].some((flag) =>
+      options.has(flag),
+    ) &&
+    !["ontology", "model"].includes(command)
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Resource options apply only to ontology/model authoring.",
     );
   if (
     (options.has("--port") || options.has("--background")) &&
@@ -113,6 +146,53 @@ async function dispatch(): Promise<Result> {
   }
   const project = options.get("--project");
   const selectedProject = typeof project === "string" ? project : undefined;
+  if (command === "ontology" || command === "model") {
+    const action = positional[0];
+    const value = (flag: string) =>
+      typeof options.get(flag) === "string" ? (options.get(flag) as string) : undefined;
+    if (
+      (action === "list" && positional.length === 1) ||
+      (action === "show" && positional.length === 2)
+    ) {
+      if (
+        ["--iri", "--type", "--profile", "--schema", "--accepted-preview"].some((flag) =>
+          options.has(flag),
+        )
+      )
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "Authoring options do not apply to inspection.",
+        );
+      return inspectProject({
+        project: selectedProject,
+        command: `${command}.${action}`,
+        selector: positional[1],
+      });
+    }
+    if (
+      !(
+        (action === "create" && positional.length === 2) ||
+        (action === "import" && positional.length === 3)
+      )
+    )
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "Invalid resource signature. Use command --help.",
+      );
+    return authorResource({
+      project: selectedProject,
+      command: `${command}.${action}`,
+      path: positional[action === "import" ? 2 : 1] ?? "",
+      source: action === "import" ? positional[1] : undefined,
+      iri: value("--iri"),
+      type: value("--type"),
+      profile: value("--profile") as AuthoringOptions["profile"],
+      schemas,
+      acceptedPreview: value("--accepted-preview"),
+    });
+  }
   if (command === "web") {
     const action = positional[0] ?? "start";
     if (

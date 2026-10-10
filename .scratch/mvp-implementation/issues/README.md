@@ -29,6 +29,8 @@ The user approved this grouped breakdown of 20 AFK vertical slices on 2026-10-04
 
 ## Decisions so far
 
+- [Ticket 03](03-create-and-import-owned-resources.md#answer) delivers shared owned ontology/model authoring and editable import. Imports preserve term identities and originals, explicitly select receiving types and report missing vocabulary. Browser creation/import use protected fifteen-minute previews with session/instance ownership, revision checks and cancellation; CLI local authoring supports accepted fingerprints. Full validation/editors and complete supported-platform acceptance remain in subsequent tickets.
+
 - [Ticket 02](02-inspect-project-and-authenticated-web.md#answer) delivers shared, coherent read-only inspection through the CLI and an authenticated local browser. The detached server uses distinct browser/control credentials and protected runtime registration; inspection reads only operation-relevant inputs and can recover a failed worker on a subsequent read without replay. Full vocabulary/association/SHACL validation remains in ticket 04, and complete supported-platform acceptance remains in ticket 20. The 512 MiB worker heap limit is provisional and does not bound total process memory.
 
 ## Iteration and completion
