@@ -39,9 +39,13 @@ export function runtimeError(
   return new ProjectError(status, code, message, runtimePath);
 }
 async function windowsPermissions(root: string, paths: string[], create: boolean): Promise<void> {
-  const rootLiteral = `'${root.replaceAll("'", "''")}'`;
   // Administrators and SYSTEM can bypass user isolation regardless of the project DACL.
-  const rootCheck = `$rootAcl=[IO.Directory]::GetAccessControl(${rootLiteral}); if($rootAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sidValue.Value){throw 'Wrong project owner'}; $unsafeRights=[int]([Security.AccessControl.FileSystemRights]::Write -bor [Security.AccessControl.FileSystemRights]::Delete -bor [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership); foreach($ruleValue in $rootAcl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){if($ruleValue.AccessControlType -eq 'Allow' -and ([int]$ruleValue.FileSystemRights -band $unsafeRights) -ne 0 -and $ruleValue.IdentityReference.Value -notin @($sidValue.Value,'S-1-5-18','S-1-5-32-544')){throw 'Shared writable project root'}}`;
+  const rootCheck = [root, join(root, ".tbspec")]
+    .map((parent) => {
+      const literal = `'${parent.replaceAll("'", "''")}'`;
+      return `$rootAcl=[IO.Directory]::GetAccessControl(${literal}); if($rootAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sidValue.Value){throw 'Wrong runtime parent owner'}; $unsafeRights=[int]([Security.AccessControl.FileSystemRights]::Write -bor [Security.AccessControl.FileSystemRights]::Delete -bor [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership); foreach($ruleValue in $rootAcl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){if($ruleValue.AccessControlType -eq 'Allow' -and ([int]$ruleValue.FileSystemRights -band $unsafeRights) -ne 0 -and $ruleValue.IdentityReference.Value -notin @($sidValue.Value,'S-1-5-18','S-1-5-32-544')){throw 'Shared writable runtime parent'}}`;
+    })
+    .join(" ");
   const checks = paths
     .map((path) => {
       const literal = `'${path.replaceAll("'", "''")}'`;
@@ -64,18 +68,20 @@ async function windowsPermissions(root: string, paths: string[], create: boolean
     { windowsHide: true, timeout: 10000, maxBuffer: 65536 },
   );
 }
-async function checkUnixRoot(root: string): Promise<void> {
-  const info = await stat(root);
-  if (info.uid !== process.getuid?.() || (info.mode & 0o022) !== 0)
-    throw new Error("Project root permits replacement by another user.");
+async function checkUnixParents(root: string): Promise<void> {
+  for (const parent of [root, await safePath(root, ".tbspec")]) {
+    const info = await stat(parent);
+    if (info.uid !== process.getuid?.() || (info.mode & 0o022) !== 0)
+      throw new Error("Runtime parent permits replacement by another user.");
+  }
 }
 export async function checkRuntimePermissions(root: string): Promise<void> {
   const path = await safePath(root, runtimePath, true);
   try {
-    const paths = [await safePath(root, ".tbspec"), await safePath(root, ".tbspec/runtime"), path];
+    const paths = [await safePath(root, ".tbspec/runtime"), path];
     if (process.platform === "win32") await windowsPermissions(root, paths, false);
     else {
-      await checkUnixRoot(root);
+      await checkUnixParents(root);
       for (const checked of paths) {
         const info = await stat(checked);
         if (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
@@ -195,10 +201,10 @@ export async function claimRuntime(root: string): Promise<RuntimeRecord> {
   const directory = await safePath(root, ".tbspec/runtime", true);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   try {
-    const paths = [await safePath(root, ".tbspec"), directory];
+    const paths = [directory];
     if (process.platform === "win32") await windowsPermissions(root, paths, true);
     else {
-      await checkUnixRoot(root);
+      await checkUnixParents(root);
       for (const checked of paths) {
         if ((await stat(checked)).uid !== process.getuid?.()) throw new Error("Wrong owner.");
         await chmod(checked, 0o700);
@@ -208,7 +214,7 @@ export async function claimRuntime(root: string): Promise<RuntimeRecord> {
     throw runtimeError(
       "unavailable",
       "RUNTIME_UNAVAILABLE",
-      "Cannot secure runtime storage. The project root must belong to the current OS user and prevent writes by other users.",
+      "Cannot secure runtime storage. The project root and .tbspec must belong to the current OS user and prevent writes by other users; their permissions are not changed.",
     );
   }
   const path = await safePath(root, runtimePath, true);

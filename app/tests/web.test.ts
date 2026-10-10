@@ -11,7 +11,131 @@ import { startWebServer } from "../src/server.ts";
 import { controlRequest, webProject } from "../src/web.ts";
 import { privateDirectory } from "./private-directory.ts";
 
-test("shared writable project roots fail runtime ownership without replacing registration", {
+test("runtime startup preserves shared read access outside its private directory", {
+  timeout: 30000,
+}, async (t) => {
+  const root = await privateDirectory(join(tmpdir(), "tbspec-web-shared-read-"));
+  await initializeProject({ directory: root });
+  const paths = [root, join(root, ".tbspec"), join(root, ".tbspec/dependencies")];
+  const shell = join(
+    process.env.SystemRoot ?? "C:\\Windows",
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  const literals = paths.map((path) => `'${path.replaceAll("'", "''")}'`).join(",");
+  if (process.platform === "win32") {
+    await promisify(execFile)(
+      shell,
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `$ErrorActionPreference='Stop'; foreach($pathValue in @(${literals})){ $aclValue=[IO.Directory]::GetAccessControl($pathValue); $sidValue=[Security.Principal.SecurityIdentifier]::new('S-1-1-0'); $aclValue.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sidValue,'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')); [IO.Directory]::SetAccessControl($pathValue,$aclValue) }`,
+      ],
+      { windowsHide: true },
+    );
+  } else {
+    for (const path of paths) await chmod(path, 0o755);
+  }
+  const permissions = async () => {
+    if (process.platform !== "win32")
+      return Promise.all(paths.map(async (path) => (await stat(path)).mode));
+    const result = await promisify(execFile)(
+      shell,
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `$ErrorActionPreference='Stop'; foreach($pathValue in @(${literals})){ [IO.Directory]::GetAccessControl($pathValue).Sddl }`,
+      ],
+      { windowsHide: true },
+    );
+    return result.stdout;
+  };
+  const before = await permissions();
+  const server = await startWebServer(await realpath(root), 0);
+  t.after(() => server.stop());
+  assert.deepEqual(await permissions(), before);
+  assert.equal((await controlRequest(server.record, "status")).state, "running");
+  assert.equal((await webProject({ project: root, action: "status" })).status, "ok");
+  await server.stop();
+  assert.deepEqual(await permissions(), before);
+});
+
+test("a failed inspection worker recovers without restarting sessions or clearing retained locks", {
+  timeout: 30000,
+}, async () => {
+  const root = await privateDirectory(join(tmpdir(), "tbspec-web-worker-recovery-"));
+  await initializeProject({ directory: root });
+  const script = `
+    import assert from "node:assert/strict";
+    import { mkdir, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    import { join } from "node:path";
+    import threads from "node:worker_threads";
+    import { startWebServer } from ${JSON.stringify(new URL("../src/server.ts", import.meta.url).href)};
+    import { controlRequest } from ${JSON.stringify(new URL("../src/web.ts", import.meta.url).href)};
+    const OriginalWorker = threads.Worker;
+    let first = true;
+    threads.Worker = class extends OriginalWorker {
+      constructor(...args) {
+        if (first) {
+          first = false;
+          super('const { parentPort } = require("node:worker_threads"); parentPort.postMessage({ready: true}); parentPort.on("message", () => { throw new Error("Inspection failure"); });', { eval: true, execArgv: [] });
+        } else super(args[0], { ...args[1], execArgv: [] });
+      }
+    };
+    syncBuiltinESMExports();
+    const root = process.argv[1];
+    const server = await startWebServer(root);
+    try {
+      const registration = join(root, ".tbspec/runtime/web.json");
+      const original = await readFile(registration, "utf8");
+      const link = await controlRequest(server.record, "opening-link", {});
+      const bootstrap = new URL(link.openingLink).hash.slice("#tbspec-bootstrap=".length);
+      const exchanged = await fetch(new URL("api/auth/v1/bootstrap", server.record.baseUrl), {
+        method: "POST",
+        headers: { Origin: new URL(server.record.baseUrl).origin, "Content-Type": "application/json" },
+        body: JSON.stringify({ protocolVersion: 1, bootstrap }),
+      });
+      const session = (await exchanged.json()).data.sessionToken;
+      const headers = { Authorization: "Bearer " + session, "X-Tbspec-Schema-Version": "1" };
+      const inspect = async () => (await fetch(new URL("api/project/v1/config", server.record.baseUrl), { headers })).json();
+      assert.equal((await inspect()).status, "unavailable");
+      assert.equal((await controlRequest(server.record, "status")).state, "running");
+      const lock = join(root, ".tbspec/operation.lock");
+      await writeFile(lock, "retained ownership");
+      const blocked = await inspect();
+      assert.equal(blocked.status, "conflict", JSON.stringify(blocked));
+      assert.equal(blocked.diagnostics[0].code, "RECOVERY_REQUIRED");
+      assert.equal(await readFile(lock, "utf8"), "retained ownership");
+      await unlink(lock);
+      const recovery = join(root, ".tbspec/transactions/pending");
+      await mkdir(recovery, { recursive: true });
+      await writeFile(join(recovery, "record.json"), "retained transaction");
+      const pending = await inspect();
+      assert.equal(pending.diagnostics[0].code, "RECOVERY_REQUIRED", JSON.stringify(pending));
+      assert.equal(await readFile(join(recovery, "record.json"), "utf8"), "retained transaction");
+      await unlink(join(recovery, "record.json"));
+      await rmdir(recovery);
+      const recovered = await inspect();
+      assert.equal(recovered.status, "ok", JSON.stringify(recovered));
+      assert.equal(await readFile(registration, "utf8"), original);
+    } finally { await server.stop(); }
+  `;
+  await promisify(execFile)(
+    process.execPath,
+    ["--input-type=module", "--eval", script, await realpath(root)],
+    {
+      timeout: 25000,
+      windowsHide: true,
+    },
+  );
+});
+
+test("shared writable runtime parents fail ownership without replacing registration", {
   timeout: 30000,
 }, async (t) => {
   const root = await privateDirectory(join(tmpdir(), "tbspec-web-permissions-"));
@@ -20,9 +144,9 @@ test("shared writable project roots fail runtime ownership without replacing reg
   assert.equal(started.status, "ok", JSON.stringify(started));
   const path = join(root, ".tbspec/runtime/web.json");
   const original = await readFile(path, "utf8");
-  const shared = async (enable: boolean) => {
-    if (process.platform !== "win32") return chmod(root, enable ? 0o777 : 0o700);
-    const literal = `'${root.replaceAll("'", "''")}'`;
+  const shared = async (enable: boolean, parent: string) => {
+    if (process.platform !== "win32") return chmod(parent, enable ? 0o777 : 0o700);
+    const literal = `'${parent.replaceAll("'", "''")}'`;
     const script = `$ErrorActionPreference='Stop'; $aclValue=[IO.Directory]::GetAccessControl(${literal}); $sidValue=[Security.Principal.SecurityIdentifier]::new('S-1-1-0'); $ruleValue=[Security.AccessControl.FileSystemAccessRule]::new($sidValue,'FullControl','Allow'); $aclValue.${enable ? "AddAccessRule" : "RemoveAccessRuleSpecific"}($ruleValue); [IO.Directory]::SetAccessControl(${literal},$aclValue);`;
     await promisify(execFile)(
       join(
@@ -36,18 +160,21 @@ test("shared writable project roots fail runtime ownership without replacing reg
       { windowsHide: true },
     );
   };
+  const parents = [root, join(root, ".tbspec")];
   t.after(async () => {
-    await shared(false);
+    for (const parent of parents) await shared(false, parent);
     await webProject({ project: root, action: "stop" });
   });
-  await shared(true);
-  for (const action of ["start", "status", "stop"] as const) {
-    const result = await webProject({ project: root, action });
-    assert.equal(result.status, "conflict", JSON.stringify(result));
-    assert.equal(result.diagnostics[0]?.code, "RUNTIME_OWNERSHIP_UNKNOWN");
-    assert.equal(await readFile(path, "utf8"), original);
+  for (const parent of parents) {
+    await shared(true, parent);
+    for (const action of ["start", "status", "stop"] as const) {
+      const result = await webProject({ project: root, action });
+      assert.equal(result.status, "conflict", JSON.stringify(result));
+      assert.equal(result.diagnostics[0]?.code, "RUNTIME_OWNERSHIP_UNKNOWN");
+      assert.equal(await readFile(path, "utf8"), original);
+    }
+    await shared(false, parent);
   }
-  await shared(false);
   assert.equal((await webProject({ project: root, action: "status" })).status, "ok");
 });
 
@@ -327,4 +454,24 @@ test("authenticated control stays responsive while the bounded RDF worker is bus
   const result = await inspection;
   assert.equal(result.status, "ok", JSON.stringify(result));
   assert.equal(result.data.items[0].selector, "large.nt");
+  const stringify = JSON.stringify;
+  const serialization = t.mock.method(JSON, "stringify", (value: unknown) => {
+    if (
+      value &&
+      typeof value === "object" &&
+      "data" in value &&
+      value.data &&
+      typeof value.data === "object" &&
+      "triples" in value.data
+    )
+      throw new Error("RDF response serialization reached the control listener.");
+    return stringify(value);
+  });
+  const shown = await fetch(new URL("api/project/v1/graph?selector=large.nt", baseUrl), {
+    headers,
+  });
+  const graph = await shown.json();
+  serialization.mock.restore();
+  assert.equal(shown.status, 200, JSON.stringify(graph));
+  assert.equal(graph.data.triples.length, 80000);
 });

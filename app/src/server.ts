@@ -5,6 +5,8 @@ import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import { canonical } from "./canonical.ts";
 import type { InspectionCommand } from "./inspection.ts";
+import type { InspectionResponse } from "./inspection-worker.ts";
+import { withLock } from "./lock.ts";
 import { exits, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
 import { token } from "./ownership.ts";
 import { opaqueToken } from "./recovery.ts";
@@ -34,14 +36,14 @@ const httpStatus = {
 };
 function respond(
   response: ServerResponse,
-  result: Result<unknown>,
+  result: Result<unknown> | InspectionResponse,
   status = httpStatus[result.status],
 ) {
   response.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
   });
-  response.end(JSON.stringify(result));
+  response.end("json" in result ? result.json : JSON.stringify(result));
 }
 async function jsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
   if (request.headers["content-type"] !== "application/json")
@@ -125,25 +127,38 @@ export async function startWebServer(
   const sessions = new Map<string, number>();
   const consoles = new Map<ServerResponse, number>();
   const recent: { type: "state" | "log"; data: Record<string, unknown> }[] = [];
-  const jobs = new Set<Promise<Result>>();
-  const worker = new Worker(
-    new URL(
-      import.meta.url.endsWith(".ts") ? "./inspection-worker.ts" : "./inspection-worker.js",
-      import.meta.url,
-    ),
-    { resourceLimits: { maxOldGenerationSizeMb: 256 } },
-  );
+  const jobs = new Set<Promise<Result | InspectionResponse>>();
   let workerFailed = false;
-  worker.on("error", () => {
-    workerFailed = true;
-  });
-  worker.on("exit", () => {
-    workerFailed = true;
-  });
-  const workerReady = new Promise<void>((resolve, reject) => {
-    worker.once("message", () => resolve());
-    worker.once("error", reject);
-  });
+  let workerReady = Promise.resolve();
+  function createWorker(): Worker {
+    const current = new Worker(
+      new URL(
+        import.meta.url.endsWith(".ts") ? "./inspection-worker.ts" : "./inspection-worker.js",
+        import.meta.url,
+      ),
+      // shortcut: this old-generation limit is provisional, recalibrate with representative projects.
+      { resourceLimits: { maxOldGenerationSizeMb: 512 } },
+    );
+    workerFailed = false;
+    current.on("error", () => {
+      workerFailed = true;
+    });
+    current.on("exit", () => {
+      workerFailed = true;
+    });
+    workerReady = new Promise<void>((resolve, reject) => {
+      const ended = () => reject(new Error("Inspection worker ended before readiness."));
+      current.once("message", () => {
+        current.off("error", reject);
+        current.off("exit", ended);
+        resolve();
+      });
+      current.once("error", reject);
+      current.once("exit", ended);
+    });
+    return current;
+  }
+  let worker = createWorker();
   let finishStop: () => void = () => {};
   const stopped = new Promise<void>((resolve) => {
     finishStop = resolve;
@@ -189,15 +204,10 @@ export async function startWebServer(
       openingLinkExpiresAt: new Date(expires).toISOString(),
     };
   }
-  async function inspect(command: InspectionCommand, selector?: string): Promise<Result> {
-    if (workerFailed)
-      return failure(
-        new ProjectError(
-          "unavailable",
-          "IO_FAILURE",
-          "Inspection worker is unavailable. Stop and restart this server.",
-        ),
-      );
+  async function inspect(
+    command: InspectionCommand,
+    selector?: string,
+  ): Promise<Result | InspectionResponse> {
     if (jobs.size >= 1)
       return failure(
         new ProjectError(
@@ -206,27 +216,38 @@ export async function startWebServer(
           "Inspection capacity is busy; retry after it finishes.",
         ),
       );
-    let finish: (result: Result) => void = () => {};
+    let finish: (result: Result | InspectionResponse) => void = () => {};
     const failed = () =>
       finish(
         failure(
           new ProjectError(
             "unavailable",
             "IO_FAILURE",
-            "Inspection worker ended unexpectedly. Stop and restart this server.",
+            "Inspection worker ended unexpectedly. Retry the read; retained recovery state is never cleared automatically.",
           ),
         ),
       );
-    const job = new Promise<Result>((resolve) => {
-      finish = resolve;
-    });
-    worker.once("message", finish);
-    worker.once("error", failed);
-    worker.once("exit", failed);
+    const job = (async () => {
+      if (workerFailed) {
+        // Reuse normal coordination to refuse retained locks or pending transaction recovery.
+        await withLock(root, async () => undefined);
+        await worker.terminate();
+        worker = createWorker();
+        await workerReady;
+      }
+      return new Promise<Result | InspectionResponse>((resolve) => {
+        finish = resolve;
+        worker.once("message", finish);
+        worker.once("error", failed);
+        worker.once("exit", failed);
+        worker.postMessage({ project: root, command, selector });
+      });
+    })();
     jobs.add(job);
-    worker.postMessage({ project: root, command, selector });
     try {
       return await job;
+    } catch (error) {
+      return failure(error);
     } finally {
       jobs.delete(job);
       worker.off("message", finish);

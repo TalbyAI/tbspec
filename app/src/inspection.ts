@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Term } from "@rdfjs/types";
@@ -6,7 +6,7 @@ import type { Store } from "n3";
 import { utf8Compare } from "./canonical.ts";
 import { fileBytes, inventory, type Revision, revision, verifyReads } from "./filesystem.ts";
 import { withLock } from "./lock.ts";
-import { type Diagnostic, failure, ok, ProjectError, type Result } from "./output.ts";
+import { type Diagnostic, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
 import { portablePath, safePath } from "./paths.ts";
 import { discoverProject, projectDiscoveryScope } from "./project.ts";
 import { classifyGraph, parseGraph, parseRdf } from "./rdf.ts";
@@ -75,14 +75,37 @@ const formats: Record<string, string> = {
 };
 const metadata = "https://talby.ai/ontology/tbspec#";
 
-async function captureInspection(root: string): Promise<Snapshot> {
+async function captureInspection(
+  root: string,
+  command: InspectionCommand,
+  target?: string,
+): Promise<Snapshot & { ownedPaths: string[]; target?: string }> {
   return withLock(root, async () => {
     const scope = {
       ...projectDiscoveryScope,
       excluded: [...projectDiscoveryScope.excluded, ".tbspec/dependencies"],
     };
-    const before = await inventory(root, scope.path, scope);
-    const paths: string[] = ["tbspec.toml", "tbspec.lock"];
+    const snapshot: Snapshot & { ownedPaths: string[]; target?: string } = {
+      projectRoot: root,
+      files: {},
+      reads: [],
+      ownedPaths: [],
+      target,
+    };
+    async function read(path: string) {
+      const bytes = await fileBytes(root, path);
+      snapshot.files[path] = bytes;
+      snapshot.reads.push({ kind: "file", path, revision: revision(bytes) });
+    }
+    await read("tbspec.toml");
+    await read("tbspec.lock");
+    let lock: Lock | undefined;
+    try {
+      lock = parseLock(snapshot.files["tbspec.lock"]?.toString("utf8") ?? "");
+    } catch {
+      /* Report schema failure after coherent capture. */
+    }
+    const paths: string[] = [];
     async function walk(directory: string) {
       for (const entry of await readdir(directory ? await safePath(root, directory) : root, {
         withFileTypes: true,
@@ -92,46 +115,67 @@ async function captureInspection(root: string): Promise<Snapshot> {
           continue;
         await safePath(root, path);
         if (entry.isDirectory()) await walk(path);
-        else if (entry.isFile() && formats[extname(path).toLowerCase()]) paths.push(path);
+        else if (entry.isFile() && formats[extname(path).toLowerCase()]) {
+          paths.push(path);
+          snapshot.ownedPaths.push(path);
+        }
       }
     }
-    await walk("");
-    // Locked inventories, including inactive support, are captured even though discovery excludes them.
-    let lock: Lock | undefined;
-    const lockBytes = await fileBytes(root, "tbspec.lock");
-    try {
-      lock = parseLock(lockBytes?.toString("utf8") ?? "");
-    } catch {
-      /* Report schema failure after coherent capture. */
+    if (command === "status" || command === "graph.list") {
+      snapshot.reads.push({
+        kind: "inventory",
+        path: "",
+        revision: await inventory(root, scope.path, scope),
+        scope: { included: scope.included, excluded: scope.excluded },
+      });
+      await walk("");
     }
-    if (lock)
+    // Only project-wide status reads every retained dependency, including inactive support.
+    if (lock && command === "status")
       for (const dep of Object.values(lock.dependencies))
         for (const file of dep.files) paths.push(`${dep.snapshot_path}/${file.key}`);
-    const snapshot: Snapshot = {
-      projectRoot: root,
-      files: {},
-      reads: [
-        {
-          kind: "inventory",
-          path: "",
-          revision: before,
-          scope: { included: scope.included, excluded: scope.excluded },
-        },
-      ],
-    };
-    for (const path of [...new Set(paths)].sort(utf8Compare)) {
-      const bytes = await fileBytes(root, path);
-      snapshot.files[path] = bytes;
-      snapshot.reads.push({ kind: "file", path, revision: revision(bytes) });
+    async function ownedFile(path: string): Promise<boolean> {
+      if (scope.excluded.some((prefix) => path === prefix || path.startsWith(`${prefix}/`)))
+        return false;
+      try {
+        return (await lstat(await safePath(root, path))).isFile();
+      } catch (error) {
+        if (hasCode(error, "ENOENT")) return false;
+        throw error;
+      }
     }
-    if (!(lockBytes ?? Buffer.alloc(0)).equals(snapshot.files["tbspec.lock"] ?? Buffer.alloc(0)))
+    let sibling: string | undefined;
+    let siblingPresent = false;
+    if (command === "graph.show" && target) {
+      if (target.startsWith("dep:")) {
+        const [id, ...key] = target.slice(4).split("/");
+        const dep = lock?.dependencies[id ?? ""];
+        const file = dep?.files.find((file) => file.key === (key.join("/") || dep.primary));
+        if (dep && file) {
+          snapshot.target = `dep:${id}/${file.key}`;
+          paths.push(`${dep.snapshot_path}/${file.key}`);
+        }
+      } else if (formats[extname(target).toLowerCase()] && (await ownedFile(target))) {
+        paths.push(target);
+        snapshot.ownedPaths.push(target);
+        const path = target.replace(/\.ttl$/i, ".shacl.ttl");
+        if (path !== target) {
+          sibling = path;
+          siblingPresent = await ownedFile(path);
+          if (siblingPresent) snapshot.ownedPaths.push(path);
+        }
+      }
+    }
+    for (const path of [...new Set(paths)].sort(utf8Compare)) await read(path);
+    await verifyReads(root, snapshot.reads);
+    // A filename association depends on presence, not on the support graph's bytes.
+    if (sibling && siblingPresent !== (await ownedFile(sibling)))
       throw new ProjectError(
         "conflict",
         "REVISION_CONFLICT",
-        "Lock inventory changed during capture.",
-        "tbspec.lock",
+        "Graph association changed during capture.",
+        sibling,
       );
-    await verifyReads(root, snapshot.reads);
     return snapshot;
   });
 }
@@ -185,7 +229,24 @@ export async function inspectProject(options: {
 }): Promise<Result<InspectionData>> {
   try {
     const root = await discoverProject(options);
-    const snapshot = await captureInspection(root);
+    let target = options.selector;
+    if (options.command === "graph.show") {
+      if (!target)
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "graph show requires a selector.",
+        );
+      try {
+        target = selector(
+          target.startsWith("dep:") ? target.replaceAll("\\", "/") : portablePath(target),
+        );
+      } catch {
+        throw new ProjectError("invalid_arguments", "ARGUMENT_INVALID", "Invalid graph selector.");
+      }
+    }
+    const snapshot = await captureInspection(root, options.command, target);
+    target = snapshot.target;
     const diagnostics: Diagnostic[] = [];
     let manifest: Row | undefined;
     let lock: Lock | undefined;
@@ -209,26 +270,6 @@ export async function inspectProject(options: {
     }
     const resources: Resource[] = [];
     let selectedStore: Store | undefined;
-    let target = options.selector;
-    if (options.command === "graph.show") {
-      if (!target)
-        throw new ProjectError(
-          "invalid_arguments",
-          "ARGUMENT_INVALID",
-          "graph show requires a selector.",
-        );
-      try {
-        target = selector(
-          target.startsWith("dep:") ? target.replaceAll("\\", "/") : portablePath(target),
-        );
-      } catch {
-        throw new ProjectError("invalid_arguments", "ARGUMENT_INVALID", "Invalid graph selector.");
-      }
-      if (target.startsWith("dep:") && !target.includes("/")) {
-        const dep = lock?.dependencies[target.slice(4)];
-        if (dep) target += `/${dep.primary}`;
-      }
-    }
     const validation: Validation = {
       validity: "invalid",
       validationComplete: false,
@@ -351,7 +392,7 @@ export async function inspectProject(options: {
                   });
         } else {
           const sibling = resource.file.replace(/\.ttl$/i, ".shacl.ttl");
-          if (sibling !== resource.file && resources.some((r) => r.file === sibling))
+          if (sibling !== resource.file && snapshot.ownedPaths.includes(sibling))
             resource.associations.push({ role: "shacl", selector: sibling });
           for (const a of (manifest?.associations ?? []) as Row[])
             if (a.resource === resource.selector)
@@ -398,7 +439,7 @@ export async function inspectProject(options: {
             resource,
             sourceText: snapshot.files[resource.file]?.toString("utf8") ?? "",
             triples: store
-              ? [...store].map((q) => ({
+              ? Array.from(store, (q) => ({
                   subject: rdfTerm(q.subject, resource.selector),
                   predicate: rdfTerm(q.predicate, resource.selector),
                   object: rdfTerm(q.object, resource.selector),

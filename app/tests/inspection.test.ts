@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,114 @@ import test from "node:test";
 import { inspectProject } from "../src/inspection.ts";
 import { initializeProject } from "../src/project.ts";
 import { interpretationSignature, parseLock, writeToml } from "../src/schemas.ts";
+
+test("configuration and graph reads exclude unrelated bytes and preserve sibling associations", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-inspect-scope-"));
+  await initializeProject({ directory: root });
+  await writeFile(join(root, "selected.ttl"), '<urn:s> <urn:p> "selected" .');
+  await writeFile(join(root, "selected.shacl.ttl"), "unreadable support");
+  await writeFile(join(root, "unrelated.ttl"), "unreadable graph");
+  const script = `
+    import assert from "node:assert/strict";
+    import fs from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    import { join } from "node:path";
+    import { inspectProject } from ${JSON.stringify(new URL("../src/inspection.ts", import.meta.url).href)};
+    const root = process.argv[1];
+    const original = fs.readFile;
+    const reads = [];
+    fs.readFile = async (path, ...args) => {
+      const name = String(path);
+      reads.push(name);
+      if (name === join(root, "unrelated.ttl") || name === join(root, "selected.shacl.ttl") || name.includes("dependencies"))
+        throw new Error("Unrelated bytes must not be read");
+      return original(path, ...args);
+    };
+    syncBuiltinESMExports();
+    for (const command of ["config.show", "config.model-type.list"]) {
+      reads.length = 0;
+      const result = await inspectProject({ project: root, command });
+      assert.equal(result.status, "ok", JSON.stringify(result));
+      assert.ok(!reads.includes(join(root, "selected.ttl")));
+    }
+    const graph = await inspectProject({ project: root, command: "graph.show", selector: "selected.ttl" });
+    assert.equal(graph.status, "ok", JSON.stringify(graph));
+    assert.deepEqual(graph.data.resource.associations, [{ role: "shacl", selector: "selected.shacl.ttl" }]);
+    assert.equal((await inspectProject({ project: root, command: "graph.list" })).status, "unavailable");
+    assert.equal((await inspectProject({ project: root, command: "status" })).status, "unavailable");
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script, root], {
+    encoding: "utf8",
+    timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("graph listings do not read locked dependency bytes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-list-scope-"));
+  await initializeProject({ directory: root });
+  await writeFile(join(root, "selected.ttl"), '<urn:s> <urn:p> "selected" .');
+  const script = `
+    import assert from "node:assert/strict";
+    import fs from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    import { inspectProject } from ${JSON.stringify(new URL("../src/inspection.ts", import.meta.url).href)};
+    const original = fs.readFile;
+    fs.readFile = async (path, ...args) => {
+      if (String(path).includes("dependencies")) throw new Error("Locked bytes must not be read");
+      return original(path, ...args);
+    };
+    syncBuiltinESMExports();
+    const result = await inspectProject({ project: process.argv[1], command: "graph.list" });
+    assert.equal(result.status, "ok", JSON.stringify(result));
+    assert.equal(result.data.items[0].selector, "selected.ttl");
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script, root], {
+    encoding: "utf8",
+    timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("selected bytes and sibling presence are coherent without binding unrelated files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-inspect-revision-"));
+  await initializeProject({ directory: root });
+  const script = `
+    import assert from "node:assert/strict";
+    import fs from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    import { join } from "node:path";
+    import { inspectProject } from ${JSON.stringify(new URL("../src/inspection.ts", import.meta.url).href)};
+    const root = process.argv[1];
+    const selected = join(root, "selected.ttl");
+    const sibling = join(root, "selected.shacl.ttl");
+    const original = fs.readFile;
+    for (const mutation of ["selected", "sibling", "unrelated"]) {
+      await fs.writeFile(selected, '<urn:s> <urn:p> "original" .');
+      await fs.rm(sibling, { force: true });
+      let changed = false;
+      fs.readFile = async (path, ...args) => {
+        const bytes = await original(path, ...args);
+        if (String(path) === selected && !changed) {
+          changed = true;
+          await fs.writeFile(mutation === "selected" ? selected : mutation === "sibling" ? sibling : join(root, "unrelated.ttl"), '<urn:s> <urn:p> "changed" .');
+        }
+        return bytes;
+      };
+      syncBuiltinESMExports();
+      const result = await inspectProject({ project: root, command: "graph.show", selector: "selected.ttl" });
+      assert.equal(result.status, mutation === "unrelated" ? "ok" : "conflict", JSON.stringify(result));
+      if (mutation !== "unrelated") assert.equal(result.diagnostics[0].code, "REVISION_CONFLICT");
+      fs.readFile = original;
+      syncBuiltinESMExports();
+    }
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script, root], {
+    encoding: "utf8",
+    timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
 
 test("inspection includes OWL RDF/XML and keeps invalid project arguments distinct", async () => {
   const root = await mkdtemp(join(tmpdir(), "tbspec-inspect-owl-"));
