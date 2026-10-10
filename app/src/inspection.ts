@@ -260,6 +260,8 @@ export async function inspectProject(options: {
     } catch (error) {
       diagnostics.push(...failure(error).diagnostics);
     }
+    if (options.command === "graph.show" && target?.startsWith("dep:") && !lock)
+      return { ...ok<InspectionData>({}, diagnostics), status: "invalid" };
     if (options.command.startsWith("config.")) {
       if (!manifest || !lock) return { ...ok<InspectionData>({}, diagnostics), status: "invalid" };
       const config = effectiveConfig(manifest, lock);

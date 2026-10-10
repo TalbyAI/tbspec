@@ -242,7 +242,11 @@ export async function webProject(options: {
         );
       return ok({ server: stoppedRecord(root) });
     }
-    if (options.port && record.baseUrl && Number(new URL(record.baseUrl).port) !== options.port)
+    if (
+      options.port &&
+      record.baseUrl &&
+      Number(new URL(record.baseUrl).port || 80) !== options.port
+    )
       throw runtimeError(
         "conflict",
         "WEB_PORT_CONFLICT",

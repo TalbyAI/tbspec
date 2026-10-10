@@ -6,10 +6,98 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
+import { hasCode, ProjectError } from "../src/output.ts";
 import { initializeProject } from "../src/project.ts";
 import { startWebServer } from "../src/server.ts";
 import { controlRequest, webProject } from "../src/web.ts";
 import { privateDirectory } from "./private-directory.ts";
+
+test("an explicit HTTP default port reuses the successfully started server", {
+  timeout: 30000,
+}, async (t) => {
+  const root = await privateDirectory(join(tmpdir(), "tbspec-web-port80-"));
+  await initializeProject({ directory: root });
+  let server: Awaited<ReturnType<typeof startWebServer>>;
+  try {
+    server = await startWebServer(await realpath(root), 80);
+  } catch (error) {
+    if (
+      hasCode(error, "EACCES") ||
+      (error instanceof ProjectError && error.diagnostic.code === "WEB_PORT_CONFLICT")
+    ) {
+      t.skip("Loopback port 80 is occupied or requires OS privileges.");
+      return;
+    }
+    throw error;
+  }
+  t.after(() => server.stop());
+  const result = await webProject({ project: root, action: "start", port: 80 });
+  assert.equal(result.status, "ok", JSON.stringify(result));
+  assert.equal(result.data?.server.instanceId, server.record.instanceId);
+  const different = await webProject({ project: root, action: "start", port: 81 });
+  assert.equal(different.diagnostics[0]?.code, "WEB_PORT_CONFLICT");
+});
+
+test("a failed stopping registration can be explicitly retried without disabling reads", {
+  timeout: 30000,
+}, async () => {
+  const root = await privateDirectory(join(tmpdir(), "tbspec-web-stop-retry-"));
+  await initializeProject({ directory: root });
+  const script = `
+    import assert from "node:assert/strict";
+    import fs from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    import { join } from "node:path";
+    import threads from "node:worker_threads";
+    import { startWebServer } from ${JSON.stringify(new URL("../src/server.ts", import.meta.url).href)};
+    import { controlRequest } from ${JSON.stringify(new URL("../src/web.ts", import.meta.url).href)};
+    const Worker = threads.Worker;
+    threads.Worker = class extends Worker {
+      constructor(url, options) { super(url, { ...options, execArgv: [] }); }
+    };
+    syncBuiltinESMExports();
+    const root = process.argv[1];
+    const server = await startWebServer(root);
+    const path = join(root, ".tbspec/runtime/web.json");
+    const original = await fs.readFile(path, "utf8");
+    const rename = fs.rename;
+    let fail = true;
+    fs.rename = async (from, to) => {
+      if (to === path && fail) throw new Error("Transient registration write failure");
+      return rename(from, to);
+    };
+    syncBuiltinESMExports();
+    await assert.rejects(server.stop(), /Transient registration write failure/);
+    assert.equal(server.record.state, "running");
+    assert.equal((await controlRequest(server.record, "status")).state, "running");
+    assert.equal(await fs.readFile(path, "utf8"), original);
+    const link = await controlRequest(server.record, "opening-link", {});
+    const bootstrap = new URL(link.openingLink).hash.slice("#tbspec-bootstrap=".length);
+    const exchanged = await fetch(new URL("api/auth/v1/bootstrap", server.record.baseUrl), {
+      method: "POST", headers: { Origin: new URL(server.record.baseUrl).origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ protocolVersion: 1, bootstrap }),
+    });
+    const session = (await exchanged.json()).data.sessionToken;
+    const response = await fetch(new URL("api/project/v1/config", server.record.baseUrl), {
+      headers: { Authorization: "Bearer " + session, "X-Tbspec-Schema-Version": "1" },
+    });
+    assert.equal(response.status, 200);
+    fail = false;
+    const retry = server.stop();
+    assert.equal(server.stop(), retry);
+    await retry;
+    await server.stopped;
+    await assert.rejects(fs.readFile(path), { code: "ENOENT" });
+  `;
+  await promisify(execFile)(
+    process.execPath,
+    ["--input-type=module", "--eval", script, await realpath(root)],
+    {
+      timeout: 25000,
+      windowsHide: true,
+    },
+  );
+});
 
 test("runtime startup preserves shared read access outside its private directory", {
   timeout: 30000,

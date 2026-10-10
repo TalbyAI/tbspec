@@ -271,8 +271,8 @@ export async function startWebServer(
   const stop = (): Promise<void> => {
     if (stopping) return stopping;
     stopping = (async () => {
+      await replaceRuntime({ ...record, state: "stopping" });
       record.state = "stopping";
-      await replaceRuntime(record);
       log("state", { state: "stopping" });
       bootstraps.clear();
       sessions.clear();
@@ -290,7 +290,10 @@ export async function startWebServer(
       await closed;
       await removeRuntime(record);
       finishStop();
-    })();
+    })().catch((error: unknown) => {
+      if (record.state !== "stopping") stopping = undefined;
+      throw error;
+    });
     return stopping;
   };
   async function handle(request: IncomingMessage, response: ServerResponse) {

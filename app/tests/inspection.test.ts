@@ -8,6 +8,32 @@ import { inspectProject } from "../src/inspection.ts";
 import { initializeProject } from "../src/project.ts";
 import { interpretationSignature, parseLock, writeToml } from "../src/schemas.ts";
 
+test("dependency selectors preserve malformed lock diagnostics before resource resolution", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-inspect-malformed-lock-"));
+  await initializeProject({ directory: root });
+  const path = join(root, "tbspec.lock");
+  const valid = await readFile(path, "utf8");
+  for (const broken of ["not valid TOML [", "lock_version = 999"]) {
+    await writeFile(path, broken);
+    const config = await inspectProject({ project: root, command: "config.show" });
+    assert.equal(config.status, "invalid");
+    for (const selector of ["dep:tbspec-metadata", "dep:tbspec-metadata/source/tbspec.ttl"]) {
+      const shown = await inspectProject({ project: root, command: "graph.show", selector });
+      assert.equal(shown.status, "invalid", JSON.stringify(shown));
+      assert.deepEqual(shown.diagnostics, config.diagnostics);
+    }
+    assert.equal(await readFile(path, "utf8"), broken);
+  }
+  await writeFile(path, valid);
+  const missing = await inspectProject({
+    project: root,
+    command: "graph.show",
+    selector: "dep:missing",
+  });
+  assert.equal(missing.status, "unavailable");
+  assert.equal(missing.diagnostics[0]?.code, "RESOURCE_MISSING");
+});
+
 test("configuration and graph reads exclude unrelated bytes and preserve sibling associations", async () => {
   const root = await mkdtemp(join(tmpdir(), "tbspec-inspect-scope-"));
   await initializeProject({ directory: root });
