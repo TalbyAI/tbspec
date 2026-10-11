@@ -401,13 +401,21 @@ async function inspectProjectData(
           const types = store.getObjects(resource.graphIri, `${metadata}modelType`, null);
           if (types.length === 1 && types[0]?.termType === "Literal")
             resource.modelType = types[0].value;
-          const sourceSelector = store.getObjects(
+          const sourceSelectors = store.getObjects(
             resource.graphIri,
             "http://purl.org/dc/terms/source",
             null,
-          )[0];
-          resource.provenance = store
-            .getObjects(resource.graphIri, "http://www.w3.org/ns/prov#wasDerivedFrom", null)
+          );
+          const derivations = store.getObjects(
+            resource.graphIri,
+            "http://www.w3.org/ns/prov#wasDerivedFrom",
+            null,
+          );
+          const sourceSelector =
+            derivations.length === 1 && sourceSelectors.length === 1
+              ? sourceSelectors[0]
+              : undefined;
+          resource.provenance = derivations
             .filter((term) => term.termType === "NamedNode")
             .map((term) => ({
               sourceGraphIri: term.value,

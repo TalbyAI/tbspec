@@ -431,6 +431,8 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
       const local = relative(root, absolute).replaceAll("\\", "/");
       const withinProject =
         local && !local.startsWith("../") && local !== ".." && !/^[A-Za-z]:/.test(local);
+      const acquisition = manifest.acquisition as Record<string, number> | undefined;
+      const limit = acquisition?.max_graph_bytes ?? 67108864;
       let bytes: Buffer;
       let sourceSelector = options.source;
       if (withinProject) {
@@ -452,6 +454,14 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
             "PATH_UNSAFE",
             "Local import requires a regular file.",
           );
+        if (info.size > limit)
+          throw new ProjectError(
+            "invalid_arguments",
+            "ACQUISITION_LIMIT",
+            "Import source exceeds maxGraphBytes.",
+            null,
+            { maxGraphBytes: limit },
+          );
         const actual = await realpath(absolute);
         bytes = await readFile(actual);
         externalSource = { path: actual, digest: digest(bytes) };
@@ -464,8 +474,6 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
           "RDF_FORMAT_UNSUPPORTED",
           "Import supports Turtle, N-Triples and strict RDF/XML.",
         );
-      const acquisition = manifest.acquisition as Record<string, number> | undefined;
-      const limit = acquisition?.max_graph_bytes ?? 67108864;
       if (bytes.length > limit)
         throw new ProjectError(
           "invalid_arguments",
@@ -540,7 +548,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
     );
     provenance = [{ sourceGraphIri: source.graphIri, sourceSelector: source.selector }];
     for (const [key, graph] of graphs) {
-      if (key.startsWith("dep:")) continue;
+      if (key.startsWith("dep:") || key === source.selector) continue;
       const owned = await parseOwned(graph.file, await readGraph(graph.file));
       const collided = new Set(
         store

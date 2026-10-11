@@ -188,7 +188,7 @@ function App() {
   async function author(body: Record<string, unknown>, apply = false) {
     setBusy(true);
     setError("");
-    setPendingPreview(null);
+    if (!apply) setPendingPreview(null);
     try {
       const result = await request(
         apply ? "resource/apply" : operation.replace(".", "/"),
@@ -196,6 +196,12 @@ function App() {
         body,
       );
       setAuthored(result);
+      if (
+        apply &&
+        (result.status === "ok" ||
+          result.diagnostics.some((diagnostic) => diagnostic.code === "REVISION_CONFLICT"))
+      )
+        setPendingPreview(null);
       if (result.status === "preview" && result.data)
         setPendingPreview({
           schemaVersion: 1,

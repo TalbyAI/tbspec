@@ -353,6 +353,37 @@ test("malformed and ambiguous graphs retain independent inspection and scoped ex
     );
 });
 
+test("provenance selectors are reported only for an unambiguous single source", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-provenance-"));
+  await initializeProject({ directory: root });
+  for (const [sources, selectors, expected] of [
+    [
+      "<urn:source>",
+      '"source.ttl"',
+      [{ sourceGraphIri: "urn:source", sourceSelector: "source.ttl" }],
+    ],
+    [
+      "<urn:source>, <urn:other>",
+      '"source.ttl"',
+      [{ sourceGraphIri: "urn:source" }, { sourceGraphIri: "urn:other" }],
+    ],
+    ["<urn:source>", '"source.ttl", "other.ttl"', [{ sourceGraphIri: "urn:source" }]],
+    ["<urn:source>", "<urn:selector>", [{ sourceGraphIri: "urn:source" }]],
+  ] as const) {
+    await writeFile(
+      join(root, "owned.ttl"),
+      `<urn:owned> a <http://www.w3.org/2002/07/owl#Ontology>; <http://www.w3.org/ns/prov#wasDerivedFrom> ${sources}; <http://purl.org/dc/terms/source> ${selectors} .`,
+    );
+    const shown = await inspectProject({
+      project: root,
+      command: "ontology.show",
+      selector: "owned.ttl",
+    });
+    assert.equal(shown.status, "ok", JSON.stringify(shown));
+    assert.deepEqual(shown.data?.resource?.provenance, expected);
+  }
+});
+
 test("effective configuration uses project-locked defaults and whole manifest replacements", async () => {
   const root = await mkdtemp(join(tmpdir(), "tbspec-config-"));
   await initializeProject({ directory: root });

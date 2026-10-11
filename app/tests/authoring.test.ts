@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -96,7 +96,7 @@ test("a destination occupied during capture is a conflict without parsing or rep
     import { syncBuiltinESMExports } from "node:module";
     import { join } from "node:path";
     import { authorResource } from ${JSON.stringify(new URL("../src/authoring.ts", import.meta.url).href)};
-    const root = process.argv[1];
+    const root = await fs.realpath(process.argv[1]);
     const original = fs.readFile;
     let occupied = false;
     fs.readFile = async (path, ...args) => {
@@ -220,6 +220,84 @@ test("editable import preserves terms, unknown triples and originals while repor
   });
   assert.equal(after.data?.sourceText, locked.data?.sourceText);
   assert.equal(after.data?.resource?.ownership, "dependency");
+});
+
+test("external import rejects oversized sources before reading and detects growth after stat", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-import-limit-"));
+  const external = await realpath(await mkdtemp(join(tmpdir(), "tb-import-limit-source-")));
+  const source = join(external, "source.ttl");
+  await initializeProject({ directory: root, baseIri: "urn:limit:/" });
+  await writeFile(
+    join(root, "tbspec.toml"),
+    'schema_version = 1\nbase_iri = "urn:limit:/"\n[acquisition]\nmax_graph_bytes = 64\n',
+  );
+  await writeFile(source, " ".repeat(65));
+  const script = `
+    import assert from "node:assert/strict";
+    import fs from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    import { authorResource } from ${JSON.stringify(new URL("../src/authoring.ts", import.meta.url).href)};
+    const [root, source] = process.argv.slice(1);
+    const readFile = fs.readFile;
+    let reads = 0;
+    fs.readFile = async (path, ...args) => {
+      if (String(path) === source) reads++;
+      return readFile(path, ...args);
+    };
+    syncBuiltinESMExports();
+    const options = { project: root, command: "ontology.import", source, path: "copy.ttl" };
+    const rejected = await authorResource(options);
+    assert.equal(rejected.diagnostics[0]?.code, "ACQUISITION_LIMIT", JSON.stringify(rejected));
+    assert.equal(reads, 0, "Oversized source must not be read");
+    await fs.writeFile(source, " ".repeat(64));
+    const lstat = fs.lstat;
+    fs.lstat = async (path, ...args) => {
+      const info = await lstat(path, ...args);
+      if (String(path) === source) await fs.writeFile(source, " ".repeat(65));
+      return info;
+    };
+    syncBuiltinESMExports();
+    const grown = await authorResource(options);
+    assert.equal(grown.diagnostics[0]?.code, "ACQUISITION_LIMIT", JSON.stringify(grown));
+    assert.equal(reads, 1, "Post-read limit must reject growth after stat");
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", script, root, source],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 30000,
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  await assert.rejects(readFile(join(root, "copy.ttl")), { code: "ENOENT" });
+});
+
+test("owned imports skip their source in collision warnings and retain unrelated collisions", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "tb-import-owned-")));
+  await initializeProject({ directory: root, baseIri: "urn:owned:/" });
+  await writeFile(
+    join(root, "source.ttl"),
+    "<urn:source> a <http://www.w3.org/2002/07/owl#Ontology> . <urn:Person> a <http://www.w3.org/2002/07/owl#Class> .",
+  );
+  const options = {
+    project: root,
+    cwd: root,
+    command: "ontology.import",
+    source: "source.ttl",
+  } as const;
+  const first = await prepareResource({ ...options, path: "first.ttl" });
+  assert.ok(!first.diagnostics.some((d) => d.code === "TERM_IRI_COLLISION"));
+  await writeFile(
+    join(root, "other.ttl"),
+    "<urn:other> a <http://www.w3.org/2002/07/owl#Ontology> . <urn:Person> a <http://www.w3.org/2002/07/owl#Class> .",
+  );
+  const second = await prepareResource({ ...options, path: "second.ttl" });
+  assert.deepEqual(
+    second.diagnostics.filter((d) => d.code === "TERM_IRI_COLLISION").map((d) => d.details),
+    [{ iri: "urn:Person", existingSelector: "other.ttl" }],
+  );
 });
 
 test("receiving vocabulary respects source contexts and configured dependency winners", async () => {
@@ -658,7 +736,7 @@ test("concurrent identity claims publish once and native publication failure lea
     import { syncBuiltinESMExports } from "node:module";
     import { join } from "node:path";
     import { authorResource } from ${JSON.stringify(new URL("../src/authoring.ts", import.meta.url).href)};
-    const root = process.argv[1];
+    const root = await fs.realpath(process.argv[1]);
     const manifest = await fs.readFile(join(root, "tbspec.toml"));
     const original = fs.link;
     fs.link = async (from, to) => { if (to === join(root, "failed.ttl")) throw new Error("Native publication fault"); return original(from, to); };
