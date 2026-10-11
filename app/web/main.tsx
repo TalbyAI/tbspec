@@ -66,6 +66,14 @@ interface Preview {
     skippedChecks: Diagnostic[];
   };
 }
+interface Validation {
+  validity: string;
+  validationComplete: boolean;
+  resources: {
+    selector: string;
+    checks: { kind: string; state: string; shapesSelector?: string; blockedBy: string[] }[];
+  }[];
+}
 
 async function request(
   path: string,
@@ -165,6 +173,7 @@ function App() {
   const [profile, setProfile] = useState("conceptual");
   const [authored, setAuthored] = useState<Envelope | null>(null);
   const [validation, setValidation] = useState<Envelope | null>(null);
+  const [validationTarget, setValidationTarget] = useState<string | undefined>();
   const [supportList, setSupportList] = useState<Envelope | null>(null);
   const [pendingPreview, setPendingPreview] = useState<{
     schemaVersion: 1;
@@ -182,6 +191,8 @@ function App() {
       setResources((inventory.data?.items as Resource[]) ?? []);
       const currentStatus = await request("status", token);
       setStatus(currentStatus);
+      setValidation(null);
+      setValidationTarget(undefined);
       setGraph(null);
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : "Workspace is unavailable.");
@@ -266,6 +277,7 @@ function App() {
           session,
         ),
       );
+      setValidationTarget(selector);
       setTab("diagnostics");
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : "Validation failed.");
@@ -337,6 +349,7 @@ function App() {
         : resource.kind === "model" || resource.kind.endsWith("-model")),
   );
   const triples = (graph?.data?.triples as Triple[]) ?? [];
+  const coverage = (validation?.data ?? status?.data?.validation) as Validation | undefined;
   return (
     <div className="workspace">
       <header>
@@ -902,13 +915,51 @@ function App() {
             )}
             {tab === "diagnostics" && (
               <section>
-                <h2>Project diagnostics</h2>
+                <h2>
+                  {validationTarget ? `Validation: ${validationTarget}` : "Project diagnostics"}
+                </h2>
                 <button type="button" disabled={busy} onClick={() => void validate()}>
                   Validate whole project
                 </button>
                 <p>Skipped checks are explicit and prevent a complete clean validation claim.</p>
                 <Diagnostics items={(validation ?? status)?.diagnostics ?? []} />
-                {validation?.data && <pre>{JSON.stringify(validation.data, null, 2)}</pre>}
+                {coverage && (
+                  <>
+                    <p>
+                      {coverage.validity} ·{" "}
+                      {coverage.validationComplete
+                        ? "All required checks completed"
+                        : "Required checks were skipped"}
+                    </p>
+                    <div className="table-scroll">
+                      <table>
+                        <caption>Validation coverage</caption>
+                        <thead>
+                          <tr>
+                            <th scope="col">Resource</th>
+                            <th scope="col">Check</th>
+                            <th scope="col">Source shapes</th>
+                            <th scope="col">Result</th>
+                            <th scope="col">Blocked by</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {coverage.resources.flatMap((r) =>
+                            r.checks.map((c) => (
+                              <tr key={`${r.selector}-${c.kind}-${c.shapesSelector ?? ""}`}>
+                                <td>{r.selector}</td>
+                                <td>{c.kind}</td>
+                                <td>{c.shapesSelector ?? "—"}</td>
+                                <td>{c.state}</td>
+                                <td>{c.blockedBy.join(", ") || "—"}</td>
+                              </tr>
+                            )),
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
               </section>
             )}
           </>

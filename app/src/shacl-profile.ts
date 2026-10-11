@@ -284,19 +284,86 @@ export function prepareShapes(source: Store): Store {
         reject("SHACL_GRAPH_INVALID", "Property shapes require exactly one path.");
     }
     if (statement.predicate.value === `${sh}pattern`) {
-      if (statement.object.termType !== "Literal")
+      if (
+        statement.object.termType !== "Literal" ||
+        statement.object.datatype.value !== `${xsd}string`
+      )
         reject("SHACL_GRAPH_INVALID", "Patterns require string literals.");
-      try {
-        new RegExp(
-          statement.object.value,
-          graph.getObjects(statement.subject, `${sh}flags`, null)[0]?.value ?? "",
+      const flags = graph.getObjects(statement.subject, `${sh}flags`, null);
+      if (
+        flags.length > 1 ||
+        flags.some(
+          (term) =>
+            term.termType !== "Literal" ||
+            term.datatype.value !== `${xsd}string` ||
+            !/^[imsx]*$/.test(term.value),
+        )
+      )
+        reject(
+          "SHACL_GRAPH_INVALID",
+          "Pattern flags must be a single string using only i, m, s and x.",
         );
+      const originalFlags = flags[0]?.value ?? "";
+      let pattern = statement.object.value;
+      if (originalFlags.includes("x")) {
+        let escaped = false;
+        let inClass = false;
+        pattern = [...pattern]
+          .filter((character) => {
+            // XPath x also removes whitespace between a backslash and its escaped character.
+            if (!inClass && /[\t\n\r ]/.test(character)) return false;
+            if (escaped) {
+              escaped = false;
+              return true;
+            }
+            if (character === "\\") {
+              escaped = true;
+              return true;
+            }
+            if (character === "[") inClass = true;
+            if (character === "]") inClass = false;
+            return true;
+          })
+          .join("");
+      }
+      // XPath character escapes differ from JavaScript, both inside and outside classes.
+      const characterClasses: Record<string, string> = {
+        d: "\\p{Nd}",
+        D: "\\P{Nd}",
+        w: "[\\p{L}\\p{M}\\p{N}\\p{S}]",
+        W: "[\\p{P}\\p{Z}\\p{C}]",
+        s: "[ \\t\\r\\n]",
+        S: "[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21-\\u{10ffff}]",
+        "-": "\\x2d",
+      };
+      let inCharacterClass = false;
+      pattern = pattern.replace(/\\[\s\S]|[[\]]/gu, (token) => {
+        if (token === "[") inCharacterClass = true;
+        if (token === "]") inCharacterClass = false;
+        const replacement = token.startsWith("\\") ? characterClasses[token.slice(1)] : undefined;
+        return replacement
+          ? inCharacterClass && replacement.startsWith("[")
+            ? replacement.slice(1, -1)
+            : replacement
+          : token;
+      });
+      const normalizedFlags = `${[...new Set(originalFlags.replaceAll("x", ""))].join("")}u`;
+      try {
+        new RegExp(pattern, normalizedFlags);
       } catch {
         reject(
           "SHACL_GRAPH_INVALID",
           "Pattern or flags cannot be compiled by the pinned Core engine.",
         );
       }
+      graph.removeQuad(statement);
+      graph.addQuad(statement.subject, statement.predicate, DataFactory.literal(pattern));
+      graph.removeQuads(graph.getQuads(statement.subject, `${sh}flags`, null, null));
+      graph.addQuad(
+        statement.subject,
+        DataFactory.namedNode(`${sh}flags`),
+        DataFactory.literal(normalizedFlags),
+      );
     }
   }
   for (const statement of [...graph.getQuads(null, `${sh}sparql`, null, null)]) {

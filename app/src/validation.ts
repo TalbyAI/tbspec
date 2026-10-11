@@ -174,7 +174,12 @@ export async function validateInspection(input: {
       });
   }
   async function load(resource: Resource): Promise<Store | undefined> {
-    if (active.has(resource.selector)) return stores.get(resource.selector);
+    if (active.has(resource.selector))
+      return rowFor(resource).checks.some(
+        (c) => c.kind === "classification" && c.state === "failed",
+      )
+        ? undefined
+        : stores.get(resource.selector);
     active.add(resource.selector);
     rowFor(resource);
     for (const problem of capturedDiagnostics.filter((d) => d.selector === resource.selector))
@@ -602,7 +607,11 @@ export async function validateInspection(input: {
       } else
         for (const candidate of candidates) await include(candidate.selector, "schema", resource);
     }
-    if (resource.kind === "ontology") await include(resource.selector, "ontology", resource);
+    if (resource.kind === "ontology") {
+      if (resource.ownership === "project" && resource.graphIri)
+        ontologyCandidates(resource.graphIri, resource);
+      await include(resource.selector, "ontology", resource);
+    }
     const statementIdentity = (subject: Term, predicate: string, object: Term) => ({
       kind: "statement",
       subject: rdfTerm(subject, resource.selector),
@@ -885,13 +894,6 @@ export async function validateInspection(input: {
   const targets = resources.filter((r) =>
     target ? r.selector === target : snapshot.files[r.file] !== undefined,
   );
-  if (!target)
-    for (const iri of new Set(
-      resources.filter((r) => r.kind === "ontology").map((r) => r.graphIri),
-    )) {
-      const owner = resources.find((r) => r.graphIri === iri);
-      if (iri && owner) ontologyCandidates(iri, owner);
-    }
   for (const resource of targets) await validate(resource);
   await verifyReads(root, snapshot.reads);
   for (const row of validation.resources)

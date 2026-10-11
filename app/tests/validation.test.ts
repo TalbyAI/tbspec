@@ -570,3 +570,115 @@ test("selected malformed lock and ambiguous prerequisite roots retain actionable
   assert.equal(broken.status, "invalid");
   assert.ok(broken.diagnostics.some((d) => d.code === "LOCK_INVALID"));
 });
+
+test("Core pattern flags reject JavaScript state and support XPath whitespace mode", async () => {
+  const root = await project();
+  for (const [flags, pattern, values, valid] of [
+    ["ix", "^ a b $", ["ab", "AB"], true],
+    ["ii", "^ab$", ["ab", "AB"], true],
+    ["x", "^a[ ]b$", ["a b"], true],
+    ["x", "^a[ ]b$", ["ab"], false],
+    ["x", "^a#b$", ["a#b"], true],
+    ["x", "^a\\ sb$", ["a b"], true],
+    ["x", "^a\\ sb$", ["ab"], false],
+    ["", "^\\d+$", ["١", "𝟠"], true],
+    ["", "^\\D+$", ["١"], false],
+    ["", "^\\p{Nd}+$", ["١"], true],
+    ["", "^\\w+$", ["café", "€"], true],
+    ["", "^[\\w]+$", ["café"], true],
+    ["", "^\\w+$", ["_"], false],
+    ["", "^\\W+$", ["_"], true],
+    ["", "^[\\W]+$", ["café"], false],
+    ["", "^\\s+$", ["\u00a0"], false],
+    ["", "^[\\S]+$", ["\u00a0"], true],
+    ["", "^\\\\d$", ["\\d"], true],
+    ["", "^\\-$", ["-"], true],
+    ["g", "ab", ["ab", "AB"], false],
+    ["y", "ab", ["ab", "AB"], false],
+  ] as const) {
+    await writeFile(
+      join(root, "model.ttl"),
+      `${prefixes} ex:model a t:ConcreteDataModel; t:modelType "data" . ex:p a owl:DatatypeProperty . ex:item ex:p ${values.map((value) => JSON.stringify(value)).join(", ")} .`,
+    );
+    await writeFile(
+      join(root, "model.shacl.ttl"),
+      `${prefixes} ex:shapes a t:ShapesGraph . ex:s a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:p; sh:pattern ${JSON.stringify(pattern)}; sh:flags "${flags}" .`,
+    );
+    const result = await inspectProject({
+      project: root,
+      command: "validate",
+      selector: "model.ttl",
+    });
+    assert.equal(result.status, valid ? "ok" : "invalid", JSON.stringify({ flags, result }));
+    if (flags === "g" || flags === "y") {
+      assert.ok(result.diagnostics.some((d) => d.code === "SHACL_GRAPH_INVALID"));
+      assert.equal(result.data?.validationComplete, false);
+    } else {
+      assert.equal(result.data?.validationComplete, true);
+      if (!valid) assert.ok(result.diagnostics.some((d) => d.code === "SHACL_RESULT"));
+    }
+  }
+});
+
+test("whole validation keeps independently source-bound vocabulary versions out of consumer conflicts", async () => {
+  const root = await project();
+  const lock = parseLock(await readFile(join(root, "tbspec.lock"), "utf8"));
+  const original = lock.dependencies["tbspec-process"];
+  assert.ok(original);
+  for (const id of ["source-one", "source-two"]) {
+    const dep = structuredClone(original);
+    dep.kind = "model";
+    dep.snapshot_path = `.tbspec/dependencies/${id}`;
+    await cp(join(root, original.snapshot_path), join(root, dep.snapshot_path), {
+      recursive: true,
+    });
+    for (const file of dep.files)
+      if (file.identity === "generated")
+        file.graph_iri = `urn:tbspec:graph:${digest(`dep:${id}/${file.key}`).slice(7)}`;
+    const primary = dep.files.find((file) => file.key === dep.primary);
+    assert.ok(primary);
+    primary.kind = "concrete-data-model";
+    primary.graph_iri = `urn:${id}:model`;
+    const bytes = Buffer.from(
+      `${prefixes} <${primary.graph_iri}> a t:ConcreteDataModel; t:modelType "data" . ex:item a ex:Thing .`,
+    );
+    primary.byte_digest = digest(bytes);
+    primary.byte_length = bytes.length;
+    primary.graph_signature = graphSignature(primary);
+    await writeFile(join(root, dep.snapshot_path, dep.primary), bytes);
+    const vocabulary = Buffer.from(
+      `${prefixes} ex:vocabulary a owl:Ontology; rdfs:label "${id}" . ex:Thing a owl:Class .`,
+    );
+    const file = {
+      ...primary,
+      key: "source/vocabulary.ttl",
+      source_resource: "vocabulary.ttl",
+      roles: ["vocabulary"],
+      kind: "ontology",
+      graph_iri: "urn:ex:vocabulary",
+      source_graph_iri: "urn:ex:vocabulary",
+      byte_digest: digest(vocabulary),
+      byte_length: vocabulary.length,
+    };
+    file.graph_signature = graphSignature(file);
+    dep.files.push(file);
+    dep.edges = [
+      { context: primary.context, from: primary.key, relation: "vocabulary", to: file.key },
+    ];
+    dep.bindings = [
+      { context: primary.context, resource: primary.key, ontologies: [file.key], schemas: [] },
+    ];
+    dep.interpretation_signature = interpretationSignature(dep);
+    lock.dependencies[id] = dep;
+    await writeFile(join(root, dep.snapshot_path, file.key), vocabulary);
+  }
+  parseLock(writeToml(lock));
+  await writeFile(join(root, "tbspec.lock"), writeToml(lock));
+  for (const id of ["source-one", "source-two"])
+    assert.equal(
+      (await inspectProject({ project: root, command: "validate", selector: `dep:${id}` })).status,
+      "ok",
+    );
+  const whole = await inspectProject({ project: root, command: "validate" });
+  assert.equal(whole.status, "ok", JSON.stringify(whole.diagnostics));
+});
