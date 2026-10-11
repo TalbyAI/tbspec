@@ -99,7 +99,7 @@ const tree: Record<string, Guidance> = {
     topics: [],
   },
   "modeling models": {
-    text: "tbspec model list; tbspec model show <path>; tbspec model create <path> --type <name> [--profile conceptual|concrete] [--schema <selector> ...] [--iri <iri>]; tbspec model import <source-selector> <path> --type <name> [--iri <new-iri>]. Select an enabled effective type; disabled/missing/unusable types are diagnosed. Graph roots determine classification, never filenames or business types.",
+    text: "tbspec model list; tbspec model show <path>; tbspec model create <path> --type <name> [--profile conceptual|concrete] [--schema <selector> ...] [--iri <iri>]; tbspec model import <source-selector> <path> --type <name> [--iri <new-iri>]. Select an enabled effective type; disabled/missing/unusable types are diagnosed. Graph roots determine classification, never filenames or business types. Show reads only the selected graph and configuration: schema IRIs remain visible even when no owned-file selector is resolved. Browser schema links use its separately refreshed resource inventory. Authoring checks every owned graph identity sequentially; malformed/unreadable owned graphs block publication, while unused dependency bytes are not read.",
     topics: [
       {
         invocation: "tbspec llms modeling models create",

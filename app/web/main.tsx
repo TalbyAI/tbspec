@@ -240,6 +240,22 @@ function App() {
   const counts = status?.data?.counts as { resources: number; dependencies: number } | undefined;
   const modelTypes = (config?.modelTypes as ModelType[]) ?? [];
   const selected = graph?.data?.resource as Resource | undefined;
+  const associations = selected
+    ? [
+        ...new Map(
+          [
+            ...selected.associations,
+            ...resources
+              .filter(
+                (resource) =>
+                  resource.kind === "conceptual-data-model" &&
+                  selected.schemaIris?.includes(resource.graphIri ?? ""),
+              )
+              .map((resource) => ({ role: "schema", selector: resource.selector })),
+          ].map((association) => [`${association.role}:${association.selector}`, association]),
+        ).values(),
+      ]
+    : [];
   const visibleResources = resources.filter(
     (resource) =>
       family === "all" ||
@@ -565,9 +581,9 @@ function App() {
                       ) : null}
                       <Diagnostics items={graph?.diagnostics ?? []} />
                       <h3>Associations</h3>
-                      {selected.associations.length ? (
+                      {associations.length ? (
                         <ul>
-                          {selected.associations.map((a) => (
+                          {associations.map((a) => (
                             <li key={`${a.role}-${a.selector}`}>
                               {a.role}:{" "}
                               <button

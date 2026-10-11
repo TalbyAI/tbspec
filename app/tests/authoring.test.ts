@@ -10,6 +10,116 @@ import { inspectProject } from "../src/inspection.ts";
 import { initializeProject } from "../src/project.ts";
 import { interpretationSignature, parseLock, writeToml } from "../src/schemas.ts";
 
+test("authoring reads only selected dependency content and binds every owned identity check", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-author-scope-"));
+  await initializeProject({ directory: root, baseIri: "urn:scope:/" });
+  const lock = parseLock(await readFile(join(root, "tbspec.lock"), "utf8"));
+  const unused = lock.dependencies["tbspec-state-machine"];
+  assert.ok(unused);
+  await writeFile(join(root, unused.snapshot_path, unused.primary), "malformed unused snapshot");
+  await writeFile(
+    join(root, "owned.ttl"),
+    "<urn:owned> a <http://www.w3.org/2002/07/owl#Ontology> .",
+  );
+  for (const command of ["ontology.create", "model.create"] as const) {
+    const prepared = await prepareResource({
+      project: root,
+      command,
+      path: `${command}.ttl`,
+      ...(command === "model.create" ? { type: "data" } : {}),
+    });
+    assert.ok(prepared.plan.preview.reads.some((read) => read.path === "owned.ttl"));
+    assert.ok(
+      !prepared.plan.preview.reads.some((read) => read.path.startsWith(unused.snapshot_path)),
+    );
+    await writeFile(
+      join(root, "owned.ttl"),
+      "<urn:changed> a <http://www.w3.org/2002/07/owl#Ontology> .",
+    );
+    assert.equal((await publishResource(prepared)).status, "conflict");
+    await writeFile(
+      join(root, "owned.ttl"),
+      "<urn:owned> a <http://www.w3.org/2002/07/owl#Ontology> .",
+    );
+  }
+  await writeFile(join(root, "owned.ttl"), "malformed owned graph");
+  const refused = await authorResource({
+    project: root,
+    command: "ontology.create",
+    path: "blocked.ttl",
+  });
+  assert.equal(refused.status, "invalid");
+  assert.equal(refused.diagnostics[0]?.code, "RDF_SYNTAX");
+  await assert.rejects(readFile(join(root, "blocked.ttl")), { code: "ENOENT" });
+  await writeFile(
+    join(root, "owned.ttl"),
+    "<urn:owned> a <http://www.w3.org/2002/07/owl#Ontology> .",
+  );
+  const required = lock.dependencies["tbspec-metadata"];
+  assert.ok(required);
+  await writeFile(
+    join(root, required.snapshot_path, required.primary),
+    "damaged receiving vocabulary",
+  );
+  const damaged = await authorResource({
+    project: root,
+    command: "model.create",
+    path: "damaged.ttl",
+    type: "data",
+  });
+  assert.equal(damaged.status, "invalid");
+  assert.equal(damaged.diagnostics[0]?.code, "SNAPSHOT_INTEGRITY");
+  await assert.rejects(readFile(join(root, "damaged.ttl")), { code: "ENOENT" });
+});
+
+test("authoring reports invalid configuration before parsing owned identities", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-author-config-"));
+  await initializeProject({ directory: root, baseIri: "urn:config:/" });
+  await writeFile(join(root, "owned.ttl"), "malformed owned graph");
+  await writeFile(join(root, "tbspec.lock"), "schema_version = 999\n");
+  const result = await authorResource({
+    project: root,
+    command: "ontology.create",
+    path: "new.ttl",
+  });
+  assert.equal(result.status, "invalid");
+  assert.equal(result.diagnostics[0]?.code, "SCHEMA_UNSUPPORTED");
+  await assert.rejects(readFile(join(root, "new.ttl")), { code: "ENOENT" });
+});
+
+test("a destination occupied during capture is a conflict without parsing or replacing it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-author-destination-race-"));
+  await initializeProject({ directory: root, baseIri: "urn:race:/" });
+  const script = `
+    import assert from "node:assert/strict";
+    import fs from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    import { join } from "node:path";
+    import { authorResource } from ${JSON.stringify(new URL("../src/authoring.ts", import.meta.url).href)};
+    const root = process.argv[1];
+    const original = fs.readFile;
+    let occupied = false;
+    fs.readFile = async (path, ...args) => {
+      const bytes = await original(path, ...args);
+      if (!occupied && String(path) === join(root, "tbspec.lock")) {
+        occupied = true;
+        await fs.writeFile(join(root, "new.ttl"), "occupied during capture");
+      }
+      return bytes;
+    };
+    syncBuiltinESMExports();
+    const result = await authorResource({ project: root, command: "ontology.create", path: "new.ttl" });
+    assert.equal(result.status, "conflict", JSON.stringify(result));
+    assert.equal(result.diagnostics[0].code, "REVISION_CONFLICT");
+    assert.equal(await original(join(root, "new.ttl"), "utf8"), "occupied during capture");
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script, root], {
+    encoding: "utf8",
+    timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("authors create explicit and derived ontology identities and inspect owned resources", async () => {
   const root = await mkdtemp(join(tmpdir(), "tb-author-"));
   await initializeProject({ directory: root, baseIri: "https://example.org/project/" });
@@ -337,10 +447,14 @@ test("authors create distinct data profiles and empty descriptive process and st
     command: "model.show",
     selector: "models/instance.ttl",
   });
+  assert.deepEqual(shown.data?.resource?.schemaIris, ["urn:example:/conceptual-data-model"]);
+  const inventory = await inspectProject({ project: root, command: "graph.list" });
   assert.ok(
-    shown.data?.resource?.associations.some(
-      (a) => a.role === "schema" && a.selector === "models/conceptual-data-model.ttl",
-    ),
+    inventory.data?.items
+      ?.find((item) => item.selector === "models/instance.ttl")
+      ?.associations.some(
+        (a) => a.role === "schema" && a.selector === "models/conceptual-data-model.ttl",
+      ),
   );
   const manifest = join(root, "tbspec.toml");
   const original = await readFile(manifest, "utf8");

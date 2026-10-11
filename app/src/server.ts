@@ -10,6 +10,7 @@ import type { AuthoringRequest, InspectionResponse } from "./inspection-worker.t
 import { withLock } from "./lock.ts";
 import { exits, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
 import { token } from "./ownership.ts";
+import { cleanupPreviews } from "./previews.ts";
 import { opaqueToken } from "./recovery.ts";
 import {
   claimRuntime,
@@ -124,6 +125,7 @@ export async function startWebServer(
   // Capture this release's assets before readiness; replacing installed files never mixes releases.
   const assets = await installedAssets();
   const record = await claimRuntime(root);
+  const previewWarnings = await cleanupPreviews(root);
   const bootstraps = new Map<string, number>();
   const sessions = new Map<string, number>();
   const consoles = new Map<ServerResponse, number>();
@@ -236,6 +238,7 @@ export async function startWebServer(
         // Reuse normal coordination to refuse retained locks or pending transaction recovery.
         await withLock(root, async () => undefined);
         await worker.terminate();
+        previewWarnings.push(...(await cleanupPreviews(root, record.instanceId)));
         worker = createWorker();
         await workerReady;
       }
@@ -248,6 +251,7 @@ export async function startWebServer(
           project: root,
           command,
           selector,
+          warnings: previewWarnings,
           authoring: authoring ? { ...authoring, instanceId: record.instanceId } : undefined,
         });
       });
@@ -285,17 +289,19 @@ export async function startWebServer(
       log("state", { state: "stopping" });
       bootstraps.clear();
       sessions.clear();
-      for (const response of consoles.keys()) {
-        sendFrame(response, "stop", { state: "stopping" });
-        response.end();
-      }
-      consoles.clear();
       const closed = new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
       server.closeIdleConnections();
       await Promise.allSettled([...jobs]);
       await worker.terminate();
+      previewWarnings.push(...(await cleanupPreviews(root, record.instanceId)));
+      for (const warning of previewWarnings) log("log", { ...warning });
+      for (const response of consoles.keys()) {
+        sendFrame(response, "stop", { state: "stopping" });
+        response.end();
+      }
+      consoles.clear();
       await closed;
       await removeRuntime(record);
       finishStop();
@@ -458,11 +464,11 @@ export async function startWebServer(
             );
             return;
           }
-          respond(response, ok(identity()));
+          respond(response, ok(identity(), previewWarnings));
           return;
         }
         if (route === "status" && request.method === "GET") {
-          respond(response, ok(identity()));
+          respond(response, ok(identity(), previewWarnings));
           return;
         }
         if (route === "opening-link" && request.method === "POST" && record.state === "running") {
@@ -667,6 +673,7 @@ export async function startWebServer(
     record.state = "running";
     await replaceRuntime(record);
     log("state", { state: "running", applicationVersion: record.applicationVersion });
+    for (const warning of previewWarnings) log("log", { ...warning });
     return { record, stopped, stop };
   } catch (error) {
     server.close();

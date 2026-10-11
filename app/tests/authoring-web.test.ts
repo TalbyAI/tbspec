@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
+import { Worker } from "node:worker_threads";
+import { token as opaqueToken } from "../src/ownership.ts";
 import { initializeProject } from "../src/project.ts";
 import { startWebServer } from "../src/server.ts";
 import { controlRequest } from "../src/web.ts";
@@ -86,10 +89,12 @@ test("authenticated HTTP authoring shares identities, model families and one-use
   const concrete = await call("model?selector=individuals.ttl");
   assert.deepEqual(concrete.envelope.data.resource.schemaIris, ["urn:http:/concepts"]);
   assert.ok(
-    concrete.envelope.data.resource.associations.some(
-      (a: { role: string; selector: string }) =>
-        a.role === "schema" && a.selector === "concepts.ttl",
-    ),
+    (await call("graphs")).envelope.data.items
+      .find((item: { selector: string }) => item.selector === "individuals.ttl")
+      .associations.some(
+        (a: { role: string; selector: string }) =>
+          a.role === "schema" && a.selector === "concepts.ttl",
+      ),
   );
   const explicit = await create("ontology/create", { path: "explicit.ttl", iri: "urn:explicit" });
   assert.equal(explicit.envelope.data.resource.graphIri, "urn:explicit");
@@ -200,4 +205,221 @@ test("authenticated HTTP authoring shares identities, model families and one-use
     409,
   );
   await assert.rejects(readFile(join(root, "cancelled.ttl")), { code: "ENOENT" });
+});
+
+test("preview expiry cleans staging while idle and cannot interrupt publication", {
+  timeout: 30000,
+}, async (t) => {
+  const root = await privateDirectory(join(tmpdir(), "tb-preview-expiry-"));
+  await initializeProject({ directory: root, baseIri: "urn:expiry:/" });
+  const instanceId = opaqueToken();
+  const worker = new Worker(
+    `
+    const { mock } = await import("node:test");
+    const { parentPort } = await import("node:worker_threads");
+    const fs = await import("node:fs/promises");
+    const { syncBuiltinESMExports } = await import("node:module");
+    const originalRead = fs.default.readFile;
+    let duringApply = false;
+    fs.default.readFile = async (path, ...args) => {
+      if (duringApply && /staged-0$/.test(String(path))) {
+        duringApply = false;
+        mock.timers.tick(900001);
+      }
+      return originalRead(path, ...args);
+    };
+    syncBuiltinESMExports();
+    mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
+    const original = parentPort.on.bind(parentPort);
+    parentPort.on = (event, handler) => original(event, event === "message" ? (request) => {
+      if (request.advance) { mock.timers.tick(request.advance); parentPort.postMessage({ advanced: true }); }
+      else if (request.duringApply) { duringApply = true; parentPort.postMessage({ armed: true }); }
+      else handler(request);
+    } : handler);
+    await import(${JSON.stringify(new URL("../src/inspection-worker.ts", import.meta.url).href)});
+  `,
+    { eval: true },
+  );
+  t.after(() => worker.terminate());
+  await new Promise((resolve, reject) => {
+    worker.once("message", resolve);
+    worker.once("error", reject);
+  });
+  async function send(request: Record<string, unknown>) {
+    return new Promise<{ json?: string }>((resolve, reject) => {
+      worker.once("message", resolve);
+      worker.once("error", reject);
+      worker.postMessage(request);
+    });
+  }
+  const response = await send({
+    project: root,
+    authoring: {
+      mode: "preview",
+      session: "tab",
+      instanceId,
+      options: { command: "ontology.create", path: "expired.ttl" },
+    },
+  });
+  const preview = JSON.parse(response.json ?? "{}");
+  assert.equal(preview.status, "preview", JSON.stringify(preview));
+  const workspace = join(root, ".tbspec/previews", instanceId, preview.data.handle);
+  await send({ advance: 900001 });
+  let removed = false;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      await readdir(workspace);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        removed = true;
+        break;
+      }
+      throw error;
+    }
+    await delay(25);
+  }
+  assert.equal(removed, true, "Expired staging must be removed without another preview request");
+  const applied = await send({
+    project: root,
+    authoring: {
+      mode: "apply",
+      session: "tab",
+      instanceId,
+      handle: preview.data.handle,
+      fingerprint: preview.data.preview.fingerprint,
+      accept: [],
+    },
+  });
+  assert.equal(JSON.parse(applied.json ?? "{}").diagnostics[0].code, "PREVIEW_CHANGED");
+  await assert.rejects(readFile(join(root, "expired.ttl")), { code: "ENOENT" });
+  const next = await send({
+    project: root,
+    authoring: {
+      mode: "preview",
+      session: "tab",
+      instanceId,
+      options: { command: "ontology.create", path: "applied.ttl" },
+    },
+  });
+  const active = JSON.parse(next.json ?? "{}");
+  assert.equal(active.status, "preview", JSON.stringify(active));
+  await send({ duringApply: true });
+  const published = await send({
+    project: root,
+    authoring: {
+      mode: "apply",
+      session: "tab",
+      instanceId,
+      handle: active.data.handle,
+      fingerprint: active.data.preview.fingerprint,
+      accept: [],
+    },
+  });
+  assert.equal(JSON.parse(published.json ?? "{}").status, "ok", published.json);
+  assert.match(await readFile(join(root, "applied.ttl"), "utf8"), /urn:expiry:\/applied/);
+});
+
+test("server startup and stop clean obsolete preview artifacts and preserve unknown files", {
+  timeout: 30000,
+}, async (t) => {
+  const root = await privateDirectory(join(tmpdir(), "tb-preview-lifecycle-"));
+  await initializeProject({ directory: root, baseIri: "urn:lifecycle:/" });
+  const obsolete = join(root, ".tbspec/previews", opaqueToken(), opaqueToken());
+  const unknown = join(root, ".tbspec/previews", opaqueToken(), opaqueToken());
+  await mkdir(obsolete, { recursive: true });
+  await writeFile(join(obsolete, "staged-0"), "partial staging");
+  await mkdir(unknown, { recursive: true });
+  await writeFile(join(unknown, "original.ttl"), "preserve unknown content");
+  const recovery = join(root, ".tbspec/transactions/pending");
+  await mkdir(recovery, { recursive: true });
+  await writeFile(join(recovery, "original"), "preserve transaction evidence");
+  const server = await startWebServer(await realpath(root));
+  t.after(() => server.stop());
+  await assert.rejects(readdir(obsolete), { code: "ENOENT" });
+  assert.equal(await readFile(join(unknown, "original.ttl"), "utf8"), "preserve unknown content");
+  assert.equal(await readFile(join(recovery, "original"), "utf8"), "preserve transaction evidence");
+  const status = await fetch(new URL("api/control/v1/status", server.record.baseUrl ?? ""), {
+    headers: { Authorization: `Bearer ${server.record.controlToken}` },
+  });
+  assert.ok(
+    (await status.json()).diagnostics.some(
+      (diagnostic: { code: string }) => diagnostic.code === "CLEANUP_RETAINED",
+    ),
+  );
+  const current = join(root, ".tbspec/previews", server.record.instanceId, opaqueToken());
+  await mkdir(current, { recursive: true });
+  await writeFile(join(current, "staged-0"), "current staging");
+  await server.stop();
+  await assert.rejects(readdir(current), { code: "ENOENT" });
+  assert.equal(await readFile(join(unknown, "original.ttl"), "utf8"), "preserve unknown content");
+});
+
+test("failed preview staging removes partial files and reports retained cleanup failures", {
+  timeout: 30000,
+}, async (t) => {
+  const root = await privateDirectory(join(tmpdir(), "tb-preview-stage-fault-"));
+  await initializeProject({ directory: root, baseIri: "urn:fault:/" });
+  const instanceId = opaqueToken();
+  const worker = new Worker(
+    `
+    const fs = (await import("node:fs/promises")).default;
+    const { syncBuiltinESMExports } = await import("node:module");
+    const originalWrite = fs.writeFile;
+    const originalUnlink = fs.unlink;
+    let denyCleanup = false;
+    fs.writeFile = async (path, ...args) => {
+      if (String(path).endsWith("record.json") && String(path).includes("previews")) {
+        throw Object.assign(new Error("Injected staging failure"), { code: "EIO" });
+      }
+      return originalWrite(path, ...args);
+    };
+    fs.unlink = async (path, ...args) => {
+      if (denyCleanup && String(path).endsWith("staged-0")) throw Object.assign(new Error("Injected cleanup failure"), { code: "EACCES" });
+      return originalUnlink(path, ...args);
+    };
+    syncBuiltinESMExports();
+    const { parentPort } = await import("node:worker_threads");
+    const originalOn = parentPort.on.bind(parentPort);
+    parentPort.on = (event, handler) => originalOn(event, event === "message" ? (request) => {
+      denyCleanup = request.denyCleanup === true;
+      handler(request);
+    } : handler);
+    await import(${JSON.stringify(new URL("../src/inspection-worker.ts", import.meta.url).href)});
+  `,
+    { eval: true },
+  );
+  t.after(() => worker.terminate());
+  await new Promise((resolve, reject) => {
+    worker.once("message", resolve);
+    worker.once("error", reject);
+  });
+  for (const denyCleanup of [false, true]) {
+    const response = await new Promise<{ json: string }>((resolve, reject) => {
+      worker.once("message", resolve);
+      worker.once("error", reject);
+      worker.postMessage({
+        project: root,
+        denyCleanup,
+        authoring: {
+          mode: "preview",
+          session: "tab",
+          instanceId,
+          options: { command: "ontology.create", path: "failed.ttl" },
+        },
+      });
+    });
+    const result = JSON.parse(response.json);
+    assert.equal(result.status, "unavailable", response.json);
+    assert.equal(
+      result.diagnostics.some(
+        (diagnostic: { code: string }) => diagnostic.code === "CLEANUP_RETAINED",
+      ),
+      denyCleanup,
+    );
+    assert.equal(
+      (await readdir(join(root, ".tbspec/previews", instanceId))).length,
+      denyCleanup ? 1 : 0,
+    );
+    await assert.rejects(readFile(join(root, "failed.ttl")), { code: "ENOENT" });
+  }
 });

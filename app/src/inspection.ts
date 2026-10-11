@@ -4,7 +4,14 @@ import { pathToFileURL } from "node:url";
 import type { Term } from "@rdfjs/types";
 import type { Store } from "n3";
 import { utf8Compare } from "./canonical.ts";
-import { fileBytes, inventory, type Revision, revision, verifyReads } from "./filesystem.ts";
+import {
+  equalRevision,
+  fileBytes,
+  inventory,
+  type Revision,
+  revision,
+  verifyReads,
+} from "./filesystem.ts";
 import { withLock } from "./lock.ts";
 import { type Diagnostic, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
 import { portablePath, safePath } from "./paths.ts";
@@ -80,8 +87,9 @@ export async function captureInspection(
   command: InspectionCommand,
   target?: string,
   extraPaths: string[] = [],
+  visitGraph?: (path: string, bytes: Buffer) => Promise<void>,
 ): Promise<Snapshot & { ownedPaths: string[]; target?: string }> {
-  return withLock(root, async () => {
+  const snapshot = await withLock(root, async () => {
     const scope = {
       ...projectDiscoveryScope,
       excluded: [...projectDiscoveryScope.excluded, ".tbspec/dependencies"],
@@ -95,8 +103,9 @@ export async function captureInspection(
     };
     async function read(path: string) {
       const bytes = await fileBytes(root, path);
-      snapshot.files[path] = bytes;
       snapshot.reads.push({ kind: "file", path, revision: revision(bytes) });
+      if (!visitGraph || !formats[extname(path).toLowerCase()] || bytes === null)
+        snapshot.files[path] = bytes;
     }
     await read("tbspec.toml");
     await read("tbspec.lock");
@@ -179,6 +188,24 @@ export async function captureInspection(
       );
     return snapshot;
   });
+  if (visitGraph) {
+    parseManifest(snapshot.files["tbspec.toml"]?.toString("utf8") ?? "");
+    parseLock(snapshot.files["tbspec.lock"]?.toString("utf8") ?? "");
+    for (const path of snapshot.ownedPaths.sort(utf8Compare)) {
+      const bytes = await fileBytes(root, path);
+      const captured = snapshot.reads.find((read) => read.kind === "file" && read.path === path);
+      if (!bytes || !captured || !equalRevision(captured.revision, revision(bytes)))
+        throw new ProjectError(
+          "conflict",
+          "REVISION_CONFLICT",
+          "Graph changed before sequential inspection.",
+          path,
+        );
+      await visitGraph(path, bytes);
+    }
+    await verifyReads(root, snapshot.reads);
+  }
+  return snapshot;
 }
 
 function effectiveConfig(manifest: Row, lock: Lock): Row {
@@ -231,13 +258,10 @@ export async function inspectProject(options: {
   if (options.command.startsWith("ontology.") || options.command.startsWith("model.")) {
     const family = options.command.split(".")[0];
     const show = options.command.endsWith(".show");
-    const result = await inspectProjectData(
-      {
-        ...options,
-        command: show ? "graph.show" : "graph.list",
-      },
-      family === "model" && show,
-    );
+    const result = await inspectProjectData({
+      ...options,
+      command: show ? "graph.show" : "graph.list",
+    });
     const matches = (resource: Resource) =>
       resource.ownership === "project" &&
       (family === "ontology"
@@ -259,7 +283,6 @@ export async function inspectProject(options: {
 }
 async function inspectProjectData(
   options: Parameters<typeof inspectProject>[0],
-  schemaTargets = false,
 ): Promise<Result<InspectionData>> {
   try {
     const root = await discoverProject(options);
@@ -279,11 +302,7 @@ async function inspectProjectData(
         throw new ProjectError("invalid_arguments", "ARGUMENT_INVALID", "Invalid graph selector.");
       }
     }
-    const snapshot = await captureInspection(
-      root,
-      schemaTargets ? "status" : options.command,
-      target,
-    );
+    const snapshot = await captureInspection(root, options.command, target);
     target = snapshot.target;
     const diagnostics: Diagnostic[] = [];
     let manifest: Row | undefined;

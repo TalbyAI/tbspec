@@ -3,7 +3,7 @@ import { basename, extname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { DataFactory, Store, Writer } from "n3";
 import { digest, graphSignature } from "./canonical.ts";
-import { revision } from "./filesystem.ts";
+import { equalRevision, fileBytes, revision, verifyReads } from "./filesystem.ts";
 import { captureInspection, type Resource } from "./inspection.ts";
 import { type Diagnostic, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
 import { absoluteIri, portablePath, safePath } from "./paths.ts";
@@ -80,7 +80,41 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
   } catch (error) {
     if (!hasCode(error, "ENOENT")) throw error;
   }
-  const snapshot = await captureInspection(root, "status", undefined, [path]);
+  const graphs = new Map<
+    string,
+    {
+      kind: string;
+      graphIri: string;
+      file: string;
+      context?: string;
+      signature: string;
+    }
+  >();
+  const snapshot = await captureInspection(
+    root,
+    "graph.list",
+    undefined,
+    [path],
+    async (file, bytes) => {
+      if (file === path) return;
+      const store = await parseOwned(file, bytes);
+      graphs.set(file, {
+        ...classifyGraph(store, file),
+        file,
+        signature: graphSignature({
+          byte_digest: digest(bytes),
+          media_type: formats[extname(file).toLowerCase()] ?? "text/turtle",
+          base_iri: pathToFileURL(await safePath(root, file)).href,
+          parser_profile:
+            extname(file).toLowerCase() === ".ttl"
+              ? "turtle-strict-v1"
+              : extname(file).toLowerCase() === ".nt"
+                ? "ntriples-strict-v1"
+                : "rdfxml-no-dtd-v1",
+        }),
+      });
+    },
+  );
   if (snapshot.files[path] !== null)
     throw new ProjectError(
       "conflict",
@@ -101,38 +135,31 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
       "ARGUMENT_INVALID",
       "Supply an absolute --iri or configure base_iri.",
     );
-  const graphs = new Map<
-    string,
-    {
-      store: Store;
-      kind: string;
-      graphIri: string;
-      file: string;
-      context?: string;
-      signature: string;
-    }
-  >();
   const bundle = await loadStarters();
-  const lockedPaths = new Map<
-    string,
-    { id: string; record: (typeof lock.dependencies)[string]["files"][number] }
-  >(
-    Object.entries(lock.dependencies).flatMap(([id, dep]) =>
-      dep.files.map((record) => [`${dep.snapshot_path}/${record.key}`, { id, record }] as const),
-    ),
-  );
-  for (const [file, bytes] of Object.entries(snapshot.files)) {
-    if (!formats[extname(file).toLowerCase()] || !bytes) continue;
-    const entry = lockedPaths.get(file);
-    let store: Store;
+  for (const [id, dep] of Object.entries(lock.dependencies))
+    for (const record of dep.files)
+      graphs.set(`dep:${id}/${record.key}`, {
+        kind: record.kind,
+        graphIri: record.graph_iri,
+        file: `${dep.snapshot_path}/${record.key}`,
+        signature: record.graph_signature,
+        context: record.context,
+      });
+  for (const graph of graphs.values())
+    if (graph.graphIri === iri)
+      throw new ProjectError(
+        "conflict",
+        "GRAPH_IRI_COLLISION",
+        "Graph identity already exists.",
+        graph.file,
+      );
+  async function parseOwned(file: string, bytes: Buffer) {
     try {
-      store = entry
-        ? await parseGraph(bytes, entry.record, bundle.vettedDigest)
-        : await parseRdf(
-            bytes,
-            formats[extname(file).toLowerCase()] ?? "text/turtle",
-            pathToFileURL(await safePath(root, file)).href,
-          );
+      return await parseRdf(
+        bytes,
+        formats[extname(file).toLowerCase()] ?? "text/turtle",
+        pathToFileURL(await safePath(root, file)).href,
+      );
     } catch (error) {
       if (error instanceof ProjectError) throw error;
       throw new ProjectError(
@@ -142,37 +169,24 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
         file,
       );
     }
-    const classification = entry
-      ? { kind: entry.record.kind, graphIri: entry.record.graph_iri }
-      : classifyGraph(store, file);
-    if (classification.graphIri === iri)
+  }
+  async function readGraph(file: string) {
+    const bytes = await fileBytes(root, file);
+    const before = snapshot.reads.find((read) => read.kind === "file" && read.path === file);
+    const current = revision(bytes);
+    if (before && !equalRevision(before.revision, current))
       throw new ProjectError(
         "conflict",
-        "GRAPH_IRI_COLLISION",
-        "Graph identity already exists.",
+        "REVISION_CONFLICT",
+        "Graph changed after identity capture.",
         file,
       );
-    graphs.set(entry ? `dep:${entry.id}/${entry.record.key}` : file, {
-      store,
-      ...classification,
-      file,
-      signature:
-        entry?.record.graph_signature ??
-        graphSignature({
-          byte_digest: digest(bytes),
-          media_type: formats[extname(file).toLowerCase()] ?? "text/turtle",
-          base_iri: pathToFileURL(await safePath(root, file)).href,
-          parser_profile:
-            extname(file).toLowerCase() === ".ttl"
-              ? "turtle-strict-v1"
-              : extname(file).toLowerCase() === ".nt"
-                ? "ntriples-strict-v1"
-                : "rdfxml-no-dtd-v1",
-        }),
-      ...(entry ? { context: entry.record.context } : {}),
-    });
+    if (!before) snapshot.reads.push({ kind: "file", path: file, revision: current });
+    if (!bytes)
+      throw new ProjectError("invalid", "RESOURCE_MISSING", "Required graph is missing.", file);
+    return bytes;
   }
-  function resolveGraph(value: string) {
+  async function resolveGraph(value: string) {
     const selected = selector(value.startsWith("dep:") ? value : portablePath(value));
     const expanded =
       selected.startsWith("dep:") && !selected.includes("/")
@@ -186,7 +200,15 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
         "Selected resource is missing.",
         selected,
       );
-    return { ...graph, selector: expanded };
+    const bytes = await readGraph(graph.file);
+    const [id, ...key] = expanded.slice(4).split("/");
+    const record = expanded.startsWith("dep:")
+      ? lock.dependencies[id ?? ""]?.files.find((record) => record.key === key.join("/"))
+      : undefined;
+    const store = record
+      ? await parseGraph(bytes, record, bundle.vettedDigest)
+      : await parseOwned(graph.file, bytes);
+    return { ...graph, store, selector: expanded };
   }
   const model = options.command.startsWith("model.");
   const family = Object.hasOwn(builtInTypes, options.type ?? "")
@@ -238,7 +260,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
         "MODEL_TYPE_UNUSABLE",
         "The receiving model type is missing or disabled.",
       );
-    const ontology = resolveGraph(type.ontology);
+    const ontology = await resolveGraph(type.ontology);
     if (ontology.kind !== "ontology")
       throw new ProjectError(
         "invalid",
@@ -272,7 +294,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
       }
     }
     const visited = new Set<string>();
-    const includeImports = (graph: ReturnType<typeof resolveGraph>) => {
+    const includeImports = async (graph: Awaited<ReturnType<typeof resolveGraph>>) => {
       if (visited.has(graph.selector)) return;
       visited.add(graph.selector);
       const [dependencyId, ...fileKey] = graph.selector.slice(4).split("/");
@@ -297,7 +319,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
         .filter((edge) => typeof edge.to === "string")
         .map((edge) => `dep:${dependencyId}/${edge.to}`);
       for (const target of targets ?? []) {
-        const linked = resolveGraph(target);
+        const linked = await resolveGraph(target);
         if (
           linked.kind !== "ontology" &&
           edges.some(
@@ -311,7 +333,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
             linked.file,
           );
         available.addQuads(linked.store.getQuads(null, null, null, null));
-        includeImports(linked);
+        await includeImports(linked);
       }
       // Locked edges define the acquired source closure; raw upstream imports never authorize rebinding.
       if (dependency) return;
@@ -369,16 +391,17 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
             graph.file,
             { target: term.value },
           );
-        for (const [key, selected] of candidates) {
+        for (const [key] of candidates) {
+          const selected = await resolveGraph(key);
           available.addQuads(selected.store.getQuads(null, null, null, null));
-          includeImports({ ...selected, selector: key });
+          await includeImports(selected);
         }
       }
     };
-    includeImports(ontology);
-    const common = resolveGraph(lock.starters.common_contract);
+    await includeImports(ontology);
+    const common = await resolveGraph(lock.starters.common_contract);
     available.addQuads(common.store.getQuads(null, null, null, null));
-    includeImports(common);
+    await includeImports(common);
     declaration = `${metadata}${modelDeclarations[family?.kinds[options.profile === "concrete" ? 1 : 0] ?? "model"]}`;
   }
   if (
@@ -396,7 +419,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
   let provenance: Resource["provenance"];
   if (importRequested && options.source) {
     let source: { store: Store; graphIri: string; kind: string; selector: string };
-    if (options.source.startsWith("dep:")) source = resolveGraph(options.source);
+    if (options.source.startsWith("dep:")) source = await resolveGraph(options.source);
     else {
       if (/^https?:/i.test(options.source))
         throw new ProjectError(
@@ -412,14 +435,14 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
       let sourceSelector = options.source;
       if (withinProject) {
         await safePath(root, local);
-        bytes = snapshot.files[local] ?? Buffer.alloc(0);
-        if (!snapshot.files[local])
+        if (!graphs.has(local))
           throw new ProjectError(
             "invalid",
             "RESOURCE_MISSING",
             "Import source is not a captured project graph.",
             local,
           );
+        bytes = await readGraph(local);
         sourceSelector = local;
       } else {
         const info = await lstat(absolute);
@@ -518,13 +541,14 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
     provenance = [{ sourceGraphIri: source.graphIri, sourceSelector: source.selector }];
     for (const [key, graph] of graphs) {
       if (key.startsWith("dep:")) continue;
+      const owned = await parseOwned(graph.file, await readGraph(graph.file));
       const collided = new Set(
         store
           .getQuads(null, rdfType, null, null)
           .filter(
             (q) =>
               q.subject.termType === "NamedNode" &&
-              graph.store.countQuads(q.subject, rdfType, null, null),
+              owned.countQuads(q.subject, rdfType, null, null),
           )
           .map((q) => q.subject.value),
       );
@@ -549,7 +573,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
   )
     store.addQuad(namedNode(iri), namedNode(rdfType), namedNode(businessType));
   for (const schema of new Set(options.schemas ?? [])) {
-    const graph = resolveGraph(schema);
+    const graph = await resolveGraph(schema);
     if (graph.kind !== "conceptual-data-model")
       throw new ProjectError(
         "invalid",
@@ -573,8 +597,10 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
         details: { target: target.value },
       });
     else
-      for (const [, graph] of candidates)
+      for (const [key] of candidates) {
+        const graph = await resolveGraph(key);
         available.addQuads(graph.store.getQuads(null, null, null, null));
+      }
     for (const [key] of candidates)
       if (!associations.some((a) => a.role === "schema" && a.selector === key))
         associations.push({ role: "schema", selector: key });
@@ -625,6 +651,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
     writer.addQuads(store.getQuads(null, null, null, null));
     writer.end((error, text) => (error ? reject(error) : resolve(text)));
   });
+  await verifyReads(root, snapshot.reads);
   const plan = preparePlan(snapshot, options.command, [{ file: path, bytes: Buffer.from(text) }], {
     path,
     iri,
