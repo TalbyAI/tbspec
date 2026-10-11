@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { authorResource, prepareResource, publishResource } from "../src/authoring.ts";
 import { digest, graphSignature } from "../src/canonical.ts";
-import { inspectProject } from "../src/inspection.ts";
+import { captureInspection, inspectProject, inspectSnapshot } from "../src/inspection.ts";
+import { exits } from "../src/output.ts";
 import { initializeProject } from "../src/project.ts";
 import { interpretationSignature, parseLock, writeToml } from "../src/schemas.ts";
 
@@ -32,6 +33,27 @@ test("offline status establishes complete validity for installed starters and em
 });
 
 const prefixes = `@prefix t: <https://talby.ai/ontology/tbspec#> . @prefix sh: <http://www.w3.org/ns/shacl#> . @prefix ex: <urn:ex:> . @prefix owl: <http://www.w3.org/2002/07/owl#> . @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .`;
+
+test("selected validation reports deferred read failures as unavailable I/O", async () => {
+  const root = await project();
+  const selector = "dep:tbspec-process";
+  const snapshot = await captureInspection(root, "validate", selector);
+  const lock = parseLock(snapshot.files["tbspec.lock"]?.toString("utf8") ?? "");
+  const dep = lock.dependencies["tbspec-process"];
+  assert.ok(dep);
+  const path = `${dep.snapshot_path}/${dep.primary}`;
+  assert.equal(Object.hasOwn(snapshot.files, path), false);
+  assert.ok(!snapshot.reads.some((read) => read.kind === "file" && read.path === path));
+  await rm(join(root, path));
+  await mkdir(join(root, path));
+
+  const result = await inspectSnapshot(root, snapshot, { command: "validate", selector });
+  assert.equal(result.status, "unavailable", JSON.stringify(result));
+  assert.equal(exits[result.status], 4);
+  assert.ok(result.diagnostics.some((d) => d.code === "IO_FAILURE"));
+  assert.ok(!result.diagnostics.some((d) => d.code === "RDF_SYNTAX"));
+});
+
 test("selected validation attributes Core results and treats warnings as success", async () => {
   const root = await project();
   await writeFile(

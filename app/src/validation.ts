@@ -247,23 +247,25 @@ export async function validateInspection(input: {
         .get(resource.selector)
         ?.checks.some((c) => ["syntax", "classification"].includes(c.kind) && c.state === "failed")
     ) {
+      const captured = snapshot.reads.find((r) => r.kind === "file" && r.path === resource.file);
+      const supplied = Object.hasOwn(snapshot.files, resource.file);
+      const bytes = supplied
+        ? (snapshot.files[resource.file] ?? null)
+        : await fileBytes(root, resource.file);
+      if (!supplied && captured && !equalRevision(captured.revision, revision(bytes)))
+        throw new ProjectError(
+          "conflict",
+          "REVISION_CONFLICT",
+          "Graph changed after inspection capture.",
+          resource.file,
+        );
+      if (!captured) {
+        snapshot.reads.push({ kind: "file", path: resource.file, revision: revision(bytes) });
+      }
+      resource.revision = revision(bytes);
+      const record = records.get(resource.selector);
+      const baseIri = record?.base_iri ?? pathToFileURL(await safePath(root, resource.file)).href;
       try {
-        const captured = snapshot.reads.find((r) => r.kind === "file" && r.path === resource.file);
-        const supplied = Object.hasOwn(snapshot.files, resource.file);
-        const bytes = supplied
-          ? (snapshot.files[resource.file] ?? null)
-          : await fileBytes(root, resource.file);
-        if (!supplied && captured && !equalRevision(captured.revision, revision(bytes)))
-          throw new ProjectError(
-            "conflict",
-            "REVISION_CONFLICT",
-            "Graph changed after inspection capture.",
-            resource.file,
-          );
-        if (!captured) {
-          snapshot.reads.push({ kind: "file", path: resource.file, revision: revision(bytes) });
-        }
-        resource.revision = revision(bytes);
         if (!bytes)
           throw new ProjectError(
             "invalid",
@@ -271,13 +273,12 @@ export async function validateInspection(input: {
             "Required graph is missing.",
             resource.file,
           );
-        const record = records.get(resource.selector);
         store = record
           ? await parseGraph(bytes, record, bundle.vettedDigest, resource.selector)
           : await parseRdf(
               bytes,
               rdfFormats[extname(resource.file).toLowerCase()] ?? "text/turtle",
-              pathToFileURL(await safePath(root, resource.file)).href,
+              baseIri,
               false,
               resource.selector,
             );
