@@ -38,6 +38,8 @@ async function dispatch(): Promise<Result> {
         "--profile",
         "--schema",
         "--accepted-preview",
+        "--confirm",
+        "--source",
       ].includes(argument)
     )
       throw new ProjectError(
@@ -61,6 +63,7 @@ async function dispatch(): Promise<Result> {
         "--profile",
         "--schema",
         "--accepted-preview",
+        "--source",
       ].includes(argument)
     ) {
       const value = argv[++index];
@@ -77,7 +80,18 @@ async function dispatch(): Promise<Result> {
   const command = positional.shift() ?? "";
   if (
     command &&
-    !["init", "llms", "status", "graph", "config", "web", "ontology", "model"].includes(command)
+    ![
+      "init",
+      "llms",
+      "status",
+      "validate",
+      "shapes",
+      "graph",
+      "config",
+      "web",
+      "ontology",
+      "model",
+    ].includes(command)
   )
     throw new ProjectError(
       "invalid_arguments",
@@ -91,9 +105,7 @@ async function dispatch(): Promise<Result> {
       "--base-iri is valid only with init.",
     );
   if (
-    ["--iri", "--type", "--profile", "--schema", "--accepted-preview"].some((flag) =>
-      options.has(flag),
-    ) &&
+    ["--iri", "--type", "--profile", "--schema"].some((flag) => options.has(flag)) &&
     !["ontology", "model"].includes(command)
   )
     throw new ProjectError(
@@ -146,10 +158,105 @@ async function dispatch(): Promise<Result> {
   }
   const project = options.get("--project");
   const selectedProject = typeof project === "string" ? project : undefined;
+  const value = (flag: string) =>
+    typeof options.get(flag) === "string" ? (options.get(flag) as string) : undefined;
+  const schemaOperation = command === "model" && positional[0] === "schema";
+  if (
+    schemaOperation &&
+    ["--iri", "--type", "--profile", "--schema"].some((flag) => options.has(flag))
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Schema operations do not accept creation/import options.",
+    );
+  if (
+    options.has("--accepted-preview") &&
+    !(
+      (command === "shapes" && positional[0] === "create") ||
+      ((command === "ontology" || command === "model") &&
+        ["create", "import"].includes(positional[0] ?? "")) ||
+      (schemaOperation && ["add", "remove"].includes(positional[1] ?? ""))
+    )
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--accepted-preview requires a resource mutation.",
+    );
+  if (
+    options.has("--confirm") &&
+    !(command === "model" && positional[0] === "schema" && positional[1] === "remove")
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--confirm applies only to model schema remove.",
+    );
+  if (options.has("--source") && !(command === "shapes" && positional[0] === "list"))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--source applies only to shapes list.",
+    );
+  if (command === "validate") {
+    if (positional.length > 1)
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "validate accepts at most one graph selector.",
+      );
+    return inspectProject({
+      project: selectedProject,
+      command: "validate",
+      selector: positional[0],
+    });
+  }
+  if (command === "shapes") {
+    if (positional[0] === "list" && positional.length === 1)
+      return inspectProject({
+        project: selectedProject,
+        command: "shapes.list",
+        selector: value("--source"),
+      });
+    if (positional[0] === "create" && positional.length === 2)
+      return authorResource({
+        project: selectedProject,
+        command: "shapes.create",
+        path: positional[1] ?? "",
+        acceptedPreview: value("--accepted-preview"),
+      });
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Use shapes list [--source <path>] or shapes create <source-path>.",
+    );
+  }
   if (command === "ontology" || command === "model") {
+    if (command === "model" && positional[0] === "schema") {
+      const action = positional[1];
+      if (action === "list" && positional.length === 3)
+        return inspectProject({
+          project: selectedProject,
+          command: "model.schema.list",
+          selector: positional[2],
+        });
+      if (["add", "remove"].includes(action ?? "") && positional.length === 4)
+        return authorResource({
+          project: selectedProject,
+          command: `model.schema.${action}` as AuthoringOptions["command"],
+          path: positional[2] ?? "",
+          source: positional[3],
+          confirm: options.has("--confirm"),
+          acceptedPreview: value("--accepted-preview"),
+        });
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "Invalid model schema signature. Use model --help.",
+      );
+    }
     const action = positional[0];
-    const value = (flag: string) =>
-      typeof options.get(flag) === "string" ? (options.get(flag) as string) : undefined;
     if (
       (action === "list" && positional.length === 1) ||
       (action === "show" && positional.length === 2)

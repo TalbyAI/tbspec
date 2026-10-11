@@ -545,6 +545,9 @@ export async function startWebServer(
         }
         const routes: Record<string, InspectionCommand> = {
           "/api/project/v1/status": "status",
+          "/api/project/v1/validate": "validate",
+          "/api/project/v1/shapes": "shapes.list",
+          "/api/project/v1/model-schemas": "model.schema.list",
           "/api/project/v1/graphs": "graph.list",
           "/api/project/v1/graph": "graph.show",
           "/api/project/v1/config": "config.show",
@@ -563,7 +566,7 @@ export async function startWebServer(
         }
         if (request.method === "POST") {
           const action = url.pathname.match(
-            /^\/api\/project\/v1\/(ontology|model)\/(create|import)$/,
+            /^\/api\/project\/v1\/(ontology|model|shapes|model\/schema)\/(create|import|add|remove)$/,
           );
           const cancellation = url.pathname === "/api/project/v1/resource/cancel";
           if (action || url.pathname === "/api/project/v1/resource/apply" || cancellation) {
@@ -621,8 +624,24 @@ export async function startWebServer(
               );
             const options = {
               ...body,
-              command: `${action[1]}.${action[2]}`,
+              command: `${action[1]?.replaceAll("/", ".")}.${action[2]}`,
             } as unknown as AuthoringOptions;
+            if (
+              ![
+                "ontology.create",
+                "ontology.import",
+                "model.create",
+                "model.import",
+                "shapes.create",
+                "model.schema.add",
+                "model.schema.remove",
+              ].includes(options.command)
+            )
+              throw new ProjectError(
+                "invalid_arguments",
+                "ARGUMENT_INVALID",
+                "Unknown resource operation.",
+              );
             respond(
               response,
               await inspect("status", undefined, {

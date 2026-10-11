@@ -237,7 +237,7 @@ test("inspection includes OWL RDF/XML and keeps invalid project arguments distin
   );
 });
 
-test("inspection lists owned graphs, classifies compatible roots and reports incomplete validation", async () => {
+test("inspection lists owned graphs, classifies compatible roots and reports complete constraint validation", async () => {
   const root = await mkdtemp(join(tmpdir(), "tbspec-inspect-"));
   assert.equal((await initializeProject({ directory: root })).status, "ok");
   await mkdir(join(root, "models"));
@@ -301,9 +301,9 @@ test("inspection lists owned graphs, classifies compatible roots and reports inc
     ),
   );
   const status = await inspectProject({ project: root, command: "status" });
-  assert.equal(status.data?.project?.validationComplete, false);
+  assert.equal(status.data?.project?.validationComplete, true);
   assert.equal(status.data?.counts?.resources, 2);
-  assert.ok(status.diagnostics.some((d) => d.code === "CHECK_SKIPPED"));
+  assert.ok(status.diagnostics.some((d) => d.code === "SHACL_RESULT"));
 });
 
 test("malformed and ambiguous graphs retain independent inspection and scoped exact terms", async () => {

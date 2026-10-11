@@ -11,7 +11,10 @@ declare module "shacl-engine" {
         focusNode: { term: Term };
         shape: { ptr: { term: Term } };
         constraintComponent: Term;
-        message: { value: string }[];
+        message: Term[];
+        severity?: Term;
+        value?: { term?: Term };
+        args?: Record<string, Term>;
       }[];
     }>;
   }

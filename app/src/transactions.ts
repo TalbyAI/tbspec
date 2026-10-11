@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { canonical, hash, sortedSet } from "./canonical.ts";
+import { canonical, hash, sortedSet, utf8Compare } from "./canonical.ts";
 import {
   equalRevision,
   type FileSystem,
@@ -53,6 +53,46 @@ export interface Preview {
 export interface Plan {
   preview: Preview;
   writes: Write[];
+}
+export function previewFingerprint(preview: Omit<Preview, "fingerprint">): string {
+  const projected = (diagnostics: Diagnostic[]) =>
+    diagnostics
+      .map((d) => ({
+        code: d.code,
+        severity: d.severity,
+        file: d.file,
+        ...(d.selector ? { selector: d.selector } : {}),
+        ...(d.check ? { check: d.check } : {}),
+        ...(d.shacl
+          ? {
+              shacl: Object.fromEntries(
+                Object.entries(d.shacl).filter(([key]) => key !== "messages"),
+              ),
+            }
+          : {}),
+        ...(d.details
+          ? {
+              details: Object.fromEntries(
+                Object.entries(d.details).filter(([key]) => ["identity", "reason"].includes(key)),
+              ),
+            }
+          : {}),
+      }))
+      .sort((a, b) => utf8Compare(canonical(a), canonical(b)));
+  return hash([
+    "tbspec.preview",
+    1,
+    {
+      ...preview,
+      impact: {
+        ...preview.impact,
+        baselineErrors: projected(preview.impact.baselineErrors),
+        introducedErrors: projected(preview.impact.introducedErrors),
+        worsenedErrors: projected(preview.impact.worsenedErrors),
+        skippedChecks: projected(preview.impact.skippedChecks),
+      },
+    },
+  ]);
 }
 export interface TransactionEntry extends Change {
   originalPath: string | null;
@@ -182,7 +222,7 @@ export function preparePlan(
       acceptance: [],
     },
   };
-  return { preview: { fingerprint: hash(["tbspec.preview", 1, body]), ...body }, writes };
+  return { preview: { fingerprint: previewFingerprint(body), ...body }, writes };
 }
 async function matches(root: string, path: string, expected: Revision, fs: FileSystem) {
   if (!equalRevision(revision(await fileBytes(root, path, fs)), expected))
@@ -451,7 +491,7 @@ export async function publishPlan(
   const { fingerprint, ...body } = plan.preview;
   if (
     plan.preview.arguments.projectRoot !== root ||
-    hash(["tbspec.preview", 1, body]) !== fingerprint ||
+    previewFingerprint(body) !== fingerprint ||
     plan.writes.length !== plan.preview.changes.length
   )
     throw new ProjectError(

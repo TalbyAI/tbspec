@@ -14,7 +14,19 @@ export interface Diagnostic {
   file: string | null;
   details?: Record<string, unknown>;
   selector?: string;
+  line?: number;
+  column?: number;
   check?: { kind: string; state: "failed" | "skipped"; blockedBy: string[] };
+  shacl?: {
+    graphIri: string;
+    selector: string;
+    focusNode?: Record<string, unknown>;
+    sourceShape?: Record<string, unknown>;
+    constraintComponent?: Record<string, unknown>;
+    path?: Record<string, unknown>;
+    value?: Record<string, unknown>;
+    messages?: Record<string, unknown>[];
+  };
 }
 export interface Result<T = Record<string, unknown>> {
   schemaVersion: 1;
@@ -70,6 +82,9 @@ function sortedDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
   return [...diagnostics].sort(
     (left, right) =>
       utf8Compare(left.file ?? "", right.file ?? "") ||
+      utf8Compare(left.selector ?? "", right.selector ?? "") ||
+      (left.line ?? 0) - (right.line ?? 0) ||
+      (left.column ?? 0) - (right.column ?? 0) ||
       utf8Compare(left.code, right.code) ||
       utf8Compare(left.message, right.message),
   );
