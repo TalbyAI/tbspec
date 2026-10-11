@@ -488,7 +488,7 @@ test("bundled metadata and design guards diagnose every authored invalid fixture
     'ex:r a t:EdgeVisualRule; t:targetConcept <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>; t:fillColor "#FFFFFF" .',
     'ex:r a t:NodeVisualRule; t:targetConcept owl:Class; t:labelMode "text" .',
     'ex:r a t:NodeVisualRule; t:targetConcept owl:Class; t:fontSize 0; t:strokeWidth -1; t:fillColor "red" .',
-    'ex:r a t:NodeVisualRule; t:targetConcept owl:Class; t:fontSize "INF"^^<http://www.w3.org/2001/XMLSchema#double> .',
+    'ex:design a t:VisualDesignModel; t:rule ex:r . ex:r a t:NodeVisualRule; t:targetConcept owl:Class; t:fontSize "INF"^^<http://www.w3.org/2001/XMLSchema#double> .',
   ];
   for (const source of cases) {
     await writeFile(join(root, "case.ttl"), `${prefixes} ${source}`);

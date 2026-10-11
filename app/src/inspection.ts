@@ -71,6 +71,7 @@ export interface Validation extends Record<string, unknown> {
   resources: { selector: string; state: "passed" | "failed" | "partial"; checks: Check[] }[];
 }
 export interface InspectionData extends Record<string, unknown> {
+  resources?: Validation["resources"];
   items?: Resource[];
   resource?: Resource;
   sourceText?: string;
@@ -109,7 +110,13 @@ export async function captureInspection(
     async function read(path: string) {
       const bytes = await fileBytes(root, path);
       snapshot.reads.push({ kind: "file", path, revision: revision(bytes) });
-      if (!visitGraph || !formats[extname(path).toLowerCase()] || bytes === null)
+      if (
+        (!visitGraph && !["validate", "status", "graph.list"].includes(command)) ||
+        !formats[extname(path).toLowerCase()] ||
+        path === target ||
+        extraPaths.includes(path) ||
+        bytes === null
+      )
         snapshot.files[path] = bytes;
     }
     await read("tbspec.toml");
@@ -320,6 +327,10 @@ export async function inspectSnapshot(
   root: string,
   snapshot: Snapshot & { ownedPaths: string[]; target?: string },
   options: Parameters<typeof inspectProject>[0],
+  scope: {
+    targets?: string[];
+    onVocabulary?: (resource: Resource, available: Store, blockers: string[]) => void;
+  } = {},
 ): Promise<Result<InspectionData>> {
   try {
     const target = snapshot.target ?? options.selector;
@@ -363,8 +374,24 @@ export async function inspectSnapshot(
       for (const [id, dep] of Object.entries(lock.dependencies))
         for (const file of dep.files)
           lockedPaths.set(`${dep.snapshot_path}/${file.key}`, { id, file });
-    for (const [file, bytes] of Object.entries(snapshot.files)) {
+    const capturedPaths = new Set([
+      ...Object.keys(snapshot.files),
+      ...snapshot.reads.flatMap((read) => (read.kind === "file" ? [read.path] : [])),
+    ]);
+    for (const file of capturedPaths) {
       if (!formats[extname(file).toLowerCase()]) continue;
+      let bytes = snapshot.files[file];
+      if (bytes === undefined) {
+        bytes = await fileBytes(root, file);
+        const captured = snapshot.reads.find((read) => read.kind === "file" && read.path === file);
+        if (!captured || !equalRevision(captured.revision, revision(bytes)))
+          throw new ProjectError(
+            "conflict",
+            "REVISION_CONFLICT",
+            "Graph changed after inspection capture.",
+            file,
+          );
+      }
       const locked = lockedPaths.get(file);
       if (!bytes && !locked && !snapshot.ownedPaths.includes(file)) continue;
       const expanded = locked ? `dep:${locked.id}/${locked.file.key}` : file;
@@ -404,8 +431,10 @@ export async function inspectSnapshot(
               false,
               expanded,
             );
-        stores.set(expanded, store);
-        if (expanded === target) selectedStore = store;
+        if (options.command === "graph.show" && expanded === target) {
+          stores.set(expanded, store);
+          selectedStore = store;
+        }
         checks.push({ kind: "syntax", state: "passed", blockedBy: [] });
         const classification = classifyGraph(store, expanded);
         Object.assign(
@@ -615,6 +644,7 @@ export async function inspectSnapshot(
       validation,
       diagnostics,
       target: options.command === "validate" ? target : undefined,
+      ...scope,
     });
     if (options.command === "validate") return checked as Result<InspectionData>;
     diagnostics.splice(0, diagnostics.length, ...checked.diagnostics);

@@ -4,6 +4,7 @@ import { DataFactory, Store } from "n3";
 import { ProjectError } from "./output.ts";
 import { absoluteIri } from "./paths.ts";
 import type { Row } from "./schemas.ts";
+import { compileXPathPattern } from "./shacl-regex.ts";
 
 const sh = "http://www.w3.org/ns/shacl#";
 const rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
@@ -85,6 +86,10 @@ export function prepareShapes(source: Store): Store {
   function list(head: Term): Term[] {
     const result: Term[] = [];
     const seen = new Set<string>();
+    if (head.termType !== "BlankNode" && head.termType !== "NamedNode")
+      reject("SHACL_GRAPH_INVALID", "A shape list must have RDF nodes.");
+    if (head.value === `${rdf}nil` && head.termType !== "NamedNode")
+      reject("SHACL_GRAPH_INVALID", "rdf:nil must be an IRI.");
     while (head.value !== `${rdf}nil`) {
       if (head.termType !== "BlankNode" && head.termType !== "NamedNode")
         reject("SHACL_GRAPH_INVALID", "A shape list must have RDF nodes.");
@@ -93,6 +98,13 @@ export function prepareShapes(source: Store): Store {
       result.push(one(head, `${rdf}first`));
       head = one(head, `${rdf}rest`);
     }
+    if (head.termType !== "NamedNode") reject("SHACL_GRAPH_INVALID", "rdf:nil must be an IRI.");
+    const nil = DataFactory.namedNode(`${rdf}nil`);
+    if (
+      graph.countQuads(nil, `${rdf}first`, null, null) ||
+      graph.countQuads(nil, `${rdf}rest`, null, null)
+    )
+      reject("SHACL_GRAPH_INVALID", "rdf:nil must not have rdf:first or rdf:rest values.");
     return result;
   }
   function path(term: Term, seen = new Set<string>()): string {
@@ -100,12 +112,6 @@ export function prepareShapes(source: Store): Store {
     if (term.termType !== "BlankNode" || seen.has(term.value))
       reject("SHACL_GRAPH_INVALID", "Property path is malformed or cyclic.");
     const next = new Set([...seen, term.value]);
-    if (graph.countQuads(term, `${rdf}first`, null, null)) {
-      const steps = list(term);
-      if (steps.length < 2)
-        reject("SHACL_GRAPH_INVALID", "Sequence paths require at least two members.");
-      return `(${steps.map((step) => path(step, next)).join("/")})`;
-    }
     const operators = [
       ["inversePath", "^"],
       ["alternativePath", "|"],
@@ -113,12 +119,21 @@ export function prepareShapes(source: Store): Store {
       ["oneOrMorePath", "+"],
       ["zeroOrOnePath", "?"],
     ] as const;
+    if (graph.countQuads(term, `${rdf}first`, null, null)) {
+      const steps = list(term);
+      if (steps.length < 2)
+        reject("SHACL_GRAPH_INVALID", "Sequence paths require at least two members.");
+      return `(${steps.map((step) => path(step, next)).join("/")})`;
+    }
     const declared = operators.filter(([name]) =>
       graph.countQuads(term, `${sh}${name}`, null, null),
     );
     if (declared.length !== 1)
       reject("SHACL_GRAPH_INVALID", "Property path needs exactly one operator.");
     const [name, operator] = declared[0] ?? ["inversePath", "^"];
+    const operatorQuads = graph.getQuads(term, null, null, null);
+    if (operatorQuads.length !== 1 || operatorQuads[0]?.predicate.value !== `${sh}${name}`)
+      reject("SHACL_GRAPH_INVALID", "Operator paths must have exactly one defining triple.");
     const value = one(term, `${sh}${name}`);
     if (operator === "|") {
       const alternatives = list(value);
@@ -141,7 +156,7 @@ export function prepareShapes(source: Store): Store {
         const namespace = one(declaration, `${sh}namespace`);
         if (
           prefix.termType !== "Literal" ||
-          !/^[A-Za-z_][A-Za-z0-9_-]*$|^$/.test(prefix.value) ||
+          prefix.datatype.value !== `${xsd}string` ||
           namespace.termType !== "Literal" ||
           namespace.datatype.value !== `${xsd}anyURI` ||
           !absoluteIri(namespace.value)
@@ -152,6 +167,21 @@ export function prepareShapes(source: Store): Store {
           );
         if (result.has(prefix.value) && result.get(prefix.value) !== namespace.value)
           reject("SHACL_GRAPH_INVALID", "Conflicting SHACL prefix declarations.");
+        let prefixCheck: Row;
+        try {
+          prefixCheck = parser.parse(
+            `PREFIX ${prefix.value}: <urn:tbspec:prefix-check:>\nSELECT $this WHERE {}`,
+          ) as unknown as Row;
+        } catch {
+          reject("SHACL_GRAPH_INVALID", "SHACL prefix declaration has an invalid SPARQL prefix.");
+        }
+        const context = (prefixCheck.context as Row[] | undefined) ?? [];
+        if (
+          context.length !== 1 ||
+          context[0]?.key !== prefix.value ||
+          (context[0]?.value as Row | undefined)?.value !== "urn:tbspec:prefix-check:"
+        )
+          reject("SHACL_GRAPH_INVALID", "SHACL prefix declaration has an invalid SPARQL prefix.");
         result.set(prefix.value, namespace.value);
       }
     }
@@ -184,11 +214,17 @@ export function prepareShapes(source: Store): Store {
         "Only SHACL Core and sh:sparql SELECT constraints are supported; targets, custom validators and rules are unavailable.",
       );
     if (
-      ["and", "or", "xone", "in", "ignoredProperties"].some(
+      ["and", "or", "xone", "in", "ignoredProperties", "languageIn"].some(
         (name) => statement.predicate.value === `${sh}${name}`,
       )
-    )
-      list(statement.object);
+    ) {
+      const members = list(statement.object);
+      if (
+        ["and", "or", "xone"].includes(statement.predicate.value.slice(sh.length)) &&
+        members.some((member) => !["NamedNode", "BlankNode"].includes(member.termType))
+      )
+        reject("SHACL_GRAPH_INVALID", "Logical shape lists may contain only shape nodes.");
+    }
     if (statement.predicate.value === `${sh}path`) path(statement.object);
     if (
       [
@@ -201,12 +237,19 @@ export function prepareShapes(source: Store): Store {
       ].some((name) => statement.predicate.value === `${sh}${name}`) &&
       (statement.object.termType !== "Literal" ||
         statement.object.datatype.value !== `${xsd}integer` ||
-        !/^\+?\d+$/.test(statement.object.value))
+        !/^[+-]?\d+$/.test(statement.object.value))
     )
       reject(
         "SHACL_GRAPH_INVALID",
-        "Cardinality and length parameters must be nonnegative integers.",
+        "Cardinality and length parameters must be xsd:integer literals.",
       );
+    if (
+      ["minExclusive", "minInclusive", "maxExclusive", "maxInclusive"].some(
+        (name) => statement.predicate.value === `${sh}${name}`,
+      ) &&
+      statement.object.termType !== "Literal"
+    )
+      reject("SHACL_GRAPH_INVALID", "Range parameters must be literals.");
     if (
       ["closed", "deactivated", "uniqueLang", "qualifiedValueShapesDisjoint"].some(
         (name) => statement.predicate.value === `${sh}${name}`,
@@ -232,10 +275,56 @@ export function prepareShapes(source: Store): Store {
     )
       reject("SHACL_GRAPH_INVALID", "Class, datatype and predicate parameters must be IRIs.");
     if (
+      statement.predicate.value === `${sh}targetNode` &&
+      statement.object.termType === "BlankNode"
+    )
+      reject("SHACL_GRAPH_INVALID", "sh:targetNode values must be IRIs or literals.");
+    if (statement.predicate.value === `${sh}severity` && statement.object.termType !== "NamedNode")
+      reject("SHACL_GRAPH_INVALID", "sh:severity values must be IRIs.");
+    if (
+      statement.predicate.value === `${sh}message` &&
+      (statement.object.termType !== "Literal" ||
+        (statement.object.datatype.value !== `${xsd}string` &&
+          statement.object.datatype.value !== `${rdf}langString`))
+    )
+      reject(
+        "SHACL_GRAPH_INVALID",
+        "sh:message values must be xsd:string or language-tagged literals.",
+      );
+    if (
+      [
+        "minCount",
+        "maxCount",
+        "uniqueLang",
+        "lessThan",
+        "lessThanOrEquals",
+        "qualifiedValueShape",
+      ].some((name) => statement.predicate.value === `${sh}${name}`) &&
+      graph.countQuads(statement.subject, `${sh}path`, null, null) === 0
+    )
+      reject("SHACL_GRAPH_INVALID", "This Core parameter is permitted only on property shapes.");
+    if (
+      ["qualifiedMinCount", "qualifiedMaxCount"].some(
+        (name) => statement.predicate.value === `${sh}${name}`,
+      ) &&
+      graph.countQuads(statement.subject, `${sh}qualifiedValueShape`, null, null) > 0 &&
+      graph.countQuads(statement.subject, `${sh}path`, null, null) === 0
+    )
+      reject(
+        "SHACL_GRAPH_INVALID",
+        "Qualified count parameters are permitted only on property shapes.",
+      );
+    if (
       statement.predicate.value === `${sh}nodeKind` &&
-      !["BlankNode", "IRI", "Literal", "BlankNodeOrIRI", "BlankNodeOrLiteral", "IRIOrLiteral"].some(
-        (name) => statement.object.value === `${sh}${name}`,
-      )
+      (statement.object.termType !== "NamedNode" ||
+        ![
+          "BlankNode",
+          "IRI",
+          "Literal",
+          "BlankNodeOrIRI",
+          "BlankNodeOrLiteral",
+          "IRIOrLiteral",
+        ].some((name) => statement.object.value === `${sh}${name}`))
     )
       reject("SHACL_GRAPH_INVALID", "Unknown SHACL node kind.");
     if (
@@ -246,20 +335,36 @@ export function prepareShapes(source: Store): Store {
     )
       reject("SHACL_GRAPH_INVALID", "Shape references must be RDF nodes.");
     if (
+      statement.predicate.value === `${sh}node` &&
+      graph.countQuads(statement.object, `${sh}path`, null, null)
+    )
+      reject("SHACL_GRAPH_INVALID", "sh:node values must be node shapes without a property path.");
+    if (
       [
+        "closed",
+        "ignoredProperties",
         "minCount",
         "maxCount",
         "minLength",
         "maxLength",
+        "minExclusive",
+        "minInclusive",
+        "maxExclusive",
+        "maxInclusive",
         "datatype",
         "nodeKind",
         "path",
-        "closed",
         "deactivated",
         "uniqueLang",
         "qualifiedMinCount",
         "qualifiedMaxCount",
+        "qualifiedValueShape",
         "qualifiedValueShapesDisjoint",
+        "pattern",
+        "flags",
+        "languageIn",
+        "in",
+        "severity",
       ].some((name) => statement.predicate.value === `${sh}${name}`) &&
       graph.countQuads(statement.subject, statement.predicate, null, null) > 1
     )
@@ -291,7 +396,6 @@ export function prepareShapes(source: Store): Store {
         reject("SHACL_GRAPH_INVALID", "Patterns require string literals.");
       const flags = graph.getObjects(statement.subject, `${sh}flags`, null);
       if (
-        flags.length > 1 ||
         flags.some(
           (term) =>
             term.termType !== "Literal" ||
@@ -299,71 +403,29 @@ export function prepareShapes(source: Store): Store {
             !/^[imsx]*$/.test(term.value),
         )
       )
-        reject(
-          "SHACL_GRAPH_INVALID",
-          "Pattern flags must be a single string using only i, m, s and x.",
-        );
-      const originalFlags = flags[0]?.value ?? "";
-      let pattern = statement.object.value;
-      if (originalFlags.includes("x")) {
-        let escaped = false;
-        let inClass = false;
-        pattern = [...pattern]
-          .filter((character) => {
-            // XPath x also removes whitespace between a backslash and its escaped character.
-            if (!inClass && /[\t\n\r ]/.test(character)) return false;
-            if (escaped) {
-              escaped = false;
-              return true;
-            }
-            if (character === "\\") {
-              escaped = true;
-              return true;
-            }
-            if (character === "[") inClass = true;
-            if (character === "]") inClass = false;
-            return true;
-          })
-          .join("");
-      }
-      // XPath character escapes differ from JavaScript, both inside and outside classes.
-      const characterClasses: Record<string, string> = {
-        d: "\\p{Nd}",
-        D: "\\P{Nd}",
-        w: "[\\p{L}\\p{M}\\p{N}\\p{S}]",
-        W: "[\\p{P}\\p{Z}\\p{C}]",
-        s: "[ \\t\\r\\n]",
-        S: "[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21-\\u{10ffff}]",
-        "-": "\\x2d",
-      };
-      let inCharacterClass = false;
-      pattern = pattern.replace(/\\[\s\S]|[[\]]/gu, (token) => {
-        if (token === "[") inCharacterClass = true;
-        if (token === "]") inCharacterClass = false;
-        const replacement = token.startsWith("\\") ? characterClasses[token.slice(1)] : undefined;
-        return replacement
-          ? inCharacterClass && replacement.startsWith("[")
-            ? replacement.slice(1, -1)
-            : replacement
-          : token;
-      });
-      const normalizedFlags = `${[...new Set(originalFlags.replaceAll("x", ""))].join("")}u`;
+        reject("SHACL_GRAPH_INVALID", "Pattern flags must be strings using only i, m, s and x.");
       try {
-        new RegExp(pattern, normalizedFlags);
+        compileXPathPattern(statement.object.value, flags[0]?.value ?? "");
       } catch {
-        reject(
-          "SHACL_GRAPH_INVALID",
-          "Pattern or flags cannot be compiled by the pinned Core engine.",
-        );
+        reject("SHACL_GRAPH_INVALID", "Pattern or flags are not valid XPath regular expressions.");
       }
-      graph.removeQuad(statement);
-      graph.addQuad(statement.subject, statement.predicate, DataFactory.literal(pattern));
-      graph.removeQuads(graph.getQuads(statement.subject, `${sh}flags`, null, null));
-      graph.addQuad(
-        statement.subject,
-        DataFactory.namedNode(`${sh}flags`),
-        DataFactory.literal(normalizedFlags),
-      );
+    }
+    if (
+      statement.predicate.value === `${sh}flags` &&
+      (statement.object.termType !== "Literal" ||
+        statement.object.datatype.value !== `${xsd}string` ||
+        !/^[imsx]*$/.test(statement.object.value))
+    )
+      reject("SHACL_GRAPH_INVALID", "Pattern flags must be strings using only i, m, s and x.");
+    if (statement.predicate.value === `${sh}languageIn`) {
+      for (const member of list(statement.object))
+        if (member.termType !== "Literal" || member.datatype.value !== `${xsd}string`)
+          reject("SHACL_GRAPH_INVALID", "sh:languageIn members must be xsd:string literals.");
+    }
+    if (statement.predicate.value === `${sh}ignoredProperties`) {
+      for (const member of list(statement.object))
+        if (member.termType !== "NamedNode")
+          reject("SHACL_GRAPH_INVALID", "sh:ignoredProperties members must be IRIs.");
     }
   }
   for (const statement of [...graph.getQuads(null, `${sh}sparql`, null, null)]) {
@@ -375,16 +437,14 @@ export function prepareShapes(source: Store): Store {
     let text = `${prefixes(statement.object)}\n${select.value}`;
     localQuery(text, true);
     const paths = graph.getObjects(statement.subject, `${sh}path`, null);
-    // Protect quoted strings, IRIs and comments from the engine's textual $PATH substitution.
+    // SPARQL variable tails include astral symbols and unassigned characters, beyond Unicode letters.
     text = text.replace(
-      /"""(?:[\s\S]*?)"""|'''(?:[\s\S]*?)'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|<[^<>\s]*>|#[^\r\n]*|[$?]PATH\b/g,
+      /"""(?:\\[\s\S]|(?!""")[^\\])*"""|'''(?:\\[\s\S]|(?!''')[^\\])*'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|<[^<>\s]*>|\\[~.!$&'()*+,;=/?#@%-]|#[^\r\n]*|[$?]PATH(?![A-Za-z_0-9\u00b7\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u02ff\u0370-\u037d\u037f-\u1fff\u200c-\u200d\u203f-\u2040\u2070-\u218f\u2c00-\u2fef\u3001-\ud7ff\uf900-\ufdcf\ufdf0-\ufffd\u{10000}-\u{effff}]|[\u0300-\u036f])/gu,
       (token) => {
-        if (token === "$PATH" || token === "?PATH") {
-          if (paths.length !== 1 || !paths[0])
-            reject("SHACL_QUERY_REJECTED", "$PATH requires exactly one property-shape path.");
-          return path(paths[0]);
-        }
-        return token.replaceAll("$PATH", "\\u0024PATH");
+        if (token !== "$PATH" && token !== "?PATH") return token;
+        if (paths.length !== 1 || !paths[0])
+          reject("SHACL_QUERY_REJECTED", "$PATH requires exactly one property-shape path.");
+        return path(paths[0]);
       },
     );
     localQuery(text, true);

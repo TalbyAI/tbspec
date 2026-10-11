@@ -54,6 +54,19 @@ export interface Plan {
   preview: Preview;
   writes: Write[];
 }
+function fingerprintTerms(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(fingerprintTerms);
+  if (!value || typeof value !== "object") return value;
+  const term = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(term).map(([key, child]) => [
+      key,
+      term.kind === "blank" && key === "value" && !/^b\d+$/.test(String(child))
+        ? "unassessable"
+        : fingerprintTerms(child),
+    ]),
+  );
+}
 export function previewFingerprint(preview: Omit<Preview, "fingerprint">): string {
   const projected = (diagnostics: Diagnostic[]) =>
     diagnostics
@@ -65,15 +78,17 @@ export function previewFingerprint(preview: Omit<Preview, "fingerprint">): strin
         ...(d.check ? { check: d.check } : {}),
         ...(d.shacl
           ? {
-              shacl: Object.fromEntries(
-                Object.entries(d.shacl).filter(([key]) => key !== "messages"),
+              shacl: fingerprintTerms(
+                Object.fromEntries(Object.entries(d.shacl).filter(([key]) => key !== "messages")),
               ),
             }
           : {}),
         ...(d.details
           ? {
-              details: Object.fromEntries(
-                Object.entries(d.details).filter(([key]) => ["identity", "reason"].includes(key)),
+              details: fingerprintTerms(
+                Object.fromEntries(
+                  Object.entries(d.details).filter(([key]) => ["identity", "reason"].includes(key)),
+                ),
               ),
             }
           : {}),

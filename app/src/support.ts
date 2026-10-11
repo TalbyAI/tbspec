@@ -3,21 +3,23 @@ import { pathToFileURL } from "node:url";
 import { DataFactory, Store, Writer } from "n3";
 import type { AuthoringOptions, PreparedResource } from "./authoring.ts";
 import { canonical, digest, utf8Compare } from "./canonical.ts";
-import { fileBytes, revision, verifyReads } from "./filesystem.ts";
+import { equalRevision, fileBytes, revision, verifyReads } from "./filesystem.ts";
 import {
   captureInspection,
   type InspectionCommand,
   type InspectionData,
   inspectSnapshot,
   type Resource,
+  rdfTerm,
 } from "./inspection.ts";
-import { failure, ok, ProjectError, type Result } from "./output.ts";
+import { type Diagnostic, failure, ok, ProjectError, type Result } from "./output.ts";
 import { portablePath, safePath } from "./paths.ts";
 import { discoverProject, projectDiscoveryScope } from "./project.ts";
 import { classifyGraph, parseGraph, parseRdf, rdfFormats } from "./rdf.ts";
-import { parseLock, parseManifest } from "./schemas.ts";
+import { parseLock, parseManifest, type Row } from "./schemas.ts";
 import { loadStarters } from "./starters.ts";
 import { preparePlan, previewFingerprint } from "./transactions.ts";
+import { vocabularyTypes, vocabularyUses } from "./validation.ts";
 
 const t = "https://talby.ai/ontology/tbspec#";
 export async function listSupport(options: {
@@ -161,10 +163,12 @@ export async function prepareSupport(options: AuthoringOptions): Promise<Prepare
   const destination = path.replace(/\.[^.]+$/, ".shacl.ttl");
   const snapshot = await captureInspection(
     root,
-    "graph.list",
-    undefined,
-    shapes ? [destination] : [],
+    "validate",
+    path,
+    shapes ? [path, destination] : [path],
   );
+  // The capture pins the model's bytes; subsequent inspections select their own graph.
+  delete snapshot.target;
   parseManifest(snapshot.files["tbspec.toml"]?.toString("utf8") ?? "");
   const lock = parseLock(snapshot.files["tbspec.lock"]?.toString("utf8") ?? "");
   const shown = await inspectSnapshot(root, snapshot, { command: "graph.list" });
@@ -196,9 +200,6 @@ export async function prepareSupport(options: AuthoringOptions): Promise<Prepare
       path,
     );
   }
-  const baseline = shapes
-    ? undefined
-    : await inspectSnapshot(root, snapshot, { command: "validate", selector: path });
   let selectedSchema: Resource | undefined;
   if (shapes) {
     if (shown.status !== "ok")
@@ -321,7 +322,97 @@ export async function prepareSupport(options: AuthoringOptions): Promise<Prepare
     ownedPaths: [...new Set([...snapshot.ownedPaths, file])],
   };
   for (const write of writes) proposed.files[write.file] = write.bytes;
-  const validated = await inspectSnapshot(root, proposed, { command: "validate", selector: path });
+  const removing = options.command === "model.schema.remove";
+  const affected = new Set([path]);
+  if (removing) {
+    const resources = shown.data?.items ?? [];
+    const dependencies = new Map(
+      resources.map((resource) => [
+        resource.selector,
+        resource.associations.map((a) => a.selector),
+      ]),
+    );
+    for (const resource of resources.filter((r) => ["view", "presentation"].includes(r.kind))) {
+      const bytes = snapshot.files[resource.file] ?? (await fileBytes(root, resource.file));
+      const read = snapshot.reads.find((r) => r.kind === "file" && r.path === resource.file);
+      if (!bytes || !read || !equalRevision(read.revision, revision(bytes)))
+        throw new ProjectError(
+          "conflict",
+          "REVISION_CONFLICT",
+          "Dependent graph changed after capture.",
+          resource.file,
+        );
+      const graph = await parseRdf(
+        bytes,
+        rdfFormats[extname(resource.file).toLowerCase()] ?? "text/turtle",
+        pathToFileURL(await safePath(root, resource.file)).href,
+      );
+      const references = ["sourceGraph", "forView"].flatMap((predicate) =>
+        graph.getObjects(resource.graphIri, `${t}${predicate}`, null),
+      );
+      dependencies
+        .get(resource.selector)
+        ?.push(
+          ...resources
+            .filter((candidate) => references.some((iri) => iri.value === candidate.graphIri))
+            .map((candidate) => candidate.selector),
+        );
+    }
+    for (const configured of (parseManifest(snapshot.files["tbspec.toml"]?.toString("utf8") ?? "")
+      .views ?? []) as Row[]) {
+      dependencies.get(String(configured.view))?.push(String(configured.source));
+      if (configured.presentation)
+        dependencies.get(String(configured.presentation))?.push(String(configured.view));
+    }
+    for (const selected of affected)
+      for (const [owner, prerequisites] of dependencies)
+        if (prerequisites.includes(selected)) affected.add(owner);
+  }
+  type Roles = Map<string, Set<keyof typeof vocabularyTypes>>;
+  let beforeVocabulary: Roles | undefined;
+  let afterVocabulary: Roles | undefined;
+  function vocabulary(resource: Resource, available: Store, blockers: string[]): Roles | undefined {
+    if (resource.selector !== path || blockers.length) return undefined;
+    const result: Roles = new Map();
+    for (const [role, types] of Object.entries(vocabularyTypes))
+      for (const type of types)
+        for (const term of available.getSubjects(
+          "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+          type,
+          null,
+        ))
+          if (term.termType === "NamedNode") {
+            const roles = result.get(term.value) ?? new Set<keyof typeof vocabularyTypes>();
+            roles.add(role as keyof typeof vocabularyTypes);
+            result.set(term.value, roles);
+          }
+    return result;
+  }
+  const baseline = removing
+    ? await inspectSnapshot(
+        root,
+        snapshot,
+        { command: "validate" },
+        {
+          targets: [...affected],
+          onVocabulary(resource, available, blockers) {
+            if (resource.selector === path)
+              beforeVocabulary = vocabulary(resource, available, blockers);
+          },
+        },
+      )
+    : undefined;
+  const validated = await inspectSnapshot(
+    root,
+    proposed,
+    { command: "validate", ...(removing ? {} : { selector: path }) },
+    {
+      ...(removing ? { targets: [...affected] } : {}),
+      onVocabulary(resource, available, blockers) {
+        if (resource.selector === path) afterVocabulary = vocabulary(resource, available, blockers);
+      },
+    },
+  );
   if (["conflict", "unavailable", "invalid_arguments"].includes(validated.status))
     throw new ProjectError(
       validated.status,
@@ -332,16 +423,29 @@ export async function prepareSupport(options: AuthoringOptions): Promise<Prepare
     path,
     schema: selectedSchema?.selector ?? null,
   });
-  if (options.command === "model.schema.remove") {
+  if (removing) {
+    if (baseline && ["conflict", "unavailable", "invalid_arguments"].includes(baseline.status))
+      throw new ProjectError(
+        baseline.status,
+        baseline.diagnostics[0]?.code ?? "IO_FAILURE",
+        "Cannot assess baseline graph.",
+      );
     plan.preview.impact.acceptance = ["confirm"];
+    plan.preview.impact.affectedFiles = [...affected].sort(utf8Compare);
     plan.preview.impact.baselineErrors =
       baseline?.diagnostics.filter((d) => d.severity === "error") ?? [];
-    const unassessable = (d: import("./output.ts").Diagnostic) =>
-      d.shacl &&
-      [d.shacl.focusNode, d.shacl.value].some(
-        (term) => term?.kind === "blank" && term.scope === path,
-      );
-    const identity = (d: import("./output.ts").Diagnostic) =>
+    function anonymous(value: unknown): boolean {
+      if (!value || typeof value !== "object") return false;
+      const term = value as Row;
+      if (term.kind === "blank") return term.scope === path || !/^b\d+$/.test(String(term.value));
+      return Object.values(term).some(anonymous);
+    }
+    const unassessable = (d: Diagnostic) =>
+      (!d.selector && !d.file) ||
+      (!d.shacl && !d.details?.identity) ||
+      anonymous(d.shacl) ||
+      anonymous(d.details?.identity);
+    const identity = (d: Diagnostic) =>
       canonical([
         d.selector ?? d.file,
         d.code,
@@ -357,7 +461,9 @@ export async function prepareSupport(options: AuthoringOptions): Promise<Prepare
             ]
           : (d.details?.identity ?? null),
       ]);
-    const remaining = [...(baseline?.diagnostics ?? [])];
+    const comparableBaseline = baseline?.diagnostics.filter((d) => !unassessable(d)) ?? [];
+    const remaining = [...comparableBaseline];
+    const baselineKeys = new Set(comparableBaseline.map(identity));
     for (const diagnostic of validated.diagnostics.filter((d) => d.severity === "error")) {
       if (unassessable(diagnostic)) continue;
       const same = remaining.findIndex(
@@ -371,55 +477,90 @@ export async function prepareSupport(options: AuthoringOptions): Promise<Prepare
       if (previous >= 0) {
         remaining.splice(previous, 1);
         plan.preview.impact.worsenedErrors.push(diagnostic);
-      } else plan.preview.impact.introducedErrors.push(diagnostic);
+      } else if (baselineKeys.has(identity(diagnostic)))
+        plan.preview.impact.worsenedErrors.push(diagnostic);
+      else plan.preview.impact.introducedErrors.push(diagnostic);
     }
     plan.preview.impact.skippedChecks = validated.diagnostics.filter(
       (d) => d.code === "CHECK_SKIPPED",
     );
-    const schemaTriples = selectedSchema
-      ? (
-          await inspectSnapshot(root, snapshot, {
-            command: "graph.show",
-            selector: selectedSchema.selector,
-          })
-        ).data?.triples
-      : [];
-    plan.preview.arguments.removedVocabulary =
-      schemaTriples
-        ?.filter(
-          (q) =>
-            q.predicate.value === "http://www.w3.org/1999/02/22-rdf-syntax-ns#type" &&
-            [
-              "Class",
-              "ObjectProperty",
-              "DatatypeProperty",
-              "AnnotationProperty",
-              "Property",
-              "Datatype",
-            ].some((name) => String(q.object.value).endsWith(`#${name}`)),
-        )
-        .map((q) => q.subject) ?? [];
-    const removed = plan.preview.arguments.removedVocabulary as import("./schemas.ts").Row[];
-    plan.preview.arguments.removedVocabulary = [
-      ...new Map(removed.map((term) => [canonical(term), term])).values(),
-    ].sort((a, b) => utf8Compare(canonical(a), canonical(b)));
-    plan.preview.arguments.affectedReferences =
-      (
-        await inspectSnapshot(root, snapshot, { command: "graph.show", selector: path })
-      ).data?.triples?.filter((q) =>
-        removed.some((term) =>
-          [q.subject, q.predicate, q.object].some((value) => canonical(value) === canonical(term)),
-        ),
+    const lost: Roles = new Map();
+    if (beforeVocabulary && afterVocabulary)
+      for (const [term, roles] of beforeVocabulary) {
+        const removed = new Set(
+          [...roles].filter((role) => !afterVocabulary?.get(term)?.has(role)),
+        );
+        if (removed.size) lost.set(term, removed);
+      }
+    plan.preview.arguments.removedVocabulary = [...lost.keys()]
+      .sort(utf8Compare)
+      .map((value) => ({ kind: "iri", value }));
+    plan.preview.arguments.removedVocabularyRoles = [...lost]
+      .sort(([a], [b]) => utf8Compare(a, b))
+      .map(([value, roles]) => ({
+        term: { kind: "iri", value },
+        roles: [...roles].sort(utf8Compare),
+      }));
+    const original = await parseRdf(
+      bytes,
+      rdfFormats[extname(path).toLowerCase()] ?? "text/turtle",
+      pathToFileURL(await safePath(root, path)).href,
+      false,
+      path,
+    );
+    plan.preview.arguments.affectedReferences = [...original]
+      .filter((q) => vocabularyUses(q).some((use) => lost.get(use.term.value)?.has(use.role)))
+      .map((q) => ({
+        subject: rdfTerm(q.subject, path),
+        predicate: rdfTerm(q.predicate, path),
+        object: rdfTerm(q.object, path),
+      }));
+    const coverage = (result: typeof baseline) =>
+      result?.data?.resources?.flatMap((resource) =>
+        resource.checks.map((check) => ({ target: resource.selector, ...check })),
       ) ?? [];
-    if ([...(baseline?.diagnostics ?? []), ...validated.diagnostics].some(unassessable)) {
+    const beforeChecks = coverage(baseline);
+    const afterChecks = coverage(validated);
+    const checkKey = (check: { target: string; kind: string; shapesSelector?: string }) =>
+      canonical([check.target, check.kind, check.shapesSelector ?? null]);
+    const afterKeys = new Set(afterChecks.map(checkKey));
+    plan.preview.arguments.deactivatedChecks = beforeChecks
+      .filter((check) => check.shapesSelector && !afterKeys.has(checkKey(check)))
+      .map(({ target, kind, shapesSelector }) => ({ target, kind, shapesSelector }));
+    const unassessableChecks = new Map<
+      string,
+      { target: string; kind: string; shapesSelector?: string; blockedBy: string[] }
+    >();
+    for (const check of [...beforeChecks, ...afterChecks])
+      if (check.state === "skipped" && afterKeys.has(checkKey(check)))
+        unassessableChecks.set(checkKey(check), check);
+    for (const diagnostic of [...(baseline?.diagnostics ?? []), ...validated.diagnostics])
+      if (unassessable(diagnostic) && diagnostic.code !== "CHECK_SKIPPED") {
+        const check = {
+          target: diagnostic.selector ?? path,
+          kind: diagnostic.check?.kind ?? "shacl",
+          ...(diagnostic.shacl ? { shapesSelector: diagnostic.shacl.selector } : {}),
+          blockedBy: [path],
+        };
+        unassessableChecks.set(checkKey(check), check);
+      }
+    if (!beforeVocabulary || !afterVocabulary) {
+      const check = { target: path, kind: "vocabulary", blockedBy: [path] };
+      unassessableChecks.set(checkKey(check), check);
+    }
+    for (const check of unassessableChecks.values()) {
+      const source = [...(baseline?.diagnostics ?? []), ...validated.diagnostics].find(
+        (d) => d.shacl?.selector === check.shapesSelector,
+      )?.shacl;
       plan.preview.impact.skippedChecks.push({
         code: "CHECK_SKIPPED",
         severity: "error",
         message:
-          "Impact comparison involving anonymous target nodes is unassessable after rewriting the target graph.",
-        file: path,
-        selector: path,
-        check: { kind: "shacl", state: "skipped", blockedBy: [path] },
+          "Affected impact cannot be compared because a required check is blocked or its diagnostic identity is unstable.",
+        file: check.target,
+        selector: check.target,
+        check: { kind: check.kind, state: "skipped", blockedBy: check.blockedBy },
+        ...(source ? { shacl: { graphIri: source.graphIri, selector: source.selector } } : {}),
         details: { reason: "impact_identity_unassessable", identity: { kind: "file" } },
       });
     }

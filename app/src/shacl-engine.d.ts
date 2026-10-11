@@ -22,3 +22,10 @@ declare module "shacl-engine" {
 declare module "shacl-engine/sparql.js" {
   export const validations: unknown;
 }
+
+declare module "xspattern" {
+  export function compile(
+    pattern: string,
+    options?: { language: "xsd" | "xpath" },
+  ): (value: string) => boolean;
+}

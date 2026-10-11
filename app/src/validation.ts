@@ -1,9 +1,9 @@
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Term } from "@rdfjs/types";
+import type { Quad, Term } from "@rdfjs/types";
 import { DataFactory, Store } from "n3";
 import { digest, graphSignature, utf8Compare } from "./canonical.ts";
-import { fileBytes, revision, verifyReads } from "./filesystem.ts";
+import { equalRevision, fileBytes, revision, verifyReads } from "./filesystem.ts";
 import type { Check, Resource, Validation } from "./inspection.ts";
 import { rdfTerm as encodeTerm } from "./inspection.ts";
 import { type Diagnostic, failure, ok, ProjectError, type Result } from "./output.ts";
@@ -27,6 +27,38 @@ const propertyTypes = [
     (name) => `${owl}${name}`,
   ),
 ];
+export const vocabularyTypes = { class: classTypes, property: propertyTypes, datatype: classTypes };
+export function vocabularyUses(statement: Quad) {
+  const uses: { term: Term; role: keyof typeof vocabularyTypes; position: string }[] = [
+    { term: statement.predicate, role: "property", position: "predicate" },
+  ];
+  if (
+    [
+      `${rdf}type`,
+      `${rdfs}subClassOf`,
+      `${rdfs}domain`,
+      `${rdfs}range`,
+      `${owl}equivalentClass`,
+      `${owl}disjointWith`,
+      `${owl}onClass`,
+    ].includes(statement.predicate.value) &&
+    statement.object.termType === "NamedNode"
+  )
+    uses.push({ term: statement.object, role: "class", position: "type" });
+  if (
+    [
+      `${rdfs}subPropertyOf`,
+      `${owl}equivalentProperty`,
+      `${owl}inverseOf`,
+      `${owl}onProperty`,
+    ].includes(statement.predicate.value) &&
+    statement.object.termType === "NamedNode"
+  )
+    uses.push({ term: statement.object, role: "property", position: "predicate" });
+  if (statement.object.termType === "Literal")
+    uses.push({ term: statement.object.datatype, role: "datatype", position: "datatype" });
+  return uses;
+}
 
 export async function validateInspection(input: {
   root: string;
@@ -38,6 +70,8 @@ export async function validateInspection(input: {
   validation: Validation;
   diagnostics: Diagnostic[];
   target?: string;
+  targets?: string[];
+  onVocabulary?: (resource: Resource, available: Store, blockers: string[]) => void;
 }): Promise<Result<Validation>> {
   const { root, snapshot, manifest, lock, resources, stores, validation, diagnostics } = input;
   function rdfTerm(term: Term, scope: string) {
@@ -52,6 +86,11 @@ export async function validateInspection(input: {
       ? `${value}/${lock?.dependencies[value.slice(4)]?.primary ?? ""}`
       : value;
   const target = input.target ? expand(input.target) : undefined;
+  const selection = target
+    ? new Set([target])
+    : input.targets
+      ? new Set(input.targets.map(expand))
+      : undefined;
   const bundle = await loadStarters();
   const records = new Map<string, Lock["dependencies"][string]["files"][number]>();
   if (lock)
@@ -74,26 +113,28 @@ export async function validateInspection(input: {
             associations: [],
           });
       }
-  if (target && !resources.some((r) => r.selector === target))
-    throw new ProjectError(
-      "unavailable",
-      "RESOURCE_MISSING",
-      "Selected graph is unavailable.",
-      target,
-    );
+  for (const selected of selection ?? [])
+    if (!resources.some((r) => r.selector === selected))
+      throw new ProjectError(
+        "unavailable",
+        "RESOURCE_MISSING",
+        "Selected graph is unavailable.",
+        selected,
+      );
   const rows = new Map(validation.resources.map((row) => [row.selector, row]));
   const capturedDiagnostics = [...diagnostics];
   const active = new Set<string>();
   const shapeGraphs = new Map<string, Store | null>();
-  if (target) {
+  if (selection) {
     diagnostics.splice(
       0,
       diagnostics.length,
       ...diagnostics.filter(
-        (d) => d.selector === target || ["tbspec.toml", "tbspec.lock"].includes(d.file ?? ""),
+        (d) =>
+          selection.has(d.selector ?? "") || ["tbspec.toml", "tbspec.lock"].includes(d.file ?? ""),
       ),
     );
-    validation.resources = validation.resources.filter((row) => row.selector === target);
+    validation.resources = validation.resources.filter((row) => selection.has(row.selector));
   }
   function rowFor(resource: Resource) {
     let row = rows.get(resource.selector);
@@ -148,13 +189,28 @@ export async function validateInspection(input: {
         (!shapesSelector || d.shacl?.selector === shapesSelector),
     );
     const state: Check["state"] = blockers.length ? "skipped" : failed ? "failed" : "passed";
-    rowFor(resource).checks.push({
+    const record: Check = {
       kind,
       state,
       blockedBy: [...new Set(blockers)].sort(utf8Compare),
       ...(shapesSelector ? { shapesSelector } : {}),
-    });
-    if (blockers.length)
+    };
+    const existing = rowFor(resource).checks.find(
+      (check) => check.kind === kind && check.shapesSelector === shapesSelector,
+    );
+    if (existing) Object.assign(existing, record);
+    else rowFor(resource).checks.push(record);
+    if (
+      blockers.length &&
+      !diagnostics.some(
+        (d) =>
+          d.selector === resource.selector &&
+          d.code === "CHECK_SKIPPED" &&
+          d.check?.kind === kind &&
+          d.shacl?.selector === shapesSelector &&
+          JSON.stringify(d.check.blockedBy) === JSON.stringify(record.blockedBy),
+      )
+    )
       diagnostics.push({
         code: "CHECK_SKIPPED",
         severity: "error",
@@ -185,13 +241,29 @@ export async function validateInspection(input: {
     for (const problem of capturedDiagnostics.filter((d) => d.selector === resource.selector))
       if (!diagnostics.includes(problem)) diagnostics.push(problem);
     let store = stores.get(resource.selector);
-    if (!store && !rows.get(resource.selector)?.checks.some((c) => c.state === "failed")) {
+    if (
+      !store &&
+      !rows
+        .get(resource.selector)
+        ?.checks.some((c) => ["syntax", "classification"].includes(c.kind) && c.state === "failed")
+    ) {
       try {
-        const bytes = snapshot.files[resource.file] ?? (await fileBytes(root, resource.file));
-        if (!snapshot.reads.some((r) => r.kind === "file" && r.path === resource.file)) {
-          snapshot.files[resource.file] = bytes;
+        const captured = snapshot.reads.find((r) => r.kind === "file" && r.path === resource.file);
+        const supplied = Object.hasOwn(snapshot.files, resource.file);
+        const bytes = supplied
+          ? (snapshot.files[resource.file] ?? null)
+          : await fileBytes(root, resource.file);
+        if (!supplied && captured && !equalRevision(captured.revision, revision(bytes)))
+          throw new ProjectError(
+            "conflict",
+            "REVISION_CONFLICT",
+            "Graph changed after inspection capture.",
+            resource.file,
+          );
+        if (!captured) {
           snapshot.reads.push({ kind: "file", path: resource.file, revision: revision(bytes) });
         }
+        resource.revision = revision(bytes);
         if (!bytes)
           throw new ProjectError(
             "invalid",
@@ -211,11 +283,11 @@ export async function validateInspection(input: {
             );
         stores.set(resource.selector, store);
         if (!record) Object.assign(resource, classifyGraph(store, resource.selector));
-        rowFor(resource).checks.push(
-          { kind: "syntax", state: "passed", blockedBy: [] },
-          { kind: "classification", state: "passed", blockedBy: [] },
-        );
+        for (const kind of ["syntax", "classification"])
+          if (!rowFor(resource).checks.some((check) => check.kind === kind))
+            rowFor(resource).checks.push({ kind, state: "passed", blockedBy: [] });
       } catch (error) {
+        if (error instanceof ProjectError && error.status === "conflict") throw error;
         const problem =
           error instanceof ProjectError
             ? error
@@ -307,7 +379,11 @@ export async function validateInspection(input: {
   const signature = (resource: Resource) =>
     records.get(resource.selector)?.graph_signature ??
     graphSignature({
-      byte_digest: digest(snapshot.files[resource.file] ?? ""),
+      byte_digest: Object.hasOwn(snapshot.files, resource.file)
+        ? digest(snapshot.files[resource.file] ?? "")
+        : resource.revision.state === "present"
+          ? resource.revision.digest
+          : digest(""),
       media_type: rdfFormats[extname(resource.file).toLowerCase()] ?? "text/turtle",
       base_iri: pathToFileURL(`${root}/${resource.file}`).href,
       parser_profile:
@@ -762,6 +838,7 @@ export async function validateInspection(input: {
           data.addQuad(statement);
         }
       }
+    input.onVocabulary?.(resource, available, blockers);
     if (resource.kind === "design" && !blockers.length)
       for (const statement of store.getQuads(null, `${t}targetConcept`, null, null)) {
         const types = store.countQuads(statement.subject, `${rdf}type`, `${t}EdgeVisualRule`, null)
@@ -791,35 +868,7 @@ export async function validateInspection(input: {
       !blockers.length
     ) {
       for (const statement of store) {
-        const uses: { term: Term; role: string; position: string }[] = [
-          { term: statement.predicate, role: "property", position: "predicate" },
-        ];
-        if (
-          [
-            `${rdf}type`,
-            `${rdfs}subClassOf`,
-            `${rdfs}domain`,
-            `${rdfs}range`,
-            `${owl}equivalentClass`,
-            `${owl}disjointWith`,
-            `${owl}onClass`,
-          ].includes(statement.predicate.value) &&
-          statement.object.termType === "NamedNode"
-        )
-          uses.push({ term: statement.object, role: "class", position: "type" });
-        if (
-          [
-            `${rdfs}subPropertyOf`,
-            `${owl}equivalentProperty`,
-            `${owl}inverseOf`,
-            `${owl}onProperty`,
-          ].includes(statement.predicate.value) &&
-          statement.object.termType === "NamedNode"
-        )
-          uses.push({ term: statement.object, role: "property", position: "predicate" });
-        if (statement.object.termType === "Literal")
-          uses.push({ term: statement.object.datatype, role: "datatype", position: "datatype" });
-        for (const use of uses) {
+        for (const use of vocabularyUses(statement)) {
           if (
             [
               "http://www.w3.org/ns/prov#wasDerivedFrom",
@@ -827,7 +876,7 @@ export async function validateInspection(input: {
             ].includes(use.term.value)
           )
             continue;
-          const types = use.role === "property" ? propertyTypes : classTypes;
+          const types = vocabularyTypes[use.role];
           if (!types.some((type) => available.countQuads(use.term, `${rdf}type`, type, null)))
             emit(
               resource,
@@ -891,10 +940,23 @@ export async function validateInspection(input: {
     }
     if (!shapes.size) check(resource, "shacl", blockers);
   }
-  const targets = resources.filter((r) =>
-    target ? r.selector === target : snapshot.files[r.file] !== undefined,
+  const capturedFiles = new Set(
+    snapshot.reads.flatMap((read) => (read.kind === "file" ? [read.path] : [])),
   );
-  for (const resource of targets) await validate(resource);
+  const targets = resources.filter((r) =>
+    selection
+      ? selection.has(r.selector)
+      : Object.hasOwn(snapshot.files, r.file) || capturedFiles.has(r.file),
+  );
+  for (const resource of targets) {
+    try {
+      await validate(resource);
+    } finally {
+      stores.clear();
+      active.clear();
+      shapeGraphs.clear();
+    }
+  }
   await verifyReads(root, snapshot.reads);
   for (const row of validation.resources)
     row.state = row.checks.some((c) => c.state === "skipped")

@@ -81,12 +81,28 @@ test("authenticated validation and schema/shapes previews share exact bytes, con
     "model.shacl.ttl",
   );
   assert.equal((await call("validate?selector=model.ttl")).status, 200);
+  await writeFile(
+    join(root, "view.ttl"),
+    `${prefix} ex:view a t:ViewModel; t:sourceGraph ex:model; t:member ex:model, ex:schema; t:relationship [ <http://www.w3.org/1999/02/22-rdf-syntax-ns#subject> ex:model; <http://www.w3.org/1999/02/22-rdf-syntax-ns#predicate> t:schema; <http://www.w3.org/1999/02/22-rdf-syntax-ns#object> ex:schema ] .`,
+  );
+  await writeFile(
+    join(root, "presentation.ttl"),
+    `${prefix} ex:presentation a t:PresentationGraph; t:forView ex:view .`,
+  );
+  assert.equal((await call("validate?selector=view.ttl")).status, 200);
   const removed = await call("model/schema/remove", { path: "model.ttl", source: "schema.ttl" });
   assert.ok(
     removed.envelope.data.preview.impact.introducedErrors.some(
       (d: { code: string }) => d.code === "VOCABULARY_UNKNOWN",
     ),
   );
+  assert.ok(
+    removed.envelope.data.preview.impact.introducedErrors.some(
+      (d: { code: string; selector: string }) =>
+        d.code === "VIEW_INVALID" && d.selector === "view.ttl",
+    ),
+  );
+  assert.ok(removed.envelope.data.preview.impact.affectedFiles.includes("presentation.ttl"));
   assert.equal(
     (await call("resource/apply", application(removed))).envelope.diagnostics[0].code,
     "ACCEPTANCE_REQUIRED",

@@ -57,8 +57,14 @@ interface Triple {
 }
 interface Preview {
   changes: { file: string; action: string }[];
-  arguments: { removedVocabulary?: Term[]; affectedReferences?: Triple[] };
+  arguments: {
+    removedVocabulary?: Term[];
+    removedVocabularyRoles?: { term: Term; roles: string[] }[];
+    affectedReferences?: Triple[];
+    deactivatedChecks?: { target: string; kind: string; shapesSelector: string }[];
+  };
   impact: {
+    affectedFiles: string[];
     acceptance: string[];
     baselineErrors: Diagnostic[];
     introducedErrors: Diagnostic[];
@@ -658,14 +664,22 @@ function App() {
                                 </ul>
                                 {preview.arguments.removedVocabulary && (
                                   <>
-                                    <h4>Removed schema vocabulary</h4>
+                                    <h4>Lost vocabulary roles</h4>
                                     <ul>
-                                      {preview.arguments.removedVocabulary.map((term) => (
-                                        <li key={termText(term)}>
-                                          <code>{termText(term)}</code>
-                                        </li>
-                                      ))}
+                                      {preview.arguments.removedVocabulary.map((term) => {
+                                        const roles =
+                                          preview.arguments.removedVocabularyRoles?.find(
+                                            (entry) => entry.term.value === term.value,
+                                          )?.roles;
+                                        return (
+                                          <li key={termText(term)}>
+                                            <code>{termText(term)}</code>
+                                            {roles?.length ? ` (${roles.join(", ")})` : ""}
+                                          </li>
+                                        );
+                                      })}
                                     </ul>
+                                    {!preview.arguments.removedVocabulary.length && <p>None</p>}
                                   </>
                                 )}
                                 {preview.arguments.affectedReferences && (
@@ -679,6 +693,30 @@ function App() {
                                         )
                                         .join("\n") || "None"}
                                     </pre>
+                                  </>
+                                )}
+                                {preview.arguments.deactivatedChecks && (
+                                  <>
+                                    <h4>Affected resources</h4>
+                                    <ul>
+                                      {preview.impact.affectedFiles.map((file) => (
+                                        <li key={file}>{file}</li>
+                                      ))}
+                                    </ul>
+                                    <h4>Deactivated checks</h4>
+                                    {preview.arguments.deactivatedChecks.length ? (
+                                      <ul>
+                                        {preview.arguments.deactivatedChecks.map((check) => (
+                                          <li
+                                            key={`${check.target}:${check.kind}:${check.shapesSelector}`}
+                                          >
+                                            {check.target}: {check.kind} from {check.shapesSelector}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p>None</p>
+                                    )}
                                   </>
                                 )}
                                 <h4>Existing errors</h4>
