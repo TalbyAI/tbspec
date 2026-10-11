@@ -190,6 +190,9 @@ test("a failed inspection worker recovers without restarting sessions or clearin
       });
       const session = (await exchanged.json()).data.sessionToken;
       const headers = { Authorization: "Bearer " + session, "X-Tbspec-Schema-Version": "1" };
+      const staging = join(root, ".tbspec/previews", server.record.instanceId, ${JSON.stringify("A".repeat(43))});
+      await mkdir(staging, { recursive: true });
+      await writeFile(join(staging, "staged-0"), "abandoned preview");
       const inspect = async () => (await fetch(new URL("api/project/v1/config", server.record.baseUrl), { headers })).json();
       assert.equal((await inspect()).status, "unavailable");
       assert.equal((await controlRequest(server.record, "status")).state, "running");
@@ -199,6 +202,7 @@ test("a failed inspection worker recovers without restarting sessions or clearin
       assert.equal(blocked.status, "conflict", JSON.stringify(blocked));
       assert.equal(blocked.diagnostics[0].code, "RECOVERY_REQUIRED");
       assert.equal(await readFile(lock, "utf8"), "retained ownership");
+      assert.equal(await readFile(join(staging, "staged-0"), "utf8"), "abandoned preview");
       await unlink(lock);
       const recovery = join(root, ".tbspec/transactions/pending");
       await mkdir(recovery, { recursive: true });
@@ -210,6 +214,7 @@ test("a failed inspection worker recovers without restarting sessions or clearin
       await rmdir(recovery);
       const recovered = await inspect();
       assert.equal(recovered.status, "ok", JSON.stringify(recovered));
+      await assert.rejects(readFile(join(staging, "staged-0")), { code: "ENOENT" });
       assert.equal(await readFile(registration, "utf8"), original);
     } finally { await server.stop(); }
   `;

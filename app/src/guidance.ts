@@ -65,7 +65,58 @@ const tree: Record<string, Guidance> = {
     ],
   },
   modeling: {
-    text: "Initialization locks independent common metadata plus data, process and state-machine ontologies, shapes and designs. It reports projectValidity unchecked. Model authoring and project validation commands arrive in later tickets; use tbspec graph list and tbspec validate once available for live resource and validation evidence.",
+    text: "Create, list, show and import project-owned ontologies and models with shared offline operations. New roots use an explicit --iri or the configured base IRI plus the percent-encoded final filename stem. Locked snapshots remain read-only. Full project constraint validation is delivered by ticket 04; no authoring result claims complete validity.",
+    topics: [
+      {
+        invocation: "tbspec llms modeling ontologies",
+        description: "Ontology creation and editable import.",
+      },
+      {
+        invocation: "tbspec llms modeling models",
+        description: "Enabled types, model profiles and editable import.",
+      },
+    ],
+  },
+  "modeling ontologies": {
+    text: "tbspec ontology list; tbspec ontology show <path>; tbspec ontology create <path> [--iri <iri>]; tbspec ontology import <source-selector> <path> [--iri <new-iri>]. Paths are project-relative .ttl destinations outside runtime/dependency directories. Creation declares owl:Ontology. Show includes exact identity, selectors, support associations and provenance.",
+    topics: [
+      {
+        invocation: "tbspec llms modeling ontologies create",
+        description: "Identity and safe publication.",
+      },
+      {
+        invocation: "tbspec llms modeling ontologies import",
+        description: "Term preservation and source selection.",
+      },
+    ],
+  },
+  "modeling ontologies create": {
+    text: "tbspec ontology create <path> [--iri <iri>]. Supply --iri without base_iri. Derived IRIs use the final filename without .ttl, not its directory. Occupied destinations, duplicate graph identities, ambiguous/malformed required graphs, unsafe paths, stale inputs and retained recovery refuse publication and preserve existing files. Creates are staged and exclusively published. CLI local authoring applies directly; optional --accepted-preview <digest> verifies the reviewed plan and returns conflict/3 with a fresh preview on mismatch. Browser authoring reviews a session/instance-owned preview before apply and invalidates it on cancellation or relevant changes.",
+    topics: [],
+  },
+  "modeling ontologies import": {
+    text: "tbspec ontology import <local-file|dep:id|dep:id/file-key> <path> [--iri <new-iri>]. Supported local formats are Turtle, N-Triples and strict RDF/XML; acquire remote sources as dependencies first. Bundled example: tbspec ontology import dep:tbspec-state-machine ontologies/state.ttl --iri urn:example:state. Only managed root metadata relocates. Class/property/individual IRIs and unknown statements remain exact. Provenance uses prov:wasDerivedFrom and dcterms:source; existing owned term declarations produce collision warnings. Source bytes and locked snapshots are preserved. Browser creation and imports require a session-bound preview applied within fifteen minutes; application uses staged bytes, rechecks project revisions and consumes the preview once. Do not automatically retry uncertain publication outcomes.",
+    topics: [],
+  },
+  "modeling models": {
+    text: "tbspec model list; tbspec model show <path>; tbspec model create <path> --type <name> [--profile conceptual|concrete] [--schema <selector> ...] [--iri <iri>]; tbspec model import <source-selector> <path> --type <name> [--iri <new-iri>]. Select an enabled effective type; disabled/missing/unusable types are diagnosed. Graph roots determine classification, never filenames or business types. Show reads only the selected graph and configuration: schema IRIs remain visible even when no owned-file selector is resolved. Browser schema links use its separately refreshed resource inventory. Authoring checks every owned graph identity sequentially; malformed/unreadable owned graphs block publication, while unused dependency bytes are not read.",
+    topics: [
+      {
+        invocation: "tbspec llms modeling models create",
+        description: "Data profiles and descriptive process/state roots.",
+      },
+      {
+        invocation: "tbspec llms modeling models import",
+        description: "Deliberate receiving types and missing vocabulary.",
+      },
+    ],
+  },
+  "modeling models create": {
+    text: "tbspec model create <path> --type <name> [--profile conceptual|concrete] [--schema <selector> ...] [--iri <iri>]. --profile applies only to data and defaults conceptual (classes/properties); concrete supports generic individual/value editing in ticket 05. Repeat --schema only for concrete creation, targeting conceptual models. Process and state-machine models are empty descriptions. Recognized selected vocabulary adds p-plan:Plan or sm:StateMachine to their root; replacements receive no invented mapping. Custom types use tbspec:Model. Every owned model gets one literal tbspec:modelType binding.",
+    topics: [],
+  },
+  "modeling models import": {
+    text: "tbspec model import <local-file|dep:id|dep:id/file-key> <path> --type <name> [--iri <new-iri>]. Explicitly choose the receiving type; do not reuse an upstream type name implicitly. Preserve compatible source classification, terms, unknown statements and schema IRIs. The resulting copy can be semantically invalid: import still succeeds and reports VOCABULARY_UNKNOWN or broken schema associations with validity invalid. No silent dependency copy, term renaming or vocabulary rebinding occurs. Full SHACL and project validation arrives in ticket 04. The browser previews the copy and applies staged bytes once with revision checks; inspect after uncertain outcomes.",
     topics: [],
   },
   views: {
@@ -136,6 +187,19 @@ export function guidance(topics: string[]): { found: boolean; data: Guidance } {
   };
 }
 export function help(command: string): Guidance {
+  if (command === "ontology" || command === "model")
+    return {
+      text:
+        command === "ontology"
+          ? "Usage: tbspec ontology list\n       tbspec ontology show <path>\n       tbspec ontology create <path> [--iri <iri>]\n       tbspec ontology import <source-selector> <path> [--iri <new-iri>]\nOptions: --project <dir>, --json, --help\nAuthoring: --accepted-preview <digest> verifies a reviewed plan before publication."
+          : "Usage: tbspec model list\n       tbspec model show <path>\n       tbspec model create <path> --type <name> [--profile conceptual|concrete] [--schema <selector> ...] [--iri <iri>]\n       tbspec model import <source-selector> <path> --type <name> [--iri <new-iri>]\nOptions: --project <dir>, --json, --help\nAuthoring: --accepted-preview <digest> verifies a reviewed plan before publication.",
+      topics: [
+        {
+          invocation: `tbspec llms modeling ${command === "ontology" ? "ontologies" : "models"}`,
+          description: "Focused authoring and inspection contracts.",
+        },
+      ],
+    };
   if (["status", "graph", "config"].includes(command))
     return {
       text: "Usage: tbspec status\n       tbspec graph list\n       tbspec graph show <path|dep:id|dep:id/file-key>\n       tbspec config show\n       tbspec config model-type list\nOptions: --project <dir>, --json, --help\nRead-only local inspection. Status discloses incomplete validation and exits 1 until complete checks are implemented.",
@@ -169,7 +233,7 @@ export function help(command: string): Guidance {
       topics: guidance([]).data.topics,
     };
   return {
-    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, graph list/show, config show/model-type list, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec graph show dep:tbspec-metadata --json\nInspection and web are read-only; authoring, dependency administration and complete validation arrive in later feature tickets.",
+    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, graph list/show, ontology list/show/create/import, model list/show/create/import, config show/model-type list, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec ontology import dep:tbspec-state-machine ontologies/state.ttl --iri urn:example:state --json\nCLI and authenticated browser share authoring and inspection. Dependency administration and complete validation arrive in later feature tickets.",
     topics: [
       { invocation: "tbspec init --help", description: "Initialize an offline project." },
       { invocation: "tbspec llms --help", description: "Recursive agent guidance." },

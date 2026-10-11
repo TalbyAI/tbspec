@@ -314,9 +314,8 @@ export async function observeRuntime(record: RuntimeRecord): Promise<"live" | "e
     return "unknown";
   }
 }
-export async function claimRuntime(root: string): Promise<RuntimeRecord> {
-  const identity = await processIdentity();
-  const directory = await safePath(root, ".tbspec/runtime", true);
+export async function secureRuntimeDirectory(root: string, path: string): Promise<void> {
+  const directory = await safePath(root, path, true);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   try {
     const paths = [directory];
@@ -336,6 +335,10 @@ export async function claimRuntime(root: string): Promise<RuntimeRecord> {
       "Cannot secure runtime storage. The project root and .tbspec must belong to the current OS user and prevent writes by other users; their permissions are not changed.",
     );
   }
+}
+export async function claimRuntime(root: string): Promise<RuntimeRecord> {
+  const identity = await processIdentity();
+  await secureRuntimeDirectory(root, ".tbspec/runtime");
   return withRuntimeLock(root, async () => {
     const path = await safePath(root, runtimePath, true);
     const handle = await open(path, "wx", 0o600);

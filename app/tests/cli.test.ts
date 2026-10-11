@@ -28,6 +28,77 @@ function invoke(args: string[], cwd: string) {
   ]);
   return { ...result, envelope };
 }
+test("CLI authors and inspects every model family and imports locked vocabulary offline", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-cli-author-"));
+  await initializeProject({ directory: root, baseIri: "urn:cli:/" });
+  for (const args of [
+    ["ontology", "create", "vocabulary.ttl", "--iri", "urn:cli:vocabulary"],
+    ["ontology", "import", "dep:tbspec-state-machine", "adopted.ttl"],
+    ["model", "create", "concepts.ttl", "--type", "data"],
+    [
+      "model",
+      "create",
+      "individuals.ttl",
+      "--type",
+      "data",
+      "--profile",
+      "concrete",
+      "--schema",
+      "concepts.ttl",
+      "--schema",
+      "concepts.ttl",
+    ],
+    ["model", "create", "process.ttl", "--type", "process"],
+    ["model", "create", "states.ttl", "--type", "state-machine"],
+    ["model", "import", "individuals.ttl", "imported.ttl", "--type", "data"],
+    ["ontology", "list"],
+    ["ontology", "show", "adopted.ttl"],
+    ["model", "list"],
+    ["model", "show", "individuals.ttl"],
+    ["ontology", "--help"],
+    ["model", "--help"],
+    ["llms", "modeling", "models", "import"],
+  ]) {
+    const result = invoke(args, root);
+    assert.equal(result.status, 0, result.stderr);
+  }
+  for (const args of [
+    ["model", "create", "missing.ttl"],
+    ["model", "create", "invalid.ttl", "--type", "process", "--profile", "concrete"],
+    ["ontology", "list", "--iri", "urn:extra"],
+    ["status", "--type", "data"],
+    [
+      "model",
+      "import",
+      "states.ttl",
+      "invalid.ttl",
+      "--type",
+      "state-machine",
+      "--schema",
+      "concepts.ttl",
+    ],
+  ])
+    assert.equal(invoke(args, root).status, 2);
+  assert.equal(invoke(["ontology", "create", "vocabulary.ttl"], root).status, 3);
+  const review = invoke(
+    ["ontology", "create", "reviewed.ttl", "--accepted-preview", `sha256:${"0".repeat(64)}`],
+    root,
+  );
+  assert.equal(review.status, 3);
+  assert.equal(review.envelope.data.applied, false);
+  await assert.rejects(readFile(join(root, "reviewed.ttl")), { code: "ENOENT" });
+  const accepted = invoke(
+    [
+      "ontology",
+      "create",
+      "reviewed.ttl",
+      "--accepted-preview",
+      review.envelope.data.preview.fingerprint,
+    ],
+    root,
+  );
+  assert.equal(accepted.status, 0, accepted.stderr);
+});
 test("help/version, argument errors and recursive llms produce exactly one envelope without a project", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "tbspec-cli-"));
   for (const args of [

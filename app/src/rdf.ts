@@ -4,6 +4,13 @@ import { digest } from "./canonical.ts";
 import { ProjectError } from "./output.ts";
 import type { LockedFile } from "./schemas.ts";
 
+export const rdfFormats: Record<string, string> = {
+  ".ttl": "text/turtle",
+  ".nt": "application/n-triples",
+  ".rdf": "application/rdf+xml",
+  ".owl": "application/rdf+xml",
+};
+
 export async function parseGraph(
   bytes: Uint8Array,
   file: LockedFile,

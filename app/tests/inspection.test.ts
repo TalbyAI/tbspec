@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { inspectProject } from "../src/inspection.ts";
+import { captureInspection, inspectProject } from "../src/inspection.ts";
 import { initializeProject } from "../src/project.ts";
 import { interpretationSignature, parseLock, writeToml } from "../src/schemas.ts";
 
@@ -74,6 +74,69 @@ test("configuration and graph reads exclude unrelated bytes and preserve sibling
     timeout: 30000,
   });
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("model show preserves schema IRIs without reading other owned or locked graphs", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "tb-model-scope-")));
+  await initializeProject({ directory: root });
+  await writeFile(
+    join(root, "selected.ttl"),
+    "<urn:model> a <https://talby.ai/ontology/tbspec#ConcreteDataModel>; <https://talby.ai/ontology/tbspec#schema> <urn:schema> .",
+  );
+  await writeFile(join(root, "other.ttl"), "unreadable graph");
+  const script = `
+    import assert from "node:assert/strict";
+    import fs from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    import { join } from "node:path";
+    import { inspectProject } from ${JSON.stringify(new URL("../src/inspection.ts", import.meta.url).href)};
+    const root = process.argv[1];
+    const original = fs.readFile;
+    fs.readFile = async (path, ...args) => {
+      if (String(path) === join(root, "other.ttl") || String(path).includes("dependencies"))
+        throw new Error("Unrelated bytes must not be read");
+      return original(path, ...args);
+    };
+    syncBuiltinESMExports();
+    const result = await inspectProject({ project: root, command: "model.show", selector: "selected.ttl" });
+    assert.equal(result.status, "ok", JSON.stringify(result));
+    assert.deepEqual(result.data.resource.schemaIris, ["urn:schema"]);
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script, root], {
+    encoding: "utf8",
+    timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("sequential graph inspection releases the project lock before parsing and retains only revisions", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "tb-inspect-sequential-")));
+  await initializeProject({ directory: root });
+  await writeFile(join(root, "owned.ttl"), '<urn:s> <urn:p> "value" .');
+  const visited: string[] = [];
+  const snapshot = await captureInspection(
+    root,
+    "graph.list",
+    undefined,
+    [],
+    async (file, bytes) => {
+      await assert.rejects(readFile(join(root, ".tbspec/operation.lock")), { code: "ENOENT" });
+      assert.match(bytes.toString(), /value/);
+      visited.push(file);
+    },
+  );
+  assert.deepEqual(visited, ["owned.ttl"]);
+  assert.equal(snapshot.files["owned.ttl"], undefined);
+  assert.ok(snapshot.reads.some((read) => read.path === "owned.ttl"));
+  await assert.rejects(
+    captureInspection(root, "graph.list", undefined, [], async () => {
+      await writeFile(join(root, "owned.ttl"), '<urn:changed> <urn:p> "value" .');
+    }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "diagnostic" in error &&
+      (error.diagnostic as { code: string }).code === "REVISION_CONFLICT",
+  );
 });
 
 test("graph listings do not read locked dependency bytes", async () => {
@@ -288,6 +351,37 @@ test("malformed and ambiguous graphs retain independent inspection and scoped ex
       (await inspectProject({ project: root, command: "graph.show", selector })).status,
       "ok",
     );
+});
+
+test("provenance selectors are reported only for an unambiguous single source", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-provenance-"));
+  await initializeProject({ directory: root });
+  for (const [sources, selectors, expected] of [
+    [
+      "<urn:source>",
+      '"source.ttl"',
+      [{ sourceGraphIri: "urn:source", sourceSelector: "source.ttl" }],
+    ],
+    [
+      "<urn:source>, <urn:other>",
+      '"source.ttl"',
+      [{ sourceGraphIri: "urn:source" }, { sourceGraphIri: "urn:other" }],
+    ],
+    ["<urn:source>", '"source.ttl", "other.ttl"', [{ sourceGraphIri: "urn:source" }]],
+    ["<urn:source>", "<urn:selector>", [{ sourceGraphIri: "urn:source" }]],
+  ] as const) {
+    await writeFile(
+      join(root, "owned.ttl"),
+      `<urn:owned> a <http://www.w3.org/2002/07/owl#Ontology>; <http://www.w3.org/ns/prov#wasDerivedFrom> ${sources}; <http://purl.org/dc/terms/source> ${selectors} .`,
+    );
+    const shown = await inspectProject({
+      project: root,
+      command: "ontology.show",
+      selector: "owned.ttl",
+    });
+    assert.equal(shown.status, "ok", JSON.stringify(shown));
+    assert.deepEqual(shown.data?.resource?.provenance, expected);
+  }
 });
 
 test("effective configuration uses project-locked defaults and whole manifest replacements", async () => {
