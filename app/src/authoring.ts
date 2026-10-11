@@ -355,7 +355,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
           );
           if (new Set(candidates.map(([, graph]) => graph.signature)).size > 1)
             throw new ProjectError(
-              "invalid",
+              "conflict",
               "GRAPH_IRI_COLLISION",
               "Selected dependency needs an unambiguous recorded source winner.",
               graph.file,
@@ -385,7 +385,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
         if (!candidate) continue;
         if (candidates.some(([, other]) => other.signature !== candidate[1].signature))
           throw new ProjectError(
-            "invalid",
+            "conflict",
             "GRAPH_IRI_COLLISION",
             "Required ontology import is ambiguous.",
             graph.file,
@@ -588,6 +588,14 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
     const candidates = [...graphs.entries()].filter(
       ([, graph]) => graph.graphIri === target.value && graph.kind === "conceptual-data-model",
     );
+    if (new Set(candidates.map(([, graph]) => graph.signature)).size > 1)
+      throw new ProjectError(
+        "conflict",
+        "GRAPH_IRI_COLLISION",
+        "Conceptual schema identity is ambiguous.",
+        path,
+        { target: target.value },
+      );
     if (!candidates.length)
       diagnostics.push({
         code: "ASSOCIATION_BROKEN",

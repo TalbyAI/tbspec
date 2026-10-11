@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -309,7 +309,9 @@ test("receiving vocabulary respects source contexts and configured dependency wi
     path: "ambiguous.ttl",
     type: "state-machine",
   });
-  assert.equal(ambiguous.status, "invalid", JSON.stringify(ambiguous));
+  assert.equal(ambiguous.status, "conflict", JSON.stringify(ambiguous));
+  assert.equal(ambiguous.diagnostics[0]?.code, "GRAPH_IRI_COLLISION");
+  assert.equal(ambiguous.diagnostics[0]?.details?.target, primary.graph_iri);
   await assert.rejects(readFile(join(root, "ambiguous.ttl")), { code: "ENOENT" });
   const manifest = await readFile(join(root, "tbspec.toml"), "utf8");
   await writeFile(
@@ -348,8 +350,64 @@ test("receiving vocabulary respects source contexts and configured dependency wi
     path: "different.ttl",
     type: "state-machine",
   });
-  assert.equal(differentBytes.status, "invalid", JSON.stringify(differentBytes));
+  assert.equal(differentBytes.status, "conflict", JSON.stringify(differentBytes));
   assert.equal(differentBytes.diagnostics[0]?.code, "GRAPH_IRI_COLLISION");
+  await assert.rejects(readFile(join(root, "different.ttl")), { code: "ENOENT" });
+});
+
+test("schema identity collisions block concrete model authoring without merging vocabulary", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "tb-schema-collision-"));
+  const external = await mkdtemp(join(tmpdir(), "tb-schema-source-"));
+  await initializeProject({ directory: root, baseIri: "urn:schema-copy:/" });
+  const first =
+    "<urn:schema> a <https://talby.ai/ontology/tbspec#ConceptualDataModel> . <urn:First> a <http://www.w3.org/2002/07/owl#Class> .";
+  const second = first.replace("urn:First", "urn:Second");
+  const source = join(external, "model.ttl");
+  const original =
+    "<urn:source> a <https://talby.ai/ontology/tbspec#ConcreteDataModel>; <https://talby.ai/ontology/tbspec#schema> <urn:schema> . <urn:entity> a <urn:Second> .";
+  await writeFile(join(root, "first.ttl"), first);
+  await writeFile(join(root, "second.ttl"), second);
+  await writeFile(source, original);
+  const manifest = await readFile(join(root, "tbspec.toml"));
+  const lock = await readFile(join(root, "tbspec.lock"));
+  for (const command of ["model.create", "model.import"] as const) {
+    await t.test(command, async () => {
+      const path = `${command}.ttl`;
+      const result = await authorResource({
+        project: root,
+        command,
+        path,
+        type: "data",
+        ...(command === "model.create"
+          ? { profile: "concrete", schemas: ["first.ttl"] }
+          : { source }),
+      });
+      assert.equal(result.status, "conflict", JSON.stringify(result));
+      assert.equal(result.diagnostics[0]?.code, "GRAPH_IRI_COLLISION");
+      assert.equal(result.diagnostics[0]?.details?.target, "urn:schema");
+      await assert.rejects(readFile(join(root, path)), { code: "ENOENT" });
+      assert.equal(await readFile(join(root, "first.ttl"), "utf8"), first);
+      assert.equal(await readFile(join(root, "second.ttl"), "utf8"), second);
+      assert.equal(await readFile(source, "utf8"), original);
+      assert.deepEqual(await readFile(join(root, "tbspec.toml")), manifest);
+      assert.deepEqual(await readFile(join(root, "tbspec.lock")), lock);
+    });
+  }
+  await unlink(join(root, "second.ttl"));
+  const imported = await authorResource({
+    project: root,
+    command: "model.import",
+    source,
+    path: "single.ttl",
+    type: "data",
+  });
+  assert.equal(imported.status, "ok", JSON.stringify(imported));
+  assert.ok(
+    imported.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.code === "VOCABULARY_UNKNOWN" && diagnostic.details?.iri === "urn:Second",
+    ),
+  );
 });
 
 test("publication rejects stale inputs, occupied destinations and identity collisions without rewriting files", async () => {
