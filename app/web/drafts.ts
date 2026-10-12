@@ -1,6 +1,21 @@
 import type { Edit, EditorData, EditorTerm } from "../src/editing.ts";
 import type { Revision } from "../src/filesystem.ts";
 
+export type StateMachineDraft = {
+  kind: "creation";
+  revision: Revision;
+  iri: string;
+  type: string;
+  machine?: EditorTerm;
+  source?: EditorTerm;
+  target?: EditorTerm;
+  label: string;
+  comment: string;
+  event: string;
+  condition: string;
+  action: string;
+};
+
 export interface EditorDraft {
   mode: string;
   selected?: EditorTerm;
@@ -9,6 +24,7 @@ export interface EditorDraft {
   pending?: { edit: Edit; revision: Revision };
   creationDraft?: { iri: string; type: string; revision: Revision };
   initialValues: { id: string; predicate: string; object: EditorTerm }[];
+  stateMachineDraft?: StateMachineDraft;
   conflict?: EditorData;
   conflictKind: string;
 }
