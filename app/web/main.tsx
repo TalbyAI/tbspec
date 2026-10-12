@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Result } from "../src/output.ts";
+import { DependenciesPanel } from "./dependencies-ui.tsx";
 import type { EditorDraft } from "./drafts.ts";
 import { GraphEditor } from "./editor.tsx";
 import "./style.css";
@@ -606,21 +607,23 @@ function App() {
         {session && (
           <>
             <nav aria-label="Workspace sections">
-              {["resources", "queries", "configuration", "diagnostics"].map((name) => (
-                <button
-                  type="button"
-                  key={name}
-                  aria-current={tab === name ? "page" : undefined}
-                  disabled={busy}
-                  onClick={() => {
-                    setTab(name);
-                    if (name === "queries") void refreshQueries();
-                  }}
-                >
-                  {name[0]?.toUpperCase()}
-                  {name.slice(1)}
-                </button>
-              ))}
+              {["resources", "queries", "dependencies", "configuration", "diagnostics"].map(
+                (name) => (
+                  <button
+                    type="button"
+                    key={name}
+                    aria-current={tab === name ? "page" : undefined}
+                    disabled={busy}
+                    onClick={() => {
+                      setTab(name);
+                      if (name === "queries") void refreshQueries();
+                    }}
+                  >
+                    {name[0]?.toUpperCase()}
+                    {name.slice(1)}
+                  </button>
+                ),
+              )}
             </nav>
             {tab === "resources" && (
               <div className="resource-layout">
@@ -1193,6 +1196,9 @@ function App() {
                   )}
                 </section>
               </div>
+            )}
+            {tab === "dependencies" && (
+              <DependenciesPanel session={session} onApplied={() => void refresh(session, true)} />
             )}
             {tab === "configuration" && (
               <section>

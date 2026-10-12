@@ -148,7 +148,7 @@ const tree: Record<string, Guidance> = {
     topics: [],
   },
   dependencies: {
-    text: "Init copies immutable 0.1.0 releases, standard vocabularies and attributed P-Plan 1.3 into versionable .tbspec/dependencies snapshots. The lock binds exact original bytes, parser bases, identities, signatures and source contexts. Persisted HTTP(S) locators and parser bases reject userinfo, query strings and fragments; use transient or external authentication, not signed/query-bearing URLs. URL syntax cannot identify every secret in a path or host. No network acquisition occurs. Dependency list/show/check/update commands arrive in later tickets; use list/show for live inspection once available.",
+    text: "tbspec dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]; dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] [--accepted-preview <fingerprint>]; dependency list; dependency show <id>. Directory, Git and HTTP(S) sources are acquired only by explicit operations. Add first returns a concrete conflict preview; retry with that fingerprint reacquires once and applies only if the reviewed bytes, parser context, impact and project revisions still match. Unresolved references stay offline diagnostics. Persisted HTTP(S) and HTTPS Git locators reject userinfo, query strings and fragments; use transient or external authentication. SSH agent authentication and explicitly selected local Git repositories are supported. Capability secrets in a path or host cannot be universally detected from syntax. Snapshots preserve exact bytes and stable parser bases; Git commits remain provenance and unrelated commits do not change interpretation signatures. Queries, validation and rendering never fetch sources.",
     topics: [
       {
         invocation: "tbspec llms projects init",
@@ -228,6 +228,16 @@ export function guidance(topics: string[]): { found: boolean; data: Guidance } {
   };
 }
 export function help(command: string): Guidance {
+  if (command === "dependency")
+    return {
+      text: "Usage: tbspec dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]\n       tbspec dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] [--accepted-preview <fingerprint>]\n       tbspec dependency list\n       tbspec dependency show <id>\nOptions: --project <dir>, --json, --help\nAdd requires review: the first call returns a concrete conflict preview and fingerprint; retrying reacquires and applies only an unchanged preview. Direct HTTP(S) sources contribute one RDF graph without recursive crawling.",
+      topics: [
+        {
+          invocation: "tbspec llms dependencies",
+          description: "Acquisition, snapshots, source contexts and offline behavior.",
+        },
+      ],
+    };
   if (command === "query")
     return {
       text: "Usage: tbspec query list\n       tbspec query show <name>\n       tbspec query save <name> --file <path> [--parameters <path.toml>]\n       tbspec query run (--file <path.rq> | --saved <name>) [--graph <selector>] [--bindings <path.json>]\n       tbspec query remove <name> [--confirm]\nOptions: --project <dir>, --json, --help\nOnly SELECT, ASK, CONSTRUCT and DESCRIBE run. Removal previews unless confirmed.",
@@ -297,7 +307,7 @@ export function help(command: string): Guidance {
       topics: guidance([]).data.topics,
     };
   return {
-    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, shapes list/create, graph list/show, ontology list/show/create/import, model list/show/create/import/schema list/add/remove, query list/show/save/run/remove, config show/model-type list/show/set/disable/enable/reset/design, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec query run --file explore.rq --graph models/orders.ttl --json\nCLI and authenticated browser share queries, configuration, authoring and project operations. Use tbspec llms queries and tbspec llms project for guidance.",
+    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, shapes list/create, graph list/show, ontology list/show/create/import, model list/show/create/import/schema list/add/remove, dependency inspect/add/list/show, query list/show/save/run/remove, config show/model-type list/show/set/disable/enable/reset/design, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec dependency inspect --source ../vocabulary --json\nCLI and authenticated browser share queries, configuration, authoring, dependencies and project operations. Use tbspec llms dependencies for acquisition guidance.",
     topics: [
       { invocation: "tbspec init --help", description: "Initialize an offline project." },
       { invocation: "tbspec llms --help", description: "Recursive agent guidance." },

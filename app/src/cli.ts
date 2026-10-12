@@ -4,6 +4,12 @@ import { resolve } from "node:path";
 import { type AuthoringOptions, authorResource } from "./authoring.ts";
 import { configureModelType } from "./configuration.ts";
 import { attachConsole } from "./console.ts";
+import {
+  dependencyAdd,
+  dependencyInspect,
+  dependencyList,
+  dependencyShow,
+} from "./dependencies.ts";
 import { guidance, help } from "./guidance.ts";
 import { type InspectionCommand, inspectProject } from "./inspection.ts";
 import { exits, failure, ok, ProjectError, type Result } from "./output.ts";
@@ -43,6 +49,9 @@ async function dispatch(): Promise<Result> {
         "--accepted-preview",
         "--confirm",
         "--source",
+        "--ref",
+        "--resource",
+        "--kind",
         "--file",
         "--parameters",
         "--saved",
@@ -74,6 +83,9 @@ async function dispatch(): Promise<Result> {
         "--schema",
         "--accepted-preview",
         "--source",
+        "--ref",
+        "--resource",
+        "--kind",
         "--file",
         "--parameters",
         "--saved",
@@ -108,6 +120,7 @@ async function dispatch(): Promise<Result> {
       "ontology",
       "model",
       "query",
+      "dependency",
     ].includes(command)
   )
     throw new ProjectError(
@@ -177,6 +190,56 @@ async function dispatch(): Promise<Result> {
   const selectedProject = typeof project === "string" ? project : undefined;
   const value = (flag: string) =>
     typeof options.get(flag) === "string" ? (options.get(flag) as string) : undefined;
+  if (command === "dependency") {
+    const action = positional[0];
+    if (options.has("--accept-impact"))
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "dependency add uses an accepted preview fingerprint and does not accept --accept-impact.",
+      );
+    const mutationOptions = ["--source", "--ref", "--resource", "--kind", "--accepted-preview"];
+    if (
+      action === "list" &&
+      positional.length === 1 &&
+      !mutationOptions.some((flag) => options.has(flag))
+    )
+      return dependencyList({ project: selectedProject });
+    if (
+      action === "show" &&
+      positional.length === 2 &&
+      !mutationOptions.some((flag) => options.has(flag))
+    )
+      return dependencyShow({ project: selectedProject, id: positional[1] ?? "" });
+    if (action === "inspect" && positional.length === 1 && value("--source"))
+      return dependencyInspect({
+        project: selectedProject,
+        source: value("--source") as string,
+        ...(value("--ref") ? { ref: value("--ref") } : {}),
+        ...(value("--resource") ? { resource: value("--resource") } : {}),
+      });
+    if (
+      action === "add" &&
+      positional.length === 2 &&
+      value("--source") &&
+      value("--kind") &&
+      ["ontology", "model", "design"].includes(value("--kind") ?? "")
+    )
+      return dependencyAdd({
+        project: selectedProject,
+        source: value("--source") as string,
+        id: positional[1] ?? "",
+        kind: value("--kind") as "ontology" | "model" | "design",
+        ...(value("--ref") ? { ref: value("--ref") } : {}),
+        ...(value("--resource") ? { resource: value("--resource") } : {}),
+        ...(value("--accepted-preview") ? { acceptedPreview: value("--accepted-preview") } : {}),
+      });
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Use dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]; dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] [--accepted-preview <fingerprint>]; dependency list; or dependency show <id>.",
+    );
+  }
   const schemaOperation = command === "model" && positional[0] === "schema";
   if (
     schemaOperation &&
@@ -194,6 +257,7 @@ async function dispatch(): Promise<Result> {
       ((command === "ontology" || command === "model") &&
         ["create", "import"].includes(positional[0] ?? "")) ||
       (schemaOperation && ["add", "remove"].includes(positional[1] ?? "")) ||
+      (command === "dependency" && positional[0] === "add") ||
       (command === "config" &&
         positional[0] === "model-type" &&
         ["set", "disable", "enable", "reset", "design"].includes(positional[1] ?? ""))
@@ -216,11 +280,39 @@ async function dispatch(): Promise<Result> {
       "ARGUMENT_INVALID",
       "--confirm applies only to confirmed removal operations.",
     );
-  if (options.has("--source") && !(command === "shapes" && positional[0] === "list"))
+  if (
+    options.has("--source") &&
+    !(command === "shapes" && positional[0] === "list") &&
+    !(command === "dependency" && ["inspect", "add"].includes(positional[0] ?? ""))
+  )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "--source applies only to shapes list.",
+      "--source applies only to shapes list or dependency inspect/add.",
+    );
+  if (
+    options.has("--ref") &&
+    !(command === "dependency" && ["inspect", "add"].includes(positional[0] ?? ""))
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--ref applies only to dependency inspect/add.",
+    );
+  if (
+    options.has("--resource") &&
+    !(command === "dependency" && ["inspect", "add"].includes(positional[0] ?? ""))
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--resource applies only to dependency inspect/add.",
+    );
+  if (options.has("--kind") && !(command === "dependency" && positional[0] === "add"))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--kind applies only to dependency add.",
     );
   const queryAction = command === "query" ? positional[0] : undefined;
   const queryOptions = ["--file", "--parameters", "--saved", "--graph", "--bindings"];
