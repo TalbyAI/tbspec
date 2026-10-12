@@ -64,6 +64,18 @@ test("authenticated state-machine form operations create exact local transitions
       accept: [],
     });
   }
+  async function applyPreview(route: string, body: Record<string, unknown>) {
+    const preview = await call(route, body);
+    assert.equal(preview.status, 200, JSON.stringify(preview));
+    assert.equal(preview.envelope.status, "preview", JSON.stringify(preview));
+    const staged = preview.envelope.data;
+    return call("resource/apply", {
+      schemaVersion: 1,
+      handle: staged.handle,
+      fingerprint: staged.preview.fingerprint,
+      accept: [],
+    });
+  }
   const editor = await call("editor?selector=machine.ttl");
   assert.equal(editor.status, 200);
   assert.equal(
@@ -157,10 +169,79 @@ test("authenticated state-machine form operations create exact local transitions
     ),
   );
 
+  const second = "urn:http:second";
+  const stateRevision = afterTransition.envelope.data.resource.revision;
+  const secondState = await save({
+    selector: "machine.ttl",
+    revision: stateRevision,
+    creation: { iri: second, type: `${sm}State` },
+    edits: [
+      {
+        action: "add",
+        after: {
+          subject: { kind: "iri", value: second },
+          predicate: { kind: "iri", value: `${sm}inMachine` },
+          object: { kind: "iri", value: machine },
+        },
+      },
+    ],
+  });
+  assert.equal(secondState.envelope.status, "ok", JSON.stringify(secondState));
+
+  const createdView = await applyPreview("views/create", {
+    path: "views/state.ttl",
+    source: "machine.ttl",
+  });
+  assert.equal(createdView.envelope.status, "ok", JSON.stringify(createdView));
+  const emptyView = (await call("view?selector=views/state.ttl")).envelope.data;
+  const selectedView = await applyPreview("view/edit", {
+    selector: "views/state.ttl",
+    viewRevision: emptyView.resource.revision,
+    presentationRevision: emptyView.presentation.resource.revision,
+    members: [transition, initial],
+    relationships: [{ subject: transition, predicate: `${sm}source`, object: initial }],
+    positions: [{ element: initial, x: "-2.5", y: "1.25" }],
+  });
+  assert.equal(selectedView.envelope.status, "ok", JSON.stringify(selectedView));
+  const beforeSourceEdit = await call("editor?selector=machine.ttl");
+  const selectedSource = beforeSourceEdit.envelope.data.triples.find(
+    (triple: {
+      subject: { value: string };
+      predicate: { value: string };
+      object: { value: string };
+    }) =>
+      triple.subject.value === transition &&
+      triple.predicate.value === `${sm}source` &&
+      triple.object.value === initial,
+  );
+  assert.ok(selectedSource);
+  const stateFormEdit = await save({
+    selector: "machine.ttl",
+    revision: beforeSourceEdit.envelope.data.resource.revision,
+    edits: [
+      {
+        action: "replace",
+        before: selectedSource,
+        after: { ...selectedSource, object: { ...selectedSource.object, value: second } },
+      },
+    ],
+  });
+  assert.equal(stateFormEdit.envelope.status, "ok", JSON.stringify(stateFormEdit));
+  const synchronizedView = (await call("view?selector=views/state.ttl")).envelope.data;
+  assert.deepEqual(synchronizedView.relationships, [
+    { subject: transition, predicate: `${sm}source`, object: second },
+    { subject: transition, predicate: `${sm}target`, object: initial },
+  ]);
+  assert.ok(
+    synchronizedView.presentation.triples.some(
+      (triple: { object: { value: string } }) => triple.object.value === "-2.5",
+    ),
+  );
+
   const bytes = await readFile(join(root, "machine.ttl"));
   const rejected = await call("editor/save", {
     selector: "machine.ttl",
-    revision: afterTransition.envelope.data.resource.revision,
+    revision: (await call("editor?selector=machine.ttl")).envelope.data.resource.revision,
     creation: { iri: "urn:http:missing-endpoints", type: `${sm}Transition` },
     edits: [],
   });

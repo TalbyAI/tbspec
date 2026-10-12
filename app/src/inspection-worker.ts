@@ -28,6 +28,7 @@ import {
   publishResourceLifecycle,
 } from "./resource-lifecycle.ts";
 import { secureRuntimeDirectory } from "./runtime.ts";
+import { prepareEditWithViews, type ViewOptions } from "./views.ts";
 
 export interface InspectionResponse {
   status: Result["status"];
@@ -39,6 +40,7 @@ export interface AuthoringRequest {
   options?: AuthoringOptions;
   configuration?: ModelTypeConfigurationOptions;
   editing?: EditingOptions;
+  views?: ViewOptions;
   lifecycle?: LifecycleOptions & { action: "remove" | "move" };
   impact?: { kind: LifecycleResourceKind; selector: string };
   session: string;
@@ -90,7 +92,11 @@ async function handle(request: WorkerRequest) {
       });
     } else if (
       authoring.mode === "preview" &&
-      (authoring.options || authoring.editing || authoring.configuration || authoring.lifecycle)
+      (authoring.options ||
+        authoring.editing ||
+        authoring.views ||
+        authoring.configuration ||
+        authoring.lifecycle)
     ) {
       for (const [key, preview] of previews)
         if (preview.expires <= Date.now()) {
@@ -105,20 +111,22 @@ async function handle(request: WorkerRequest) {
         );
       const prepared = authoring.editing
         ? await prepareEdit({ ...authoring.editing, project: request.project })
-        : authoring.configuration
-          ? await prepareModelTypeConfiguration({
-              ...authoring.configuration,
-              project: request.project,
-            })
-          : authoring.lifecycle
-            ? await prepareResourceLifecycle({
-                ...authoring.lifecycle,
+        : authoring.views
+          ? await prepareEditWithViews({ ...authoring.views, project: request.project })
+          : authoring.configuration
+            ? await prepareModelTypeConfiguration({
+                ...authoring.configuration,
                 project: request.project,
               })
-            : await prepareResource({
-                ...(authoring.options as AuthoringOptions),
-                project: request.project,
-              });
+            : authoring.lifecycle
+              ? await prepareResourceLifecycle({
+                  ...authoring.lifecycle,
+                  project: request.project,
+                })
+              : await prepareResource({
+                  ...(authoring.options as AuthoringOptions),
+                  project: request.project,
+                });
       if (!authoring.instanceId) throw new Error("Missing server instance.");
       const handle = token();
       const expires = Date.now() + 900000;

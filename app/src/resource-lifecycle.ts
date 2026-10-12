@@ -21,6 +21,7 @@ import {
   type Lock,
   parseLock,
   parseManifest,
+  type Row,
   removeModelType,
 } from "./schemas.ts";
 import { loadStarters } from "./starters.ts";
@@ -306,10 +307,25 @@ async function referencesFor(
   );
 }
 
-function resourceRelations(resources: Resource[], selector: string, graphIri: string | null) {
+function resourceRelations(
+  resources: Resource[],
+  selector: string,
+  graphIri: string | null,
+  manifest?: Row,
+) {
+  const viewReferences = new Set<string>();
+  for (const configured of (manifest?.views ?? []) as Row[]) {
+    if (configured.source === selector) {
+      viewReferences.add(String(configured.view));
+      viewReferences.add(String(configured.presentation));
+    }
+    if (configured.view === selector) viewReferences.add(String(configured.presentation));
+    if (configured.presentation === selector) viewReferences.add(String(configured.view));
+  }
   return resources.filter(
     (resource) =>
       resource.selector === selector ||
+      viewReferences.has(resource.selector) ||
       resource.associations.some((association) => association.selector === selector) ||
       (!!graphIri && resource.schemaIris?.includes(graphIri)),
   );
@@ -358,7 +374,12 @@ export async function inspectImpact(options: {
       validateResourceKind(resource, options.kind);
       const store = await parseSnapshotGraph(root, snapshot, resource.file, lock);
       targets = referencedEntities(store, resource.graphIri);
-      affectedResources = resourceRelations(resources, resource.selector, resource.graphIri);
+      affectedResources = resourceRelations(
+        resources,
+        resource.selector,
+        resource.graphIri,
+        manifest,
+      );
     }
     const references = await referencesFor(root, snapshot, lock, targets);
     const affectedFiles = [
@@ -538,7 +559,8 @@ async function prepareRemoval(options: LifecycleOptions): Promise<PreparedResour
   const store = await parseSnapshotGraph(root, snapshot, resource.file, lock);
   const targets = referencedEntities(store, resource.graphIri);
   const references = await referencesFor(root, snapshot, lock, targets);
-  const related = resourceRelations(resources, selected, resource.graphIri);
+  const manifest = parseManifest(snapshot.files["tbspec.toml"]?.toString("utf8") ?? "");
+  const related = resourceRelations(resources, selected, resource.graphIri, manifest);
   const baseline = await fullStatus(root, snapshot);
   const proposed = {
     ...snapshot,

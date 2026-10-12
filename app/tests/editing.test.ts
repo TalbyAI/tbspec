@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,6 +7,16 @@ import { authorResource, publishResource } from "../src/authoring.ts";
 import { type EditorTerm, editGraph, prepareEdit, showEditor } from "../src/editing.ts";
 import { initializeProject } from "../src/project.ts";
 import { parseLock } from "../src/schemas.ts";
+import { showView } from "../src/views.ts";
+
+async function associateView(root: string, view: string, presentation: string, source: string) {
+  const file = join(root, "tbspec.toml");
+  const manifest = await readFile(file, "utf8");
+  await writeFile(
+    file,
+    `${manifest.trimEnd()}\n\n[[views]]\nview = ${JSON.stringify(view)}\npresentation = ${JSON.stringify(presentation)}\nsource = ${JSON.stringify(source)}\n`,
+  );
+}
 
 test("exact RDF editing preserves unknown, multiple, language and datatype values", async () => {
   const root = await mkdtemp(join(tmpdir(), "tb-edit-"));
@@ -279,6 +289,8 @@ test("process forms bind exact types and combine forward and inverse variable as
   const data = shown.data;
   const pPlan = "http://purl.org/net/p-plan#";
   const process = "https://talby.ai/ontology/process#";
+  const metadata = "https://talby.ai/ontology/tbspec#";
+  const rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
   assert.equal(data.resource.kind, "process-model", JSON.stringify(shown.diagnostics));
   assert.ok(!data.resource.associations.some((association) => association.role === "design"));
   for (const type of ["Plan", "Step", "Variable", "Decision", "Flow"])
@@ -358,6 +370,33 @@ test("process forms bind exact types and combine forward and inverse variable as
   );
   assert.ok(data.processElements.flows.some((term) => term.value === "urn:flow"));
 
+  await mkdir(join(root, "views"), { recursive: true });
+  const selectedRelationship = {
+    subject: "urn:step",
+    predicate: `${pPlan}hasInputVar`,
+    object: "urn:input-both",
+  };
+  await writeFile(
+    join(root, "views/process.ttl"),
+    `<urn:process-view> a <${metadata}ViewModel>; ` +
+      `<${metadata}sourceGraph> <${data.resource.graphIri}>; ` +
+      `<${metadata}member> <urn:step>, <urn:input-both>; ` +
+      `<${metadata}relationship> [ <${rdf}subject> <${selectedRelationship.subject}>; ` +
+      `<${rdf}predicate> <${selectedRelationship.predicate}>; ` +
+      `<${rdf}object> <${selectedRelationship.object}> ] .\n`,
+  );
+  await writeFile(
+    join(root, "views/process.presentation.ttl"),
+    `<urn:process-presentation> a <${metadata}PresentationGraph>; ` +
+      `<${metadata}forView> <urn:process-view>; ` +
+      `<${metadata}nodePresentation> [ <${metadata}element> <urn:step>; <${metadata}x> -4.5; <${metadata}y> 2.25 ], ` +
+      `[ <${metadata}element> <urn:input-both>; <${metadata}x> 10; <${metadata}y> 20 ]; ` +
+      `<${metadata}relationshipPresentation> [ <${rdf}subject> <${selectedRelationship.subject}>; ` +
+      `<${rdf}predicate> <${selectedRelationship.predicate}>; ` +
+      `<${rdf}object> <${selectedRelationship.object}>; <${metadata}strokeColor> "#123456" ] .\n`,
+  );
+  await associateView(root, "views/process.ttl", "views/process.presentation.ttl", "process.ttl");
+
   const bothInput = associations.find(
     (association) =>
       association.kind === "input" && association.variable.value === "urn:input-both",
@@ -376,6 +415,25 @@ test("process forms bind exact types and combine forward and inverse variable as
   );
   let current = (await showEditor({ project: root, selector: "process.ttl" })).data;
   assert.ok(current);
+  const synchronizedProcessView = await showView({ project: root, selector: "views/process.ttl" });
+  assert.equal(synchronizedProcessView.status, "ok", JSON.stringify(synchronizedProcessView));
+  const synchronizedProcessViewData = synchronizedProcessView.data;
+  assert.ok(synchronizedProcessViewData);
+  assert.deepEqual(synchronizedProcessViewData.relationships, []);
+  assert.ok(synchronizedProcessViewData.members.includes("urn:step"));
+  assert.ok(synchronizedProcessViewData.members.includes("urn:input-both"));
+  const synchronizedProcessPresentation = synchronizedProcessViewData.presentation.triples;
+  assert.ok(synchronizedProcessPresentation);
+  assert.ok(
+    synchronizedProcessPresentation.some(
+      (triple) => triple.predicate.value === `${metadata}x` && triple.object.value === "-4.5",
+    ),
+  );
+  assert.ok(
+    !synchronizedProcessPresentation.some(
+      (triple) => triple.predicate.value === `${metadata}strokeColor`,
+    ),
+  );
   assert.ok(
     !current.processAssociations.some(
       (triple) =>
@@ -768,6 +826,224 @@ test("source drafts retain exact text, reject repeated conflicts, and repair mal
   });
   assert.equal(repaired.status, "ok");
   assert.equal((await showEditor({ project: root, selector: "draft.ttl" })).data?.parseable, true);
+});
+
+test("graph relationship edits synchronize exact selections and per-view presentation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-view-sync-"));
+  await initializeProject({ directory: root, baseIri: "urn:view-sync:/" });
+  await mkdir(join(root, "views"));
+  const metadata = "https://talby.ai/ontology/tbspec#";
+  const rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+  await writeFile(
+    join(root, "source.ttl"),
+    `<urn:source> a <http://www.w3.org/2002/07/owl#Ontology> .\n` +
+      "<urn:a> <urn:p> <urn:b>; <urn:q> <urn:c> .\n<urn:b> <urn:q> <urn:c> .\n",
+  );
+  for (const [name, extra] of [
+    ["one", "<urn:c>"],
+    ["two", ""],
+  ] as const) {
+    await writeFile(
+      join(root, `views/${name}.ttl`),
+      `<urn:view:${name}> a <${metadata}ViewModel>; <${metadata}sourceGraph> <urn:source>; ` +
+        `<${metadata}member> <urn:a>, <urn:b>${extra ? `, ${extra}` : ""}; ` +
+        `<${metadata}relationship> [ <${rdf}subject> <urn:a>; <${rdf}predicate> <urn:p>; <${rdf}object> <urn:b> ]` +
+        (name === "one"
+          ? `, [ <${rdf}subject> <urn:a>; <${rdf}predicate> <urn:q>; <${rdf}object> <urn:c> ]` +
+            `, [ <${rdf}subject> <urn:b>; <${rdf}predicate> <urn:q>; <${rdf}object> <urn:c> ]`
+          : "") +
+        " .\n",
+    );
+    await writeFile(
+      join(root, `views/${name}.presentation.ttl`),
+      `<urn:presentation:${name}> a <${metadata}PresentationGraph>; <${metadata}forView> <urn:view:${name}>; ` +
+        `<${metadata}nodePresentation> [ <${metadata}element> <urn:a>; <${metadata}x> -4.5; <${metadata}y> 2.25 ], ` +
+        `[ <${metadata}element> <urn:b>; <${metadata}x> 90; <${metadata}y> 120 ]` +
+        (name === "one"
+          ? `; <${metadata}relationshipPresentation> [ <${rdf}subject> <urn:a>; <${rdf}predicate> <urn:p>; <${rdf}object> <urn:b>; <${metadata}strokeColor> "#123456" ], ` +
+            `[ <${rdf}subject> <urn:a>; <${rdf}predicate> <urn:q>; <${rdf}object> <urn:c>; <${metadata}strokeColor> "#654321" ]`
+          : `; <${metadata}relationshipPresentation> [ <${rdf}subject> <urn:a>; <${rdf}predicate> <urn:p>; <${rdf}object> <urn:b>; <${metadata}strokeColor> "#abcdef" ]`) +
+        " .\n",
+    );
+  }
+  await associateView(root, "views/one.ttl", "views/one.presentation.ttl", "source.ttl");
+  await associateView(root, "views/two.ttl", "views/two.presentation.ttl", "source.ttl");
+  const shown = await showEditor({ project: root, selector: "source.ttl" });
+  assert.ok(shown.data, JSON.stringify(shown));
+  const before = shown.data.triples.find(
+    (triple) =>
+      triple.subject.value === "urn:a" &&
+      triple.predicate.value === "urn:p" &&
+      triple.object.value === "urn:b",
+  );
+  assert.ok(before);
+  const edited = await editGraph({
+    project: root,
+    selector: "source.ttl",
+    revision: shown.data.resource.revision,
+    edits: [
+      {
+        action: "replace",
+        before,
+        after: { ...before, predicate: { kind: "iri", value: "urn:r" } },
+      },
+    ],
+  });
+  assert.equal(edited.status, "ok", JSON.stringify(edited));
+  const tuples = async (selector: string, predicate: string) => {
+    const data = (await showEditor({ project: root, selector })).data;
+    assert.ok(data);
+    return data.triples
+      .filter((triple) => triple.predicate.value === `${metadata}${predicate}`)
+      .map((entry) => {
+        const subject = entry.object;
+        const parts = data.triples.filter(
+          (triple) =>
+            triple.subject.value === subject.value &&
+            ["subject", "predicate", "object"].some(
+              (field) => triple.predicate.value === `${rdf}${field}`,
+            ),
+        );
+        return parts.map((triple) => [triple.predicate.value, triple.object.value]);
+      });
+  };
+  for (const selector of ["views/one.ttl", "views/two.ttl"]) {
+    const selected = (await tuples(selector, "relationship")).flat();
+    assert.ok(selected.some((part) => part[0] === `${rdf}predicate` && part[1] === "urn:r"));
+    assert.ok(!selected.some((part) => part[0] === `${rdf}predicate` && part[1] === "urn:p"));
+  }
+  const presentation = await tuples("views/one.presentation.ttl", "relationshipPresentation");
+  assert.ok(
+    presentation.flat().some((part) => part[0] === `${rdf}predicate` && part[1] === "urn:r"),
+  );
+  const positions = await showEditor({ project: root, selector: "views/one.presentation.ttl" });
+  assert.ok(
+    positions.data?.triples.some(
+      (triple) =>
+        triple.predicate.value === `${metadata}strokeColor` && triple.object.value === "#123456",
+    ),
+  );
+  assert.ok(
+    positions.data?.triples.some(
+      (triple) =>
+        triple.predicate.value === `${metadata}strokeColor` && triple.object.value === "#654321",
+    ),
+  );
+  assert.ok(positions.data?.triples.some((triple) => triple.object.value === "-4.5"));
+  assert.ok(positions.data?.triples.some((triple) => triple.object.value === "2.25"));
+});
+
+test("source relationship preparation refuses malformed or stale required views without publishing", async () => {
+  const metadata = "https://talby.ai/ontology/tbspec#";
+  const rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+  const failures = [
+    { kind: "malformed-view", code: "RDF_SYNTAX" },
+    { kind: "stale-tuple", code: "VIEW_INVALID" },
+    { kind: "stale-presentation", code: "PRESENTATION_INVALID" },
+  ] as const;
+  for (const failure of failures) {
+    const root = await mkdtemp(join(tmpdir(), "tb-view-sync-reject-"));
+    await initializeProject({ directory: root });
+    await mkdir(join(root, "views"));
+    const sourcePath = join(root, "source.ttl");
+    const sourceText =
+      "<urn:source> a <http://www.w3.org/2002/07/owl#Ontology> .\n<urn:a> <urn:p> <urn:b> .\n";
+    await writeFile(sourcePath, sourceText);
+    for (const name of ["one", "two"]) {
+      const tuplePredicate =
+        failure.kind === "stale-tuple" && name === "one" ? "urn:missing" : "urn:p";
+      const viewPath = `views/${name}.ttl`;
+      const presentationPath = `views/${name}.presentation.ttl`;
+      await writeFile(
+        join(root, viewPath),
+        `<urn:view:${name}> a <${metadata}ViewModel>; <${metadata}sourceGraph> <urn:source>; ` +
+          `<${metadata}member> <urn:a>, <urn:b>; <${metadata}relationship> [ ` +
+          `<${rdf}subject> <urn:a>; <${rdf}predicate> <${tuplePredicate}>; <${rdf}object> <urn:b> ] .\n`,
+      );
+      await writeFile(
+        join(root, presentationPath),
+        `<urn:presentation:${name}> a <${metadata}PresentationGraph>; <${metadata}forView> <urn:view:${name}>; ` +
+          `<${metadata}nodePresentation> [ <${metadata}element> <${failure.kind === "stale-presentation" && name === "one" ? "urn:ghost" : "urn:a"}>; <${metadata}x> 1; <${metadata}y> 2 ], ` +
+          `[ <${metadata}element> <urn:b>; <${metadata}x> 3; <${metadata}y> 4 ] .\n`,
+      );
+      await associateView(root, viewPath, presentationPath, "source.ttl");
+    }
+    if (failure.kind === "malformed-view")
+      await writeFile(join(root, "views/one.ttl"), "<urn:view:one> <urn:broken> .\n");
+
+    const selected = (await showEditor({ project: root, selector: "source.ttl" })).data;
+    assert.ok(selected);
+    const relationship = selected.triples.find(
+      (triple) =>
+        triple.subject.value === "urn:a" &&
+        triple.predicate.value === "urn:p" &&
+        triple.object.value === "urn:b",
+    );
+    assert.ok(relationship);
+    const trackedPaths = [
+      "source.ttl",
+      "views/one.ttl",
+      "views/one.presentation.ttl",
+      "views/two.ttl",
+      "views/two.presentation.ttl",
+    ];
+    const before = new Map(
+      await Promise.all(
+        trackedPaths.map(async (path) => [path, await readFile(join(root, path))] as const),
+      ),
+    );
+    const refused = await editGraph({
+      project: root,
+      selector: "source.ttl",
+      revision: selected.resource.revision,
+      edits: [{ action: "remove", before: relationship }],
+    });
+    assert.equal(refused.status, "invalid", JSON.stringify(refused));
+    assert.ok(refused.diagnostics.some((diagnostic) => diagnostic.code === failure.code));
+    for (const path of trackedPaths)
+      assert.deepEqual(
+        await readFile(join(root, path)),
+        before.get(path),
+        `${failure.kind}: ${path}`,
+      );
+  }
+});
+
+test("raw Turtle edits leave view files byte-identical and report broken selections", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-view-raw-"));
+  await initializeProject({ directory: root, baseIri: "urn:view-raw:/" });
+  const metadata = "https://talby.ai/ontology/tbspec#";
+  const rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+  await writeFile(
+    join(root, "source.ttl"),
+    "<urn:source> a <http://www.w3.org/2002/07/owl#Ontology> .\n<urn:a> <urn:p> <urn:b> .\n",
+  );
+  await writeFile(
+    join(root, "view.ttl"),
+    `<urn:view> a <${metadata}ViewModel>; <${metadata}sourceGraph> <urn:source>; ` +
+      `<${metadata}member> <urn:a>, <urn:b>; <${metadata}relationship> [ ` +
+      `<${rdf}subject> <urn:a>; <${rdf}predicate> <urn:p>; <${rdf}object> <urn:b> ] .\n`,
+  );
+  await writeFile(
+    join(root, "presentation.ttl"),
+    `<urn:presentation> a <${metadata}PresentationGraph>; <${metadata}forView> <urn:view>; ` +
+      `<${metadata}nodePresentation> [ <${metadata}element> <urn:a>; <${metadata}x> 1; <${metadata}y> 2 ] .\n`,
+  );
+  await associateView(root, "view.ttl", "presentation.ttl", "source.ttl");
+  const viewBefore = await readFile(join(root, "view.ttl"));
+  const presentationBefore = await readFile(join(root, "presentation.ttl"));
+  const shown = await showEditor({ project: root, selector: "source.ttl" });
+  assert.ok(shown.data, JSON.stringify(shown));
+  const invalid = await editGraph({
+    project: root,
+    selector: "source.ttl",
+    revision: shown.data.resource.revision,
+    sourceText: "<urn:source> a <http://www.w3.org/2002/07/owl#Ontology> .\n",
+  });
+  assert.equal(invalid.status, "ok", JSON.stringify(invalid));
+  assert.ok(invalid.diagnostics.some((diagnostic) => diagnostic.code === "VIEW_INVALID"));
+  assert.deepEqual(await readFile(join(root, "view.ttl")), viewBefore);
+  assert.deepEqual(await readFile(join(root, "presentation.ttl")), presentationBefore);
 });
 
 test("blank nodes are scoped to graph revisions and ambiguous graphs retain generic editing", async () => {

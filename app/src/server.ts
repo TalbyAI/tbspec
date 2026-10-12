@@ -25,6 +25,7 @@ import {
   runtimeError,
   runtimeProcess,
 } from "./runtime.ts";
+import { listViews, showView, type ViewOptions } from "./views.ts";
 
 interface Frame {
   protocolVersion: 1;
@@ -120,6 +121,27 @@ function expectedQueryRevisions(value: unknown): QueryRevisions {
     throw invalid();
   };
   return { query: parse(revisions.query), parameters: parse(revisions.parameters) };
+}
+function expectedViewRevision(value: unknown): ViewOptions["viewRevision"] {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "View edits require captured file revisions.",
+    );
+  const revision = value as Record<string, unknown>;
+  if (
+    Object.keys(revision).sort().join(",") !== "digest,state" ||
+    revision.state !== "present" ||
+    typeof revision.digest !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(revision.digest)
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "View edits require captured file revisions.",
+    );
+  return revision as unknown as ViewOptions["viewRevision"];
 }
 async function installedAssets(): Promise<Map<string, { bytes: Buffer; type: string }>> {
   const assets = new Map<string, { bytes: Buffer; type: string }>();
@@ -1019,6 +1041,31 @@ export async function startWebServer(
             return;
           }
         }
+        if (request.method === "GET" && url.pathname === "/api/project/v1/views") {
+          const sources = url.searchParams.getAll("source");
+          if (url.searchParams.size > 1 || sources.length > 1)
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "View listing accepts at most one source selector.",
+            );
+          respond(
+            response,
+            await listViews({ project: root, ...(sources[0] ? { source: sources[0] } : {}) }),
+          );
+          return;
+        }
+        if (request.method === "GET" && url.pathname === "/api/project/v1/view") {
+          const selectors = url.searchParams.getAll("selector");
+          if (url.searchParams.size !== 1 || selectors.length !== 1)
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "View inspection requires one selector.",
+            );
+          respond(response, await showView({ project: root, selector: selectors[0] ?? "" }));
+          return;
+        }
         const routes: Record<string, InspectionCommand> = {
           "/api/project/v1/editor": "editor.show",
           "/api/project/v1/status": "status",
@@ -1069,6 +1116,125 @@ export async function startWebServer(
           return;
         }
         if (request.method === "POST") {
+          const viewRoute = url.pathname.match(
+            /^\/api\/project\/v1\/(views\/create|views\/remove|view\/edit)$/,
+          );
+          if (viewRoute) {
+            const body = await jsonBody(request, 65536);
+            const action =
+              viewRoute[1] === "views/create"
+                ? "create"
+                : viewRoute[1] === "views/remove"
+                  ? "remove"
+                  : "edit";
+            let views: ViewOptions;
+            if (action === "create") {
+              if (
+                Object.keys(body).some((key) => !["path", "source", "protocol"].includes(key)) ||
+                typeof body.path !== "string" ||
+                typeof body.source !== "string" ||
+                (body.protocol !== undefined && typeof body.protocol !== "string")
+              )
+                throw new ProjectError(
+                  "invalid_arguments",
+                  "ARGUMENT_INVALID",
+                  "Invalid view-creation fields.",
+                );
+              views = {
+                action,
+                path: body.path,
+                source: body.source,
+                ...(typeof body.protocol === "string" ? { protocol: body.protocol } : {}),
+              };
+            } else if (action === "remove") {
+              if (
+                Object.keys(body).some((key) => key !== "selector") ||
+                typeof body.selector !== "string"
+              )
+                throw new ProjectError(
+                  "invalid_arguments",
+                  "ARGUMENT_INVALID",
+                  "Invalid view-removal fields.",
+                );
+              views = { action, selector: body.selector };
+            } else {
+              const allowed = [
+                "selector",
+                "viewRevision",
+                "presentationRevision",
+                "members",
+                "relationships",
+                "positions",
+              ];
+              if (
+                Object.keys(body).some((key) => !allowed.includes(key)) ||
+                allowed.some((key) => body[key] === undefined) ||
+                typeof body.selector !== "string" ||
+                !Array.isArray(body.members) ||
+                body.members.length > 10000 ||
+                body.members.some((member) => typeof member !== "string") ||
+                !Array.isArray(body.relationships) ||
+                body.relationships.length > 10000 ||
+                !Array.isArray(body.positions) ||
+                body.positions.length > 10000
+              )
+                throw new ProjectError(
+                  "invalid_arguments",
+                  "ARGUMENT_INVALID",
+                  "Invalid view-edit fields.",
+                );
+              for (const tuple of body.relationships) {
+                if (
+                  !tuple ||
+                  typeof tuple !== "object" ||
+                  Array.isArray(tuple) ||
+                  Object.keys(tuple).sort().join(",") !== "object,predicate,subject" ||
+                  ["subject", "predicate", "object"].some(
+                    (key) => typeof (tuple as Record<string, unknown>)[key] !== "string",
+                  )
+                )
+                  throw new ProjectError(
+                    "invalid_arguments",
+                    "ARGUMENT_INVALID",
+                    "View relationship selections require exact IRI tuples.",
+                  );
+              }
+              for (const position of body.positions) {
+                if (
+                  !position ||
+                  typeof position !== "object" ||
+                  Array.isArray(position) ||
+                  Object.keys(position).sort().join(",") !== "element,x,y" ||
+                  ["element", "x", "y"].some(
+                    (key) => typeof (position as Record<string, unknown>)[key] !== "string",
+                  )
+                )
+                  throw new ProjectError(
+                    "invalid_arguments",
+                    "ARGUMENT_INVALID",
+                    "View positions require an IRI and string coordinates.",
+                  );
+              }
+              views = {
+                action,
+                selector: body.selector,
+                viewRevision: expectedViewRevision(body.viewRevision),
+                presentationRevision: expectedViewRevision(body.presentationRevision),
+                members: body.members as string[],
+                relationships: body.relationships as ViewOptions["relationships"],
+                positions: body.positions as ViewOptions["positions"],
+              };
+            }
+            respond(
+              response,
+              await inspect("status", undefined, {
+                mode: "preview",
+                session: credential ?? "",
+                views,
+              }),
+            );
+            return;
+          }
           const lifecycleRoute = url.pathname.match(
             /^\/api\/project\/v1\/resources\/(remove|move)$/,
           );
