@@ -9,6 +9,16 @@ import { equalRevision, type Revision, revision, verifyReads } from "./filesyste
 import { captureInspection, inspectSnapshot, type Resource, rdfTerm } from "./inspection.ts";
 import { failure, ok, ProjectError, type Result } from "./output.ts";
 import { absoluteIri, portablePath, safePath } from "./paths.ts";
+import {
+  processAssociations as collectProcessAssociations,
+  type ProcessAssociation,
+  type ProcessElements,
+  pPlan,
+  proc,
+  processBindings,
+  processCreationRequirements,
+  processElements,
+} from "./process.ts";
 import { discoverProject, projectDiscoveryScope } from "./project.ts";
 import { parseGraph, parseRdf, rdfFormats } from "./rdf.ts";
 import { parseLock, parseManifest } from "./schemas.ts";
@@ -58,12 +68,21 @@ export interface EditorData extends Record<string, unknown> {
   creationTypes: { type: string; label: string }[];
   creationFields: string[];
   creationClasses: string[];
+  processAssociations: ProcessAssociation[];
+  processElements: ProcessElements;
 }
 const rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const rdfs = "http://www.w3.org/2000/01/rdf-schema#";
 const owl = "http://www.w3.org/2002/07/owl#";
 const sm = "https://talby.ai/ontology/state-machine#";
 const { namedNode, blankNode, literal, quad } = DataFactory;
+const stateMachineCreationRequirements: Record<string, string[]> = {
+  [`${sm}StateMachine`]: [],
+  [`${sm}State`]: [`${sm}inMachine`],
+  [`${sm}InitialState`]: [`${sm}inMachine`],
+  [`${sm}FinalState`]: [`${sm}inMachine`],
+  [`${sm}Transition`]: [`${sm}inMachine`, `${sm}source`, `${sm}target`],
+};
 const labels = [`${rdfs}label`, `${rdfs}comment`];
 const stateFields = [...labels, `${sm}inMachine`];
 const bindings = [
@@ -110,13 +129,15 @@ const stateMachineBindings = [
 ];
 
 function applicable(kind: string) {
-  return kind === "ontology"
-    ? bindings
-    : kind === "conceptual-data-model"
-      ? bindings.filter((b) => b.type !== `${owl}NamedIndividual`)
-      : kind === "state-machine-model"
-        ? stateMachineBindings
-        : [];
+  return kind === "process-model"
+    ? processBindings
+    : kind === "ontology"
+      ? bindings
+      : kind === "conceptual-data-model"
+        ? bindings.filter((b) => b.type !== `${owl}NamedIndividual`)
+        : kind === "state-machine-model"
+          ? stateMachineBindings
+          : [];
 }
 function encode(q: Quad, scope: string): Triple {
   return {
@@ -206,15 +227,6 @@ async function loadEditor(options: EditorOptions) {
           },
         )
       : shown;
-  const creationTypes = blocked
-    ? []
-    : applicable(resource.kind)
-        .filter((b) =>
-          vocabularyTypes.class.some((type) =>
-            available?.countQuads(b.type, `${rdf}type`, type, null),
-          ),
-        )
-        .map(({ type, label }) => ({ type, label }));
   const creationFields =
     blocked || !applicable(resource.kind).length
       ? []
@@ -238,6 +250,24 @@ async function loadEditor(options: EditorOptions) {
           ),
         ),
       ];
+  const creationTypes = blocked
+    ? []
+    : applicable(resource.kind)
+        .filter((b) =>
+          vocabularyTypes.class.some((type) =>
+            available?.countQuads(b.type, `${rdf}type`, type, null),
+          ),
+        )
+        .filter(({ type }) => {
+          const requiredFields =
+            resource.kind === "process-model"
+              ? processCreationRequirements[type]
+              : resource.kind === "state-machine-model"
+                ? stateMachineCreationRequirements[type]
+                : undefined;
+          return !requiredFields || requiredFields.every((field) => creationFields.includes(field));
+        })
+        .map(({ type, label }) => ({ type, label }));
   await verifyReads(root, snapshot.reads);
   return {
     root,
@@ -253,6 +283,12 @@ async function loadEditor(options: EditorOptions) {
       creationTypes,
       creationFields,
       creationClasses,
+      processAssociations:
+        resource.kind === "process-model" ? collectProcessAssociations(triples) : [],
+      processElements:
+        resource.kind === "process-model"
+          ? processElements(triples)
+          : { plans: [], steps: [], variables: [], flows: [] },
     } satisfies EditorData,
     diagnostics: [
       ...shown.diagnostics,
@@ -391,6 +427,52 @@ function validateStateMachineCreation(
           `Transition creation requires a ${label} explicitly associated with its selected machine.`,
         );
     }
+  }
+}
+
+function requireProcessCreationSelection(iri: string, type: string, store: Store) {
+  const subject = namedNode(iri);
+  const resource = (term: Term) => term.termType === "NamedNode" || term.termType === "BlankNode";
+  const hasType = (term: Term, expected: string) =>
+    resource(term) &&
+    store.countQuads(term, namedNode(`${rdf}type`), namedNode(expected), null) > 0;
+  const reject = (message: string) =>
+    new ProjectError("invalid_arguments", "PROCESS_SELECTION_REQUIRED", message);
+
+  if (type === `${pPlan}Step` || type === `${proc}Decision` || type === `${pPlan}Variable`) {
+    const predicate =
+      type === `${pPlan}Variable` ? `${pPlan}isVariableOfPlan` : `${pPlan}isStepOfPlan`;
+    const plans = store.getObjects(subject, predicate, null);
+    if (!plans.length || plans.some((plan) => !hasType(plan, `${pPlan}Plan`)))
+      throw reject("Step and Variable creation requires an explicitly selected local Plan.");
+  }
+  if (type === `${proc}Flow`) {
+    for (const [predicate, expected, label] of [
+      [`${proc}inPlan`, `${pPlan}Plan`, "Plan"],
+      [`${proc}source`, "step", "source Step"],
+      [`${proc}target`, "step", "target Step"],
+    ] as const) {
+      const values = store.getObjects(subject, predicate, null);
+      const matches = (term: Term) =>
+        expected === "step"
+          ? hasType(term, `${pPlan}Step`) || hasType(term, `${proc}Decision`)
+          : hasType(term, expected);
+      if (values.length !== 1 || !values[0] || !resource(values[0]) || !matches(values[0]))
+        throw reject(`Flow creation requires exactly one explicitly selected ${label}.`);
+    }
+    const conditions = store.getObjects(subject, `${proc}condition`, null);
+    if (
+      conditions.length > 1 ||
+      conditions.some(
+        (condition) =>
+          condition.termType !== "Literal" ||
+          ![
+            "http://www.w3.org/2001/XMLSchema#string",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString",
+          ].includes(condition.datatype.value),
+      )
+    )
+      throw reject("A Flow condition must be one optional string or language-tagged literal.");
   }
 }
 
@@ -534,6 +616,8 @@ export async function prepareEdit(options: EditingOptions): Promise<PreparedReso
     }
     if (options.creation && resource.kind === "state-machine-model")
       validateStateMachineCreation(options.creation, store);
+    if (options.creation && resource.kind === "process-model")
+      requireProcessCreationSelection(options.creation.iri, options.creation.type, store);
     if (changed) {
       const writer = new Writer();
       writer.addQuads([...store]);

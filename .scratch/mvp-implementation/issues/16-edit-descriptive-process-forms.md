@@ -2,7 +2,7 @@
 
 Type: task
 Status: ready-for-agent
-State: open
+State: resolved
 Blocked by: 05
 User stories covered: 79, 80, 81, 82, 83, 85, 86, 88
 
@@ -18,16 +18,16 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 
 ## Acceptance criteria
 
-- [ ] Recognize the settled pinned P-Plan 1.3 and process extension IRIs from valid process graph classification and exact explicit types. Decision exposes its fixed Step fields without writing superclass triples; visual designs, aliases, hierarchy, and older spellings do not select forms.
-- [ ] Expose all applicable explicit-type sections and every existing field value without coercion or hidden deletion. Unknown terms/advanced structures remain generically accessible; literal lexical changes retain language/datatype.
-- [ ] Bind Plan memberships, Step/Variable associations, responsibility, and Flow plan/endpoints/condition exactly as specified. Missing vocabulary keeps recognized existing values editable with diagnostics but suppresses unavailable creation choices.
-- [ ] Present explicit Step-to-Variable and inverse Variable-to-Step input/output statements as one effective association. Additions write only the forward Step-to-Variable statement, including when initiated from a Variable form.
-- [ ] Explicit association removal deletes all existing forward/inverse statements expressing that association in the edited graph; changing an association removes the old then adds the chosen new. Generic triple removal still removes only its selected statement; unrelated saves never rewrite inverse data.
-- [ ] Step/Variable creation requires explicit Plan selection; Flow creation requires its selected Plan and endpoints. Write only selected exact types, fields, memberships, and endpoints without superclass/inverse/optional materialization or inferred precedence.
-- [ ] Keep generic Add triple distinct from Create flow. Flow remains a resource node with exact RDF edges; no collapsed semantic connection or generated isPrecededBy statement is introduced.
-- [ ] Preserve empty/shared plans, cycles/self-flows, multiple consumers, unfinished decisions, and optional conditions. Apply only declared producer/shared-plan/cardinality constraints and never execute condition text or invent missing structure.
-- [ ] Use existing revision-bound graph operations and validation. When saved views exist, use issue 13 synchronization without implicitly selecting unrelated new members.
-- [ ] Browser/public-operation workflows cover forward-only/inverse-only/both-direction associations, exact removals, multi-type Decision, missing terms, invalid/multiple/language/datatype values, unknown preservation, creation without inference, explicit Flow projection, stale forms, read-only snapshots, and parseable-invalid versus malformed data.
+- [x] Recognize the settled pinned P-Plan 1.3 and process extension IRIs from valid process graph classification and exact explicit types. Decision exposes its fixed Step fields without writing superclass triples; visual designs, aliases, hierarchy, and older spellings do not select forms.
+- [x] Expose all applicable explicit-type sections and every existing field value without coercion or hidden deletion. Unknown terms/advanced structures remain generically accessible; literal lexical changes retain language/datatype.
+- [x] Bind Plan memberships, Step/Variable associations, responsibility, and Flow plan/endpoints/condition exactly as specified. Missing vocabulary keeps recognized existing values editable with diagnostics but suppresses unavailable creation choices.
+- [x] Present explicit Step-to-Variable and inverse Variable-to-Step input/output statements as one effective association. Additions write only the forward Step-to-Variable statement, including when initiated from a Variable form.
+- [x] Explicit association removal deletes all existing forward/inverse statements expressing that association in the edited graph; changing an association removes the old then adds the chosen new. Generic triple removal still removes only its selected statement; unrelated saves never rewrite inverse data.
+- [x] Step/Variable creation requires explicit Plan selection; Flow creation requires its selected Plan and endpoints. Write only selected exact types, fields, memberships, and endpoints without superclass/inverse/optional materialization or inferred precedence.
+- [x] Keep generic Add triple distinct from Create flow. Flow remains a resource node with exact RDF edges; no collapsed semantic connection or generated isPrecededBy statement is introduced.
+- [x] Preserve empty/shared plans, cycles/self-flows, multiple consumers, unfinished decisions, and optional conditions. Apply only declared producer/shared-plan/cardinality constraints and never execute condition text or invent missing structure.
+- [x] Use existing revision-bound graph operations and validation. When saved views exist, use issue 13 synchronization without implicitly selecting unrelated new members.
+- [x] Browser/public-operation workflows cover forward-only/inverse-only/both-direction associations, exact removals, multi-type Decision, missing terms, invalid/multiple/language/datatype values, unknown preservation, creation without inference, explicit Flow projection, stale forms, read-only snapshots, and parseable-invalid versus malformed data.
 
 ## Blocked by
 
@@ -43,3 +43,9 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
+
+## Answer
+
+Implemented exact process bindings for Plans, Steps, Decisions, Variables, and Flows, including an effective association view that groups explicit forward and inverse input/output statements. Association changes use the shared revision-bound editor operations, remove all reviewed support statements, and write new links only in the Step-to-Variable direction. Process creation requires explicit Plan and Flow endpoint choices, keeps Flow as a resource with exact RDF edges, and adds no inferred superclass, inverse, optional, or precedence statements. Existing unsupported values remain available through generic editing, while missing vocabulary reports diagnostics and suppresses creation types whose required properties are unavailable.
+
+Added public editing and authenticated HTTP coverage for exact type recognition, association directions and removals, preservation of unknown and language/datatype values, required creation selections, explicit Flow fields, stale revisions, and read-only resources. A local browser preview verified inverse association removal and explicit Flow creation and projection. The focused process, state-machine, draft, authenticated HTTP, and validation regression set passed 36 tests; app typecheck/build and root format/check passed. The build emitted the existing Vite warning about preserving `@xyflow/react`'s `use client` directive.

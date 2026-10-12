@@ -12,12 +12,21 @@ import {
 import { type SetStateAction, useEffect, useMemo, useState } from "react";
 import type { EditingOptions, EditorData, EditorTerm, Triple } from "../src/editing.ts";
 import type { Diagnostic, Result } from "../src/output.ts";
+import { pPlan, proc } from "../src/process.ts";
 import { type EditorDraft, emptyDraft, updateDraft } from "./drafts.ts";
+import { ProcessForm } from "./process-form.tsx";
 import { StateMachineForm } from "./state-machine-form.tsx";
 import "@xyflow/react/dist/style.css";
 
 const xsdString = "http://www.w3.org/2001/XMLSchema#string";
 const rdfType = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+const processAssociationFields = new Set([
+  `${pPlan}hasInputVar`,
+  `${pPlan}hasOutputVar`,
+  `${pPlan}isInputVarOf`,
+  `${pPlan}isOutputVarOf`,
+]);
+const processCondition = `${proc}condition`;
 const key = (term: EditorTerm) => JSON.stringify(term);
 function text(term: EditorTerm) {
   return term.kind === "iri"
@@ -171,6 +180,7 @@ export function GraphEditor({
     sourceDraft,
     pending,
     creationDraft,
+    processDraft,
     initialValues,
     stateMachineDraft,
     conflict,
@@ -190,6 +200,7 @@ export function GraphEditor({
     setSourceDraft = setter("sourceDraft"),
     setPending = setter("pending"),
     setCreationDraft = setter("creationDraft"),
+    setProcessDraft = setter("processDraft"),
     setInitialValues = setter("initialValues"),
     setStateMachineDraft = setter("stateMachineDraft"),
     setConflict = setter("conflict"),
@@ -275,7 +286,7 @@ export function GraphEditor({
   async function save(
     options: Omit<EditingOptions, "selector">,
     source = false,
-    draftKind?: "state-machine",
+    draftKind?: "process" | "state-machine",
   ) {
     if (busy || disabled) return;
     let published = false;
@@ -314,6 +325,7 @@ export function GraphEditor({
         setInitialValues([]);
       }
       if (draftKind === "state-machine") setStateMachineDraft(undefined);
+      if (draftKind === "process") setProcessDraft(undefined);
       await onSaved();
     } catch (problem) {
       setError(
@@ -433,7 +445,9 @@ export function GraphEditor({
                       ? { ...creationDraft, initialValues }
                       : conflictKind === "state-machine"
                         ? stateMachineDraft
-                        : pending?.edit,
+                        : conflictKind === "process"
+                          ? processDraft
+                          : pending?.edit,
                     null,
                     2,
                   )}
@@ -448,6 +462,7 @@ export function GraphEditor({
                   setInitialValues([]);
                 }
                 if (conflictKind === "state-machine") setStateMachineDraft(undefined);
+                if (conflictKind === "process") setProcessDraft(undefined);
                 setConflict(undefined);
                 setError("");
               }}
@@ -468,6 +483,8 @@ export function GraphEditor({
                     ...stateMachineDraft,
                     revision: conflict.resource.revision,
                   });
+                if (processDraft && conflictKind === "process")
+                  setProcessDraft({ ...processDraft, revision: conflict.resource.revision });
                 setConflict(undefined);
                 setError(
                   "Reviewed current revision. Save explicitly; another concurrent change can still conflict. Re-select changed blank nodes or removed statements.",
@@ -625,34 +642,54 @@ export function GraphEditor({
                     Every explicit type remains intact. Unsupported values stay available through
                     generic editing.
                   </p>
-                  {binding.fields.map((field) => (
-                    <section key={field}>
-                      <h4>{field}</h4>
-                      <ul>{statements.filter((q) => q.predicate.value === field).map(row)}</ul>
-                      <button
-                        type="button"
-                        disabled={
-                          !writable || busy || !!pending || !data.creationFields.includes(field)
-                        }
-                        onClick={() =>
-                          add(
-                            field,
-                            field.endsWith("label") || field.endsWith("comment")
-                              ? undefined
-                              : { kind: "iri", value: "" },
-                          )
-                        }
-                      >
-                        Add field value
-                      </button>
-                    </section>
-                  ))}
+                  {binding.fields
+                    .filter(
+                      (field) =>
+                        data.resource.kind !== "process-model" ||
+                        !processAssociationFields.has(field),
+                    )
+                    .map((field) => (
+                      <section key={field}>
+                        <h4>{field}</h4>
+                        <ul>{statements.filter((q) => q.predicate.value === field).map(row)}</ul>
+                        <button
+                          type="button"
+                          disabled={
+                            !writable || busy || !!pending || !data.creationFields.includes(field)
+                          }
+                          onClick={() =>
+                            add(
+                              field,
+                              field.endsWith("label") || field.endsWith("comment")
+                                ? undefined
+                                : field === processCondition
+                                  ? { kind: "literal", value: "", datatype: xsdString }
+                                  : { kind: "iri", value: "" },
+                            )
+                          }
+                        >
+                          Add field value
+                        </button>
+                      </section>
+                    ))}
                 </>
               ) : (
                 <p>
                   No specialized section applies. Use the complete graph or generic RDF terms below.
                 </p>
               ))}
+            {mode === "forms" && data.resource.kind === "process-model" && (
+              <ProcessForm
+                data={data}
+                selected={selected}
+                writable={!!writable}
+                busy={busy || disabled}
+                pending={!!pending}
+                draft={processDraft}
+                setDraft={setProcessDraft}
+                onSave={(options, draftKind) => save(options, false, draftKind)}
+              />
+            )}
             {selected && (
               <>
                 <h4>
@@ -682,198 +719,203 @@ export function GraphEditor({
                 onSave={(options, kind) => save(options, false, kind)}
               />
             )}
-            {mode === "forms" && writable && data.resource.kind !== "state-machine-model" && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const iri = creationDraft?.iri ?? "";
-                  void save({
-                    revision: creationDraft?.revision ?? data.resource.revision,
-                    edits: initialValues.map((v) => ({
-                      action: "add",
-                      after: {
-                        subject: { kind: "iri", value: iri },
-                        predicate: { kind: "iri", value: v.predicate },
-                        object: v.object,
-                      },
-                    })),
-                    creation: {
-                      iri,
-                      type: creationDraft?.type ?? data.creationTypes[0]?.type ?? "",
-                    },
-                  });
-                }}
-              >
-                <h4>Create typed resource</h4>
-                <label>
-                  Resource IRI
-                  <input
-                    name="iri"
-                    aria-label="New resource IRI"
-                    value={creationDraft?.iri ?? ""}
-                    required
-                    onChange={(e) =>
-                      setCreationDraft({
-                        iri: e.target.value,
+            {mode === "forms" &&
+              writable &&
+              data.resource.kind !== "state-machine-model" &&
+              data.resource.kind !== "process-model" && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const iri = creationDraft?.iri ?? "";
+                    void save({
+                      revision: creationDraft?.revision ?? data.resource.revision,
+                      edits: initialValues.map((v) => ({
+                        action: "add",
+                        after: {
+                          subject: { kind: "iri", value: iri },
+                          predicate: { kind: "iri", value: v.predicate },
+                          object: v.object,
+                        },
+                      })),
+                      creation: {
+                        iri,
                         type: creationDraft?.type ?? data.creationTypes[0]?.type ?? "",
-                        revision: creationDraft?.revision ?? data.resource.revision,
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Exact type
-                  <select
-                    name="type"
-                    aria-label="New resource type"
-                    required
-                    value={creationDraft?.type ?? data.creationTypes[0]?.type ?? ""}
-                    onChange={(e) =>
-                      setCreationDraft({
-                        iri: creationDraft?.iri ?? "",
-                        type: e.target.value,
-                        revision: creationDraft?.revision ?? data.resource.revision,
-                      })
-                    }
-                  >
-                    {data.creationTypes.map((t) => (
-                      <option key={t.type} value={t.type}>
-                        {t.label} · {t.type}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {initialValues.map((value) => (
-                  <fieldset key={value.id}>
-                    <legend>Initial field value</legend>
-                    <label>
-                      Exact field
-                      <select
-                        aria-label="Initial field predicate"
-                        value={value.predicate}
-                        onChange={(e) =>
-                          setInitialValues((values) =>
-                            values.map((v) =>
-                              v.id === value.id
-                                ? {
-                                    ...v,
-                                    predicate: e.target.value,
-                                    ...(e.target.value === rdfType
-                                      ? {
-                                          object: {
-                                            kind: "iri" as const,
-                                            value: data.creationClasses[0] ?? "",
-                                          },
-                                        }
-                                      : {}),
-                                  }
-                                : v,
-                            ),
-                          )
-                        }
-                      >
-                        {data.creationFields.map((field) => (
-                          <option key={field} value={field}>
-                            {field}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {value.predicate === rdfType ? (
+                      },
+                    });
+                  }}
+                >
+                  <h4>Create typed resource</h4>
+                  <label>
+                    Resource IRI
+                    <input
+                      name="iri"
+                      aria-label="New resource IRI"
+                      value={creationDraft?.iri ?? ""}
+                      required
+                      onChange={(e) =>
+                        setCreationDraft({
+                          iri: e.target.value,
+                          type: creationDraft?.type ?? data.creationTypes[0]?.type ?? "",
+                          revision: creationDraft?.revision ?? data.resource.revision,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Exact type
+                    <select
+                      name="type"
+                      aria-label="New resource type"
+                      required
+                      value={creationDraft?.type ?? data.creationTypes[0]?.type ?? ""}
+                      onChange={(e) =>
+                        setCreationDraft({
+                          iri: creationDraft?.iri ?? "",
+                          type: e.target.value,
+                          revision: creationDraft?.revision ?? data.resource.revision,
+                        })
+                      }
+                    >
+                      {data.creationTypes.map((t) => (
+                        <option key={t.type} value={t.type}>
+                          {t.label} · {t.type}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {initialValues.map((value) => (
+                    <fieldset key={value.id}>
+                      <legend>Initial field value</legend>
                       <label>
-                        Initial exact class
+                        Exact field
                         <select
-                          aria-label="Initial exact class"
-                          value={value.object.value}
+                          aria-label="Initial field predicate"
+                          value={value.predicate}
                           onChange={(e) =>
                             setInitialValues((values) =>
                               values.map((v) =>
                                 v.id === value.id
-                                  ? { ...v, object: { kind: "iri", value: e.target.value } }
+                                  ? {
+                                      ...v,
+                                      predicate: e.target.value,
+                                      ...(e.target.value === rdfType
+                                        ? {
+                                            object: {
+                                              kind: "iri" as const,
+                                              value: data.creationClasses[0] ?? "",
+                                            },
+                                          }
+                                        : {}),
+                                    }
                                   : v,
                               ),
                             )
                           }
                         >
-                          {data.creationClasses.map((type) => (
-                            <option key={type} value={type}>
-                              {type}
+                          {data.creationFields.map((field) => (
+                            <option key={field} value={field}>
+                              {field}
                             </option>
                           ))}
                         </select>
                       </label>
-                    ) : (
-                      <TermInput
-                        label="Initial object"
-                        value={value.object}
-                        scope={scope}
-                        onChange={(object) =>
-                          setInitialValues((values) =>
-                            values.map((v) => (v.id === value.id ? { ...v, object } : v)),
-                          )
+                      {value.predicate === rdfType ? (
+                        <label>
+                          Initial exact class
+                          <select
+                            aria-label="Initial exact class"
+                            value={value.object.value}
+                            onChange={(e) =>
+                              setInitialValues((values) =>
+                                values.map((v) =>
+                                  v.id === value.id
+                                    ? { ...v, object: { kind: "iri", value: e.target.value } }
+                                    : v,
+                                ),
+                              )
+                            }
+                          >
+                            {data.creationClasses.map((type) => (
+                              <option key={type} value={type}>
+                                {type}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : (
+                        <TermInput
+                          label="Initial object"
+                          value={value.object}
+                          scope={scope}
+                          onChange={(object) =>
+                            setInitialValues((values) =>
+                              values.map((v) => (v.id === value.id ? { ...v, object } : v)),
+                            )
+                          }
+                        />
+                      )}
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          setInitialValues((values) => values.filter((v) => v.id !== value.id))
                         }
-                      />
-                    )}
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        setInitialValues((values) => values.filter((v) => v.id !== value.id))
-                      }
-                    >
-                      Discard initial value
-                    </button>
-                  </fieldset>
-                ))}
-                <button
-                  type="button"
-                  disabled={busy || !data.creationFields.length}
-                  onClick={() => {
-                    setCreationDraft(
-                      creationDraft ?? {
-                        iri: "",
-                        type: data.creationTypes[0]?.type ?? "",
-                        revision: data.resource.revision,
-                      },
-                    );
-                    setInitialValues([
-                      ...initialValues,
-                      {
-                        id: crypto.randomUUID(),
-                        predicate: data.creationFields[0],
-                        object:
-                          data.creationFields[0] === rdfType
-                            ? { kind: "iri", value: data.creationClasses[0] ?? "" }
-                            : { kind: "literal", value: "", datatype: xsdString },
-                      },
-                    ]);
-                  }}
-                >
-                  Add initial value
-                </button>
-                {!data.creationTypes.length && (
-                  <p>No supported exact creation terms are available in this graph's vocabulary.</p>
-                )}
-                <button
-                  type="submit"
-                  disabled={busy || !data.creationTypes.length || !!pending || !!conflict}
-                >
-                  Create resource
-                </button>
-                {creationDraft && (
+                      >
+                        Discard initial value
+                      </button>
+                    </fieldset>
+                  ))}
                   <button
                     type="button"
+                    disabled={busy || !data.creationFields.length}
                     onClick={() => {
-                      setCreationDraft(undefined);
-                      setInitialValues([]);
-                      if (conflictKind === "creation") setConflict(undefined);
+                      setCreationDraft(
+                        creationDraft ?? {
+                          iri: "",
+                          type: data.creationTypes[0]?.type ?? "",
+                          revision: data.resource.revision,
+                        },
+                      );
+                      setInitialValues([
+                        ...initialValues,
+                        {
+                          id: crypto.randomUUID(),
+                          predicate: data.creationFields[0],
+                          object:
+                            data.creationFields[0] === rdfType
+                              ? { kind: "iri", value: data.creationClasses[0] ?? "" }
+                              : { kind: "literal", value: "", datatype: xsdString },
+                        },
+                      ]);
                     }}
                   >
-                    Discard creation draft
+                    Add initial value
                   </button>
-                )}
-              </form>
-            )}
+                  {!data.creationTypes.length && (
+                    <p>
+                      No supported exact creation terms are available in this graph's vocabulary.
+                    </p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={busy || !data.creationTypes.length || !!pending || !!conflict}
+                  >
+                    Create resource
+                  </button>
+                  {creationDraft && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreationDraft(undefined);
+                        setInitialValues([]);
+                        if (conflictKind === "creation") setConflict(undefined);
+                      }}
+                    >
+                      Discard creation draft
+                    </button>
+                  )}
+                </form>
+              )}
           </>
         )}
         {pending && (
