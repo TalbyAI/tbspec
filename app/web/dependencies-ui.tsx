@@ -26,7 +26,14 @@ interface DependencyItem {
   interpretationSignature: string;
   files: { selector: string; file: string; role: string[] }[];
   sources: Record<string, unknown>[];
-  support: Record<string, unknown>[];
+  support: {
+    kind: string;
+    resourceSelector?: string;
+    supportSelector?: string;
+    role?: "shacl" | "design";
+    origin?: string | null;
+    active?: boolean;
+  }[];
   ontologies: {
     graphIri: string;
     selector: string;
@@ -60,6 +67,8 @@ export function DependenciesPanel({ session, onApplied }: Props) {
   const [resource, setResource] = useState("");
   const [dependencyId, setDependencyId] = useState("");
   const [kind, setKind] = useState<"ontology" | "model" | "design">("ontology");
+  const [supportRole, setSupportRole] = useState<"shacl" | "design">("shacl");
+  const [supportTargets, setSupportTargets] = useState<Record<string, string>>({});
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [dependencies, setDependencies] = useState<DependencyItem[]>([]);
   const [checks, setChecks] = useState<CheckItem[]>([]);
@@ -68,6 +77,7 @@ export function DependenciesPanel({ session, onApplied }: Props) {
   const [diagnostics, setDiagnostics] = useState<Envelope["diagnostics"]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [acceptImpact, setAcceptImpact] = useState(false);
   const activeOperation = useRef("");
   const activeController = useRef<AbortController | null>(null);
 
@@ -130,7 +140,10 @@ export function DependenciesPanel({ session, onApplied }: Props) {
     };
   }, [loadDependencies, session]);
 
-  async function runAcquisition(path: "inspect" | "add", body: Record<string, unknown>) {
+  async function runAcquisition(
+    path: "inspect" | "add" | "update" | "support/set" | "support/clear",
+    body: Record<string, unknown>,
+  ) {
     const operation = operationId();
     const controller = new AbortController();
     activeOperation.current = operation;
@@ -139,6 +152,7 @@ export function DependenciesPanel({ session, onApplied }: Props) {
     setError("");
     setDiagnostics([]);
     setPreview(null);
+    setAcceptImpact(false);
     try {
       const result = await send(
         `dependencies/${path}`,
@@ -186,12 +200,25 @@ export function DependenciesPanel({ session, onApplied }: Props) {
       !preview.preview
     )
       return;
-    const fingerprint = (preview.preview as { fingerprint?: unknown }).fingerprint;
+    const previewDetails = preview.preview as {
+      fingerprint?: unknown;
+      impact?: { acceptance?: string[] };
+    };
+    const fingerprint = previewDetails.fingerprint;
     if (typeof fingerprint !== "string") return;
+    const acceptance = previewDetails.impact?.acceptance ?? [];
+    if (acceptance.includes("accept-impact") && !acceptImpact) return;
+    const accepted: string[] = acceptance.filter((flag) => flag === "apply");
+    if (acceptance.includes("accept-impact")) accepted.push("accept-impact");
     setBusy(true);
     setError("");
     try {
-      const result = await send("dependencies/apply", { handle: preview.handle, fingerprint });
+      const result = await send("dependencies/apply", {
+        schemaVersion: 1,
+        handle: preview.handle,
+        fingerprint,
+        accept: accepted,
+      });
       setDiagnostics(result.diagnostics ?? []);
       setPreview(null);
       setItems([]);
@@ -356,6 +383,15 @@ export function DependenciesPanel({ session, onApplied }: Props) {
             <option value="model">Model</option>
             <option value="design">Design</option>
           </select>
+          <label htmlFor="dependency-support-role">Manual support role</label>
+          <select
+            id="dependency-support-role"
+            value={supportRole}
+            onChange={(event) => setSupportRole(event.target.value as typeof supportRole)}
+          >
+            <option value="shacl">SHACL shapes</option>
+            <option value="design">Visual design</option>
+          </select>
           <button type="submit" disabled={busy || !source.trim() || !dependencyId.trim()}>
             Prepare add preview
           </button>
@@ -418,15 +454,42 @@ export function DependenciesPanel({ session, onApplied }: Props) {
         </>
       )}
       {preview && (
-        <section aria-label="Dependency add preview">
-          <h3>Review staged dependency</h3>
+        <section aria-label="Dependency preview">
+          <h3>
+            Review staged{" "}
+            {String(
+              (preview.preview as { operation?: unknown } | undefined)?.operation ?? "dependency",
+            )}
+          </h3>
           <p>
             The preview contains exact acquired bytes, closure signatures, source bindings, and
             diagnostic impact. Applying uses these staged bytes without fetching again.
           </p>
           <pre>{JSON.stringify(preview, null, 2)}</pre>
-          <button type="button" disabled={busy} onClick={() => void applyPreview()}>
-            Apply reviewed dependency
+          {(
+            preview.preview as { impact?: { acceptance?: string[] } } | undefined
+          )?.impact?.acceptance?.includes("accept-impact") && (
+            <label>
+              <input
+                type="checkbox"
+                checked={acceptImpact}
+                onChange={(event) => setAcceptImpact(event.target.checked)}
+              />
+              Accept the introduced or worsened dependency impact
+            </label>
+          )}
+          <button
+            type="button"
+            disabled={
+              busy ||
+              ((
+                preview.preview as { impact?: { acceptance?: string[] } } | undefined
+              )?.impact?.acceptance?.includes("accept-impact") === true &&
+                !acceptImpact)
+            }
+            onClick={() => void applyPreview()}
+          >
+            Apply reviewed change
           </button>
           <button type="button" disabled={busy} onClick={() => void discardPreview()}>
             Discard preview
@@ -479,6 +542,72 @@ export function DependenciesPanel({ session, onApplied }: Props) {
               <button type="button" disabled={busy} onClick={() => void checkDependencies(item.id)}>
                 Check {item.id}
               </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void runAcquisition("update", { id: item.id })}
+              >
+                Preview update
+              </button>
+              <label>
+                Support target
+                <select
+                  aria-label={`Support target for ${item.id}`}
+                  value={supportTargets[item.id] ?? item.primarySelector}
+                  onChange={(event) =>
+                    setSupportTargets((current) => ({ ...current, [item.id]: event.target.value }))
+                  }
+                >
+                  {item.files.map((file) => (
+                    <option key={file.selector} value={file.selector}>
+                      {file.selector}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={busy || !source.trim() || !resource.trim()}
+                onClick={() =>
+                  void runAcquisition("support/set", {
+                    id: item.id,
+                    target: supportTargets[item.id] ?? item.primarySelector,
+                    role: supportRole,
+                    source: source.trim(),
+                    resource: resource.trim(),
+                    ...(ref.trim() ? { ref: ref.trim() } : {}),
+                  })
+                }
+              >
+                Preview manual support
+              </button>
+              {item.support
+                .filter(
+                  (association) =>
+                    association.kind === "association" &&
+                    association.origin === "manual" &&
+                    association.active === true &&
+                    association.resourceSelector !== undefined &&
+                    association.supportSelector !== undefined &&
+                    association.role !== undefined,
+                )
+                .map((association) => (
+                  <button
+                    key={`${association.resourceSelector}:${association.role}:${association.supportSelector}`}
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void runAcquisition("support/clear", {
+                        id: item.id,
+                        target: association.resourceSelector,
+                        role: association.role,
+                        resource: association.supportSelector,
+                      })
+                    }
+                  >
+                    Preview clear {association.role} support
+                  </button>
+                ))}
               {item.ontologies.map((ontology) => (
                 <div key={`${ontology.graphIri}:${ontology.selector}`}>
                   <span>

@@ -9,6 +9,9 @@ import {
   dependencyShow,
   type PreparedDependency,
   prepareDependencyAdd,
+  prepareDependencySupportClear,
+  prepareDependencySupportSet,
+  prepareDependencyUpdate,
   publishPreparedDependency,
 } from "./dependencies.ts";
 import { failure, ok, ProjectError, type Result } from "./output.ts";
@@ -25,6 +28,9 @@ export type DependencyWorkerOperation =
   | "select"
   | "clear"
   | "preview"
+  | "update-preview"
+  | "support-set-preview"
+  | "support-clear-preview"
   | "apply"
   | "cancel";
 export interface DependencyWorkerRequest {
@@ -40,8 +46,11 @@ export interface DependencyWorkerRequest {
   id?: string;
   ontologyIri?: string;
   kind?: "ontology" | "model" | "design";
+  target?: string;
+  role?: "shacl" | "design";
   handle?: string;
   fingerprint?: string;
+  accept?: string[];
 }
 interface StoredPreview {
   prepared: PreparedDependency;
@@ -49,6 +58,7 @@ interface StoredPreview {
   session: string;
   instanceId: string;
   workspace: string;
+  hasBytes: boolean[];
   timer: ReturnType<typeof setTimeout>;
 }
 const previews = new Map<string, StoredPreview>();
@@ -76,11 +86,11 @@ async function discard(handle: string) {
 }
 
 async function preview(request: DependencyWorkerRequest): Promise<Result> {
-  if (!request.operationId || !request.source || !request.id || !request.kind)
+  if (!request.operationId)
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "Dependency preview fields are incomplete.",
+      "Dependency preview requires an operation ID.",
     );
   if (takeAbort(request.operationId))
     throw new ProjectError(
@@ -93,15 +103,66 @@ async function preview(request: DependencyWorkerRequest): Promise<Result> {
   let prepared: PreparedDependency | undefined;
   let workspace: string | undefined;
   try {
-    prepared = await prepareDependencyAdd({
-      project: request.project,
-      source: request.source,
-      id: request.id,
-      kind: request.kind,
-      ...(request.ref ? { ref: request.ref } : {}),
-      ...(request.resource ? { resource: request.resource } : {}),
-      signal: controller.signal,
-    });
+    if (request.operation === "preview") {
+      if (!request.source || !request.id || !request.kind)
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "Dependency add preview fields are incomplete.",
+        );
+      prepared = await prepareDependencyAdd({
+        project: request.project,
+        source: request.source,
+        id: request.id,
+        kind: request.kind,
+        ...(request.ref ? { ref: request.ref } : {}),
+        ...(request.resource ? { resource: request.resource } : {}),
+        signal: controller.signal,
+      });
+    } else if (request.operation === "update-preview") {
+      if (!request.id)
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "Dependency update requires an ID.",
+        );
+      prepared = await prepareDependencyUpdate({
+        project: request.project,
+        id: request.id,
+        signal: controller.signal,
+      });
+    } else if (request.operation === "support-set-preview") {
+      if (!request.id || !request.target || !request.role || !request.source || !request.resource)
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "Manual support preview fields are incomplete.",
+        );
+      prepared = await prepareDependencySupportSet({
+        project: request.project,
+        id: request.id,
+        target: request.target,
+        role: request.role,
+        source: request.source,
+        resource: request.resource,
+        ...(request.ref ? { ref: request.ref } : {}),
+        signal: controller.signal,
+      });
+    } else {
+      if (!request.id || !request.target || !request.role || !request.resource)
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "Manual support clear fields are incomplete.",
+        );
+      prepared = await prepareDependencySupportClear({
+        project: request.project,
+        id: request.id,
+        target: request.target,
+        role: request.role,
+        resource: request.resource,
+      });
+    }
     if (controller.signal.aborted)
       throw new ProjectError(
         "conflict",
@@ -124,6 +185,7 @@ async function preview(request: DependencyWorkerRequest): Promise<Result> {
       mode: 0o700,
     });
     await mkdir(await safePath(prepared.root, workspace, true), { mode: 0o700 });
+    const hasBytes: boolean[] = [];
     try {
       for (const [index, write] of prepared.plan.writes.entries()) {
         if (controller.signal.aborted)
@@ -132,12 +194,13 @@ async function preview(request: DependencyWorkerRequest): Promise<Result> {
             "ACQUISITION_CANCELLED",
             "Dependency acquisition was cancelled.",
           );
-        if (!write.bytes) throw new Error("Dependency preview omitted staged bytes.");
-        await writeFile(
-          await safePath(prepared.root, `${workspace}/staged-${index}`, true),
-          write.bytes,
-          { flag: "wx", mode: 0o600 },
-        );
+        hasBytes.push(write.bytes !== null);
+        if (write.bytes !== null)
+          await writeFile(
+            await safePath(prepared.root, `${workspace}/staged-${index}`, true),
+            write.bytes,
+            { flag: "wx", mode: 0o600 },
+          );
       }
       if (controller.signal.aborted)
         throw new ProjectError(
@@ -152,6 +215,7 @@ async function preview(request: DependencyWorkerRequest): Promise<Result> {
           handle,
           expiresAt: new Date(expires).toISOString(),
           preview: prepared.plan.preview,
+          stagedWrites: hasBytes,
         }),
         { flag: "wx", mode: 0o600 },
       );
@@ -178,6 +242,7 @@ async function preview(request: DependencyWorkerRequest): Promise<Result> {
       session: request.session,
       instanceId: request.instanceId,
       workspace,
+      hasBytes,
       timer,
     });
     const result = ok(
@@ -217,12 +282,38 @@ async function apply(request: DependencyWorkerRequest): Promise<Result> {
       "PREVIEW_CHANGED",
       "Dependency preview expired, was consumed, or belongs to another session. Prepare a fresh preview.",
     );
+  const required = stored.prepared.plan.preview.impact.acceptance;
+  const accepted = request.accept ?? [];
+  if (
+    !Array.isArray(accepted) ||
+    accepted.some((item) => !["apply", "accept-impact"].includes(item)) ||
+    new Set(accepted).size !== accepted.length
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Apply acceptance flags are invalid.",
+    );
+  if (accepted.some((item) => !required.includes(item)))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Apply included an acceptance flag not requested by this preview.",
+    );
+  if (required.some((item) => !accepted.includes(item)))
+    throw new ProjectError(
+      "conflict",
+      "ACCEPTANCE_REQUIRED",
+      "Review and accept every flag required by this preview.",
+    );
   const writes = await Promise.all(
     stored.prepared.plan.writes.map(async (write, index) => ({
       ...write,
-      bytes: await readFile(
-        await safePath(stored.prepared.root, `${stored.workspace}/staged-${index}`),
-      ),
+      bytes: stored.hasBytes[index]
+        ? await readFile(
+            await safePath(stored.prepared.root, `${stored.workspace}/staged-${index}`),
+          )
+        : null,
     })),
   );
   const publication = { ...stored.prepared, plan: { ...stored.prepared.plan, writes } };
@@ -318,6 +409,9 @@ async function handle(request: DependencyWorkerRequest): Promise<Result> {
           ontologyIri: request.ontologyIri,
         });
       case "preview":
+      case "update-preview":
+      case "support-set-preview":
+      case "support-clear-preview":
         return await preview(request);
       case "apply":
         return await apply(request);
