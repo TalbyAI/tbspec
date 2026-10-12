@@ -1,5 +1,6 @@
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { Quad } from "@rdfjs/types";
 import { DataFactory, Store, Writer } from "n3";
 import type { AuthoringOptions, PreparedResource } from "./authoring.ts";
 import { canonical, digest, utf8Compare } from "./canonical.ts";
@@ -187,8 +188,6 @@ export async function prepareSupport(options: AuthoringOptions): Promise<Prepare
       bytes,
       rdfFormats[extname(path).toLowerCase()] ?? "text/turtle",
       pathToFileURL(await safePath(root, path)).href,
-      false,
-      path,
     );
     classifyGraph(store, path);
   } catch (error) {
@@ -297,12 +296,34 @@ export async function prepareSupport(options: AuthoringOptions): Promise<Prepare
     const object = DataFactory.namedNode(selectedSchema.graphIri);
     if (options.command === "model.schema.add")
       store.addQuad(DataFactory.namedNode(target.graphIri ?? ""), predicate, object);
-    else store.removeQuads(store.getQuads(target.graphIri, predicate, object, null));
+    else {
+      const statements = store.getQuads(target.graphIri, predicate, object, null);
+      if (!statements.length)
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "Selected schema is not associated with this model; source bytes were preserved.",
+          path,
+        );
+      store.removeQuads(statements);
+    }
   }
   const file = shapes ? destination : path;
   const text = await new Promise<string>((resolve, reject) => {
+    // shortcut: serialization normalizes source formatting, use source edits when preservation is required.
     const writer = new Writer();
-    writer.addQuads([...store]);
+    const labels = new Map<string, string>();
+    function localTerm(term: Quad["subject"] | Quad["object"]) {
+      if (term.termType !== "BlankNode") return term;
+      if (!labels.has(term.value)) labels.set(term.value, `b${labels.size}`);
+      return DataFactory.blankNode(labels.get(term.value));
+    }
+    for (const q of store)
+      writer.addQuad(
+        localTerm(q.subject) as Quad["subject"],
+        q.predicate,
+        localTerm(q.object) as Quad["object"],
+      );
     writer.end((error, text) => (error ? reject(error) : resolve(text)));
   });
   const writes = [{ file, bytes: Buffer.from(text) }];

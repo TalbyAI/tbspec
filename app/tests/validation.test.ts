@@ -301,6 +301,8 @@ test("declared prefixes and predicate PATH expand before local execution with st
     results,
   );
   assert.equal(results[0]?.shacl?.path?.value, "urn:ex:p");
+  assert.equal(results[0]?.shacl?.sourceShape?.kind, "blank");
+  assert.equal(results[0]?.shacl?.sourceShape?.scope, "model.shacl.ttl");
   assert.equal(results[0]?.shacl?.value?.value, "bad");
   assert.equal(await readFile(join(root, "model.ttl"), "utf8"), source);
 });
@@ -557,11 +559,16 @@ test("Core alternative, recursive, optional and inverse literal paths preserve o
       selector: "model.ttl",
     });
     assert.equal(result.status, valid ? "ok" : "invalid", JSON.stringify({ path, result }));
-    if (!valid)
+    if (!valid) {
       assert.equal(
         result.diagnostics.find((d) => d.code === "SHACL_RESULT")?.shacl?.path?.kind,
         "blank",
       );
+      assert.equal(
+        result.diagnostics.find((d) => d.code === "SHACL_RESULT")?.shacl?.path?.scope,
+        "model.shacl.ttl",
+      );
+    }
   }
 });
 

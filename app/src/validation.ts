@@ -74,13 +74,6 @@ export async function validateInspection(input: {
   onVocabulary?: (resource: Resource, available: Store, blockers: string[]) => void;
 }): Promise<Result<Validation>> {
   const { root, snapshot, manifest, lock, resources, stores, validation, diagnostics } = input;
-  function rdfTerm(term: Term, scope: string) {
-    if (term.termType === "BlankNode")
-      scope =
-        resources.find((r) => term.value.startsWith(`tb_${digest(r.selector).slice(7, 23)}_`))
-          ?.selector ?? scope;
-    return encodeTerm(term, scope);
-  }
   const expand = (value: string) =>
     value.startsWith("dep:") && !value.includes("/")
       ? `${value}/${lock?.dependencies[value.slice(4)]?.primary ?? ""}`
@@ -113,6 +106,16 @@ export async function validateInspection(input: {
             associations: [],
           });
       }
+  const scopePrefixes = new Map(
+    resources.map((resource) => [digest(resource.selector).slice(7, 23), resource.selector]),
+  );
+  function rdfTerm(term: Term, scope: string) {
+    if (term.termType === "BlankNode") {
+      const prefix = /^tb_([a-f0-9]{16})_/.exec(term.value)?.[1];
+      if (prefix) scope = scopePrefixes.get(prefix) ?? scope;
+    }
+    return encodeTerm(term, scope);
+  }
   for (const selected of selection ?? [])
     if (!resources.some((r) => r.selector === selected))
       throw new ProjectError(

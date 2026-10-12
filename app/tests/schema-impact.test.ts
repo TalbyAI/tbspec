@@ -193,3 +193,38 @@ test("untraceable query blank nodes produce stable unassessable preview fingerpr
   );
   assert.equal(first.fingerprint, second.fingerprint);
 });
+
+test("schema rewrites never publish internal blank-node scope labels", async () => {
+  const root = await project();
+  await writeFile(
+    join(root, "model.ttl"),
+    `${prefixes} ex:model a t:ConcreteDataModel; t:modelType "data" . ex:a a ex:Thing; ex:p [ a ex:Thing ] .`,
+  );
+  for (const command of ["model.schema.add", "model.schema.remove"] as const) {
+    const result = await authorResource({
+      project: root,
+      command,
+      path: "model.ttl",
+      source: "schema.ttl",
+      confirm: true,
+    });
+    assert.equal(result.status, "ok", JSON.stringify(result));
+    assert.doesNotMatch(await readFile(join(root, "model.ttl"), "utf8"), /_:tb_[a-f0-9]{16}_/);
+  }
+});
+
+test("removing an absent schema refuses publication and preserves model bytes", async () => {
+  const root = await project();
+  const source = `${prefixes}\n# Keep authored content.\nex:model a t:ConcreteDataModel; t:modelType "data" . ex:a ex:p [ a ex:Thing ] .\n`;
+  await writeFile(join(root, "model.ttl"), source);
+  const result = await authorResource({
+    project: root,
+    command: "model.schema.remove",
+    path: "model.ttl",
+    source: "schema.ttl",
+    confirm: true,
+  });
+  assert.equal(result.status, "invalid_arguments", JSON.stringify(result));
+  assert.equal(result.diagnostics[0]?.code, "ARGUMENT_INVALID");
+  assert.equal(await readFile(join(root, "model.ttl"), "utf8"), source);
+});
