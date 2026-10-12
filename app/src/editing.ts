@@ -62,8 +62,10 @@ export interface EditorData extends Record<string, unknown> {
 const rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const rdfs = "http://www.w3.org/2000/01/rdf-schema#";
 const owl = "http://www.w3.org/2002/07/owl#";
+const sm = "https://talby.ai/ontology/state-machine#";
 const { namedNode, blankNode, literal, quad } = DataFactory;
 const labels = [`${rdfs}label`, `${rdfs}comment`];
+const stateFields = [...labels, `${sm}inMachine`];
 const bindings = [
   {
     type: `${owl}Class`,
@@ -88,13 +90,33 @@ const bindings = [
     fields: [...labels, `${rdf}type`],
   },
 ];
+const stateMachineBindings = [
+  { type: `${sm}StateMachine`, label: "State machine", fields: labels },
+  { type: `${sm}State`, label: "State", fields: stateFields },
+  { type: `${sm}InitialState`, label: "Initial state", fields: stateFields },
+  { type: `${sm}FinalState`, label: "Final state", fields: stateFields },
+  {
+    type: `${sm}Transition`,
+    label: "Transition",
+    fields: [
+      ...stateFields,
+      `${sm}source`,
+      `${sm}target`,
+      `${sm}event`,
+      `${sm}condition`,
+      `${sm}action`,
+    ],
+  },
+];
 
 function applicable(kind: string) {
   return kind === "ontology"
     ? bindings
     : kind === "conceptual-data-model"
       ? bindings.filter((b) => b.type !== `${owl}NamedIndividual`)
-      : [];
+      : kind === "state-machine-model"
+        ? stateMachineBindings
+        : [];
 }
 function encode(q: Quad, scope: string): Triple {
   return {
@@ -318,6 +340,60 @@ function statement(value: Triple, scope: string, store: Store, create = false): 
   return quad(subject as Quad["subject"], predicate as Quad["predicate"], object as Quad["object"]);
 }
 
+function validateStateMachineCreation(
+  creation: NonNullable<EditingOptions["creation"]>,
+  store: Store,
+) {
+  const subject = namedNode(creation.iri);
+  const oneResource = (predicate: string, label: string): Quad["subject"] => {
+    const values = store.getObjects(subject, predicate, null);
+    const value = values[0];
+    if (values.length !== 1 || !value || !["NamedNode", "BlankNode"].includes(value.termType))
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        `State-machine ${creation.type === `${sm}Transition` ? "transition" : "state"} creation requires exactly one ${label}.`,
+      );
+    return value as Quad["subject"];
+  };
+  const hasType = (resource: Term, type: string) =>
+    store.countQuads(resource, `${rdf}type`, type, null) > 0;
+  if ([`${sm}State`, `${sm}InitialState`, `${sm}FinalState`].includes(creation.type)) {
+    const machine = oneResource(`${sm}inMachine`, "machine selection");
+    if (!hasType(machine, `${sm}StateMachine`))
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "State creation requires a selected local state machine.",
+      );
+  } else if (creation.type === `${sm}Transition`) {
+    const machine = oneResource(`${sm}inMachine`, "machine selection");
+    if (!hasType(machine, `${sm}StateMachine`))
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "Transition creation requires a selected local state machine.",
+      );
+    for (const [predicate, label] of [
+      [`${sm}source`, "source state"],
+      [`${sm}target`, "target state"],
+    ] as const) {
+      const state = oneResource(predicate, label);
+      if (
+        ![`${sm}State`, `${sm}InitialState`, `${sm}FinalState`].some((type) =>
+          hasType(state, type),
+        ) ||
+        !store.has(quad(state, namedNode(`${sm}inMachine`), machine))
+      )
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          `Transition creation requires a ${label} explicitly associated with its selected machine.`,
+        );
+    }
+  }
+}
+
 export async function prepareEdit(options: EditingOptions): Promise<PreparedResource> {
   const loaded = await loadEditor(options);
   const { root, snapshot, data, store, scope } = loaded;
@@ -456,6 +532,8 @@ export async function prepareEdit(options: EditingOptions): Promise<PreparedReso
         changed = true;
       }
     }
+    if (options.creation && resource.kind === "state-machine-model")
+      validateStateMachineCreation(options.creation, store);
     if (changed) {
       const writer = new Writer();
       writer.addQuads([...store]);

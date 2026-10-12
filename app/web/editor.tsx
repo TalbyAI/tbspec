@@ -13,6 +13,7 @@ import { type SetStateAction, useEffect, useMemo, useState } from "react";
 import type { EditingOptions, EditorData, EditorTerm, Triple } from "../src/editing.ts";
 import type { Diagnostic, Result } from "../src/output.ts";
 import { type EditorDraft, emptyDraft, updateDraft } from "./drafts.ts";
+import { StateMachineForm } from "./state-machine-form.tsx";
 import "@xyflow/react/dist/style.css";
 
 const xsdString = "http://www.w3.org/2001/XMLSchema#string";
@@ -171,6 +172,7 @@ export function GraphEditor({
     pending,
     creationDraft,
     initialValues,
+    stateMachineDraft,
     conflict,
     conflictKind,
   } = draft;
@@ -189,6 +191,7 @@ export function GraphEditor({
     setPending = setter("pending"),
     setCreationDraft = setter("creationDraft"),
     setInitialValues = setter("initialValues"),
+    setStateMachineDraft = setter("stateMachineDraft"),
     setConflict = setter("conflict"),
     setConflictKind = setter("conflictKind");
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -269,7 +272,11 @@ export function GraphEditor({
   const binding = sections.find((s) => s.type === section) ?? sections[0];
   const statements =
     data?.triples.filter((q) => selected && key(q.subject) === key(selected)) ?? [];
-  async function save(options: Omit<EditingOptions, "selector">, source = false) {
+  async function save(
+    options: Omit<EditingOptions, "selector">,
+    source = false,
+    draftKind?: "state-machine",
+  ) {
     if (busy || disabled) return;
     let published = false;
     setBusy(true);
@@ -291,7 +298,9 @@ export function GraphEditor({
         setDiagnostics(result.diagnostics);
         setError(result.diagnostics.map((d) => `${d.code}: ${d.message}`).join(" "));
         if (result.diagnostics.some((d) => d.code === "REVISION_CONFLICT")) {
-          setConflictKind(source ? "source" : options.creation ? "creation" : "statement");
+          setConflictKind(
+            source ? "source" : (draftKind ?? (options.creation ? "creation" : "statement")),
+          );
           setConflict(await read());
         }
         return;
@@ -304,6 +313,7 @@ export function GraphEditor({
         setCreationDraft(undefined);
         setInitialValues([]);
       }
+      if (draftKind === "state-machine") setStateMachineDraft(undefined);
       await onSaved();
     } catch (problem) {
       setError(
@@ -421,7 +431,9 @@ export function GraphEditor({
                 : JSON.stringify(
                     conflictKind === "creation"
                       ? { ...creationDraft, initialValues }
-                      : pending?.edit,
+                      : conflictKind === "state-machine"
+                        ? stateMachineDraft
+                        : pending?.edit,
                     null,
                     2,
                   )}
@@ -435,6 +447,7 @@ export function GraphEditor({
                   setCreationDraft(undefined);
                   setInitialValues([]);
                 }
+                if (conflictKind === "state-machine") setStateMachineDraft(undefined);
                 setConflict(undefined);
                 setError("");
               }}
@@ -450,6 +463,11 @@ export function GraphEditor({
                   setPending({ ...pending, revision: conflict.resource.revision });
                 if (creationDraft && conflictKind === "creation")
                   setCreationDraft({ ...creationDraft, revision: conflict.resource.revision });
+                if (stateMachineDraft && conflictKind === "state-machine")
+                  setStateMachineDraft({
+                    ...stateMachineDraft,
+                    revision: conflict.resource.revision,
+                  });
                 setConflict(undefined);
                 setError(
                   "Reviewed current revision. Save explicitly; another concurrent change can still conflict. Re-select changed blank nodes or removed statements.",
@@ -648,7 +666,23 @@ export function GraphEditor({
             <button type="button" disabled={!writable || busy || !!pending} onClick={() => add()}>
               Add exact triple
             </button>
-            {mode === "forms" && writable && (
+            {mode === "forms" && data.resource.kind === "state-machine-model" && (
+              <StateMachineForm
+                data={data}
+                selected={selected}
+                onSelect={(term) => {
+                  setSelected(term);
+                  setSection("");
+                }}
+                writable={writable}
+                busy={busy || disabled}
+                draft={stateMachineDraft}
+                setDraft={setStateMachineDraft}
+                onEdit={(edit) => setPending({ revision: data.resource.revision, edit })}
+                onSave={(options, kind) => save(options, false, kind)}
+              />
+            )}
+            {mode === "forms" && writable && data.resource.kind !== "state-machine-model" && (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
