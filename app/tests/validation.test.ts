@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -16,7 +16,7 @@ async function project() {
     (await initializeProject({ directory: root, baseIri: "https://example.org/" })).status,
     "ok",
   );
-  return root;
+  return realpath(root);
 }
 
 test("offline status establishes complete validity for installed starters and empty models", async () => {

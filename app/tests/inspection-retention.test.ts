@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -18,7 +18,7 @@ async function project() {
   assert.equal((await initializeProject({ directory: root })).status, "ok");
   await writeFile(join(root, "selected.ttl"), model("selected"));
   await writeFile(join(root, "other.ttl"), model("other"));
-  return root;
+  return realpath(root);
 }
 
 test("validation captures bind all owned revisions without retaining unrelated graph bytes", async () => {
