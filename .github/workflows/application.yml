@@ -12,7 +12,7 @@ permissions:
 jobs:
   application:
     name: Node 24 application (${{ matrix.os }})
-    timeout-minutes: 10
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:

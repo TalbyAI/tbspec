@@ -6,6 +6,7 @@ import {
   prepareResource,
   publishResource,
 } from "./authoring.ts";
+import { type EditingOptions, prepareEdit } from "./editing.ts";
 import { inspectProject } from "./inspection.ts";
 import { type Diagnostic, failure, ok, ProjectError, type Result } from "./output.ts";
 import { token } from "./ownership.ts";
@@ -21,6 +22,7 @@ export interface InspectionResponse {
 parentPort?.postMessage({ ready: true });
 export interface AuthoringRequest {
   options?: AuthoringOptions;
+  editing?: EditingOptions;
   session: string;
   mode: "preview" | "apply" | "cancel";
   fingerprint?: string;
@@ -60,7 +62,7 @@ async function handle(
   try {
     const authoring = request.authoring;
     if (!authoring) result = await inspectProject(request);
-    else if (authoring.mode === "preview" && authoring.options) {
+    else if (authoring.mode === "preview" && (authoring.options || authoring.editing)) {
       for (const [key, preview] of previews)
         if (preview.expires <= Date.now()) {
           await discard(key);
@@ -72,7 +74,12 @@ async function handle(
           "PROJECT_BUSY",
           "Resource preview capacity is full. Wait for expiry.",
         );
-      const prepared = await prepareResource({ ...authoring.options, project: request.project });
+      const prepared = authoring.editing
+        ? await prepareEdit({ ...authoring.editing, project: request.project })
+        : await prepareResource({
+            ...(authoring.options as AuthoringOptions),
+            project: request.project,
+          });
       if (!authoring.instanceId) throw new Error("Missing server instance.");
       const handle = token();
       const expires = Date.now() + 900000;

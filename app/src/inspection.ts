@@ -30,6 +30,7 @@ import { listSupport } from "./support.ts";
 import type { Snapshot } from "./transactions.ts";
 
 export type InspectionCommand =
+  | "editor.show"
   | "status"
   | "validate"
   | "shapes.list"
@@ -268,6 +269,15 @@ export async function inspectProject(options: {
   command: InspectionCommand;
   selector?: string;
 }): Promise<Result<InspectionData>> {
+  if (options.command === "editor.show") {
+    const { showEditor } = await import("./editing.ts");
+    if (!options.selector)
+      return failure(new ProjectError("invalid_arguments", "ARGUMENT_INVALID", "Select a graph."));
+    return (await showEditor({
+      ...options,
+      selector: options.selector,
+    })) as unknown as Result<InspectionData>;
+  }
   if (options.command === "shapes.list" || options.command === "model.schema.list")
     return listSupport(options);
   if (options.command.startsWith("ontology.") || options.command.startsWith("model.")) {

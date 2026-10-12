@@ -6,8 +6,9 @@
     "strict": true,
     "jsx": "react-jsx",
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "lib": ["ES2024", "DOM", "DOM.Iterable"]
   },
-  "include": ["*.tsx"]
+  "include": ["*.tsx", "../src/**/*.d.ts"]
 }

@@ -29,6 +29,8 @@ The user approved this grouped breakdown of 20 AFK vertical slices on 2026-10-04
 
 ## Decisions so far
 
+- [Ticket 05](05-edit-rdf-source-and-ontology-forms.md#answer) delivers shared revision-checked exact RDF editing, the complete graph canvas, byte-preserving Turtle repair and lossless ontology/conceptual forms. Atomic typed creation uses available exact vocabulary; browser drafts retain captured revisions and require explicit stale-save reconciliation. Locked snapshots remain read-only. Process/state forms, saved-view synchronization, later layout/exploration and installed-platform acceptance remain in their subsequent tickets.
+
 - [Ticket 04](04-validate-models-schemas-and-shacl.md#answer) delivers shared selected/whole offline validation, schema associations and shapes authoring through CLI and browser. Independent locked source contexts remain isolated; syntax, vocabulary, association, view/presentation and SHACL diagnostics include explicit coverage and blockers. Confirmed schema removal can publish semantic invalidity after a revision-bound impact preview. Acquisition/extended contexts, shapes deletion, later view/presentation extensions and installed-platform acceptance remain in their subsequent tickets.
 
 - [Ticket 03](03-create-and-import-owned-resources.md#answer) delivers shared owned ontology/model authoring and editable import. Imports preserve term identities and originals, explicitly select receiving types and report missing vocabulary. Browser creation/import use protected fifteen-minute previews with session/instance ownership, revision checks and cancellation; CLI local authoring supports accepted fingerprints. Full validation/editors and complete supported-platform acceptance remain in subsequent tickets.
