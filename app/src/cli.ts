@@ -6,8 +6,11 @@ import { configureModelType } from "./configuration.ts";
 import { attachConsole } from "./console.ts";
 import {
   dependencyAdd,
+  dependencyCheck,
+  dependencyClear,
   dependencyInspect,
   dependencyList,
+  dependencySelect,
   dependencyShow,
 } from "./dependencies.ts";
 import { guidance, help } from "./guidance.ts";
@@ -221,6 +224,31 @@ async function dispatch(): Promise<Result> {
       !mutationOptions.some((flag) => options.has(flag))
     )
       return dependencyShow({ project: selectedProject, id: positional[1] ?? "" });
+    if (
+      action === "check" &&
+      positional.length <= 2 &&
+      !mutationOptions.some((flag) => options.has(flag))
+    )
+      return dependencyCheck({
+        project: selectedProject,
+        ...(positional[1] ? { id: positional[1] } : {}),
+      });
+    if (
+      action === "select" &&
+      positional.length === 3 &&
+      !mutationOptions.some((flag) => options.has(flag))
+    )
+      return dependencySelect({
+        project: selectedProject,
+        ontologyIri: positional[1] ?? "",
+        id: positional[2] ?? "",
+      });
+    if (
+      action === "clear" &&
+      positional.length === 2 &&
+      !mutationOptions.some((flag) => options.has(flag))
+    )
+      return dependencyClear({ project: selectedProject, ontologyIri: positional[1] ?? "" });
     if (action === "inspect" && positional.length === 1 && value("--source"))
       return dependencyInspect({
         project: selectedProject,
@@ -247,7 +275,7 @@ async function dispatch(): Promise<Result> {
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "Use dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]; dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] [--accepted-preview <fingerprint>]; dependency list; or dependency show <id>.",
+      "Use dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]; dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] [--accepted-preview <fingerprint>]; dependency list; dependency show <id>; dependency check [<id>]; dependency select <ontology-iri> <id>; or dependency clear <ontology-iri>.",
     );
   }
   const schemaOperation = command === "model" && positional[0] === "schema";

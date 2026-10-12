@@ -192,6 +192,64 @@ test("CLI dependency commands inspect a source and apply its reviewed fingerprin
     assert.equal(rejected.status, 2, `${args.join(" ")}: ${rejected.stderr}`);
   }
 });
+
+test("CLI dependencies select and clear an ontology winner and check source drift", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-cli-dependency-resolution-"));
+  const source = join(root, "source");
+  const project = join(root, "project");
+  const ontologyIri = "https://example.org/selected-vocabulary";
+  await mkdir(source);
+  await initializeProject({ directory: project, baseIri: "urn:dependency-resolution-cli:/" });
+  await writeFile(
+    join(source, "vocabulary.ttl"),
+    `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<${ontologyIri}> a owl:Ontology .\n`,
+  );
+  const preview = invoke(
+    ["dependency", "add", "vocabulary", "--source", source, "--kind", "ontology"],
+    project,
+  );
+  assert.equal(preview.status, 3, preview.stderr);
+  assert.equal(
+    invoke(
+      [
+        "dependency",
+        "add",
+        "vocabulary",
+        "--source",
+        source,
+        "--kind",
+        "ontology",
+        "--accepted-preview",
+        preview.envelope.data.preview.fingerprint,
+      ],
+      project,
+    ).status,
+    0,
+  );
+
+  const selected = invoke(["dependency", "select", ontologyIri, "vocabulary"], project);
+  assert.equal(selected.status, 0, selected.stderr);
+  assert.equal(selected.envelope.data.applied, true);
+  assert.match(await readFile(join(project, "tbspec.toml"), "utf8"), /\[ontology_choices\]/);
+
+  const cleared = invoke(["dependency", "clear", ontologyIri], project);
+  assert.equal(cleared.status, 0, cleared.stderr);
+  assert.equal(cleared.envelope.data.applied, true);
+  assert.equal(
+    await readFile(join(project, "tbspec.toml"), "utf8").then((text) =>
+      text.includes(`"${ontologyIri}"`),
+    ),
+    false,
+  );
+
+  const lockBefore = await readFile(join(project, "tbspec.lock"));
+  const checked = invoke(["dependency", "check", "vocabulary"], project);
+  assert.equal(checked.status, 0, checked.stderr);
+  assert.equal(checked.envelope.data.items[0].state, "unchanged");
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBefore);
+  assert.equal(invoke(["dependency", "check"], project).status, 0);
+});
+
 test("CLI authors and inspects every model family and imports locked vocabulary offline", async () => {
   const root = await mkdtemp(join(tmpdir(), "tb-cli-author-"));
   await initializeProject({ directory: root, baseIri: "urn:cli:/" });

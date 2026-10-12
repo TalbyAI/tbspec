@@ -8,15 +8,17 @@ import { pathToFileURL } from "node:url";
 import { DataFactory, type Store } from "n3";
 import { canonical, digest, graphSignature, hash, sortedSet, utf8Compare } from "./canonical.ts";
 import { compareDiagnosticImpact } from "./diagnostic-impact.ts";
-import { equalRevision, fileBytes, inventory, revision } from "./filesystem.ts";
+import { equalRevision, fileBytes, inventory, revision, verifyReads } from "./filesystem.ts";
 import { captureInspection, inspectSnapshot } from "./inspection.ts";
 import { withLock } from "./lock.ts";
+import { dependencyDistances, resolveOntologyCandidates } from "./ontology-resolution.ts";
 import { type Diagnostic, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
 import { id, portablePath, safePath } from "./paths.ts";
-import { projectDiscoveryScope, readProject } from "./project.ts";
+import { discoverProject, projectDiscoveryScope, readProject } from "./project.ts";
 import { classifyGraph, parseGraph, parseRdf, rdfFormats } from "./rdf.ts";
 import {
   type Dependency,
+  editOntologyChoice,
   interpretationSignature,
   type Lock,
   type LockedFile,
@@ -1543,6 +1545,367 @@ export async function dependencyAdd(_options: {
     return failure(error);
   }
 }
+
+export async function dependencySelect(options: {
+  project?: string;
+  cwd?: string;
+  ontologyIri: string;
+  id: string;
+}): Promise<Result> {
+  try {
+    const dependencyId = id(options.id);
+    const project = await readProject({ project: options.project, cwd: options.cwd });
+    const manifestText = project.snapshot.files["tbspec.toml"]?.toString("utf8") ?? "";
+    const proposedText = editOntologyChoice(manifestText, options.ontologyIri, dependencyId);
+    const dependency = project.lock.dependencies[dependencyId];
+    if (!dependency)
+      throw new ProjectError(
+        "invalid_arguments",
+        "RESOURCE_MISSING",
+        "Dependency ID was not found.",
+      );
+    const reachable = dependencyDistances(dependency);
+    const candidates = dependency.files.filter((file) => {
+      if (
+        file.kind !== "ontology" ||
+        file.graph_iri !== options.ontologyIri ||
+        !reachable.has(file.key)
+      )
+        return false;
+      const sourceChoice = dependency.choices.find(
+        (choice) =>
+          choice.kind === "ontology" &&
+          choice.target_iri === options.ontologyIri &&
+          choice.context === file.context,
+      );
+      const selectedIsReachable =
+        sourceChoice !== undefined && reachable.has(String(sourceChoice.selected));
+      return !selectedIsReachable || sourceChoice?.selected === file.key;
+    });
+    if (!candidates.length)
+      throw new ProjectError(
+        "invalid_arguments",
+        "RESOURCE_MISSING",
+        "The selected dependency does not contain this ontology IRI.",
+      );
+    const signatures = new Set(candidates.map((file) => file.graph_signature));
+    if (signatures.size > 1)
+      throw new ProjectError(
+        "conflict",
+        "SOURCE_SELECTION_AMBIGUOUS",
+        "The dependency contains multiple different versions of this ontology without a recorded source winner.",
+        "tbspec.lock",
+        {
+          graphIri: options.ontologyIri,
+          dependencyId,
+          selectors: candidates.map((file) => `dep:${dependencyId}/${file.key}`).sort(utf8Compare),
+        },
+      );
+    const selectors = candidates.map((file) => `dep:${dependencyId}/${file.key}`).sort(utf8Compare);
+    if (proposedText === manifestText)
+      return ok({ applied: false, ontologyIri: options.ontologyIri, dependencyId, selectors });
+    const plan = preparePlan(
+      project.snapshot,
+      "dependency.select",
+      [{ file: "tbspec.toml", bytes: Buffer.from(proposedText) }],
+      { ontologyIri: options.ontologyIri, dependencyId, selectors },
+    );
+    const diagnostics = await publishPlan(project.root, plan);
+    return ok(
+      {
+        applied: true,
+        ontologyIri: options.ontologyIri,
+        dependencyId,
+        selectors,
+        changes: plan.preview.changes,
+      },
+      diagnostics,
+    );
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+export async function dependencyClear(options: {
+  project?: string;
+  cwd?: string;
+  ontologyIri: string;
+}): Promise<Result> {
+  try {
+    const project = await readProject({ project: options.project, cwd: options.cwd });
+    const manifestText = project.snapshot.files["tbspec.toml"]?.toString("utf8") ?? "";
+    const previous = (project.manifest.ontology_choices as Record<string, string> | undefined)?.[
+      options.ontologyIri
+    ];
+    const proposedText = editOntologyChoice(manifestText, options.ontologyIri);
+    if (proposedText === manifestText)
+      return ok({
+        applied: false,
+        ontologyIri: options.ontologyIri,
+        previousDependencyId: previous ?? null,
+      });
+    const plan = preparePlan(
+      project.snapshot,
+      "dependency.clear",
+      [{ file: "tbspec.toml", bytes: Buffer.from(proposedText) }],
+      { ontologyIri: options.ontologyIri },
+    );
+    const diagnostics = await publishPlan(project.root, plan);
+    return ok(
+      {
+        applied: true,
+        ontologyIri: options.ontologyIri,
+        previousDependencyId: previous ?? null,
+        changes: plan.preview.changes,
+      },
+      diagnostics,
+    );
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+function sourceOutput(source: Row): Row {
+  return {
+    id: source.id,
+    kind: source.kind,
+    locator: source.locator,
+    selectedResource: source.selected_resource,
+    ...(source.effective_locator ? { effectiveLocator: source.effective_locator } : {}),
+    ...(source.revision_kind ? { revisionKind: source.revision_kind } : {}),
+    ...(source.resolved_commit ? { resolvedCommit: source.resolved_commit } : {}),
+    ...(source.requested_ref ? { requestedRef: source.requested_ref } : {}),
+    ...(source.release ? { release: source.release } : {}),
+    ...(source.inventory_digest ? { inventoryDigest: source.inventory_digest } : {}),
+  };
+}
+
+export async function dependencyCheck(options: {
+  project?: string;
+  cwd?: string;
+  id?: string;
+  signal?: AbortSignal;
+}): Promise<Result> {
+  try {
+    const root = await discoverProject(options);
+    const initial = await capture(root, ["tbspec.toml", "tbspec.lock"]);
+    const manifest = parseManifest(initial.files["tbspec.toml"]?.toString("utf8") ?? "");
+    const initialLock = parseLock(initial.files["tbspec.lock"]?.toString("utf8") ?? "");
+    const ids = options.id
+      ? [id(options.id)]
+      : Object.keys(initialLock.dependencies).sort(utf8Compare);
+    if (options.id && !initialLock.dependencies[ids[0] ?? ""])
+      throw new ProjectError(
+        "invalid_arguments",
+        "RESOURCE_MISSING",
+        "Dependency ID was not found.",
+      );
+    const targetPaths = ids.flatMap((dependencyId) => {
+      const dependency = initialLock.dependencies[dependencyId];
+      return dependency?.files.map((file) => `${dependency.snapshot_path}/${file.key}`) ?? [];
+    });
+    const snapshot = await capture(root, ["tbspec.toml", "tbspec.lock", ...targetPaths]);
+    for (const path of ["tbspec.toml", "tbspec.lock"])
+      if (!initial.files[path]?.equals(snapshot.files[path] ?? Buffer.alloc(0)))
+        throw new ProjectError(
+          "conflict",
+          "REVISION_CONFLICT",
+          "Project configuration changed during dependency check.",
+          path,
+        );
+    const lock = parseLock(snapshot.files["tbspec.lock"]?.toString("utf8") ?? "");
+    const bundle = await loadStarters();
+    const limits = defaultLimits(manifest);
+    const items: Row[] = [];
+    const diagnostics: Diagnostic[] = [];
+    for (const dependencyId of ids) {
+      if (options.signal?.aborted)
+        throw new ProjectError(
+          "conflict",
+          "ACQUISITION_CANCELLED",
+          "Dependency check was cancelled.",
+        );
+      const dependency = lock.dependencies[dependencyId];
+      if (!dependency) continue;
+      const lockedSignature = dependency.interpretation_signature;
+      const corrupted = dependency.files.find((file) => {
+        const bytes = snapshot.files[`${dependency.snapshot_path}/${file.key}`];
+        return (
+          !bytes || bytes.byteLength !== file.byte_length || digest(bytes) !== file.byte_digest
+        );
+      });
+      if (corrupted) {
+        const file = `${dependency.snapshot_path}/${corrupted.key}`;
+        items.push({
+          id: dependencyId,
+          state: "unavailable",
+          lockedSignature,
+          observedSignature: null,
+          comparison: "unavailable",
+          observedSources: [],
+        });
+        diagnostics.push({
+          code: "SNAPSHOT_INTEGRITY",
+          severity: "error",
+          message:
+            "A retained dependency file differs from its lock record; restore it before checking the source.",
+          file,
+          selector: `dep:${dependencyId}/${corrupted.key}`,
+        });
+        continue;
+      }
+
+      const primary = dependency.files.find((file) => file.key === dependency.primary);
+      const sourceRecordValue = dependency.sources.find((source) => source.id === "source");
+      if (!primary || !sourceRecordValue) {
+        items.push({
+          id: dependencyId,
+          state: "unavailable",
+          lockedSignature,
+          observedSignature: null,
+          comparison: "unavailable",
+          observedSources: [],
+        });
+        diagnostics.push({
+          code: "SOURCE_UNAVAILABLE",
+          severity: "error",
+          message: "The recorded dependency source cannot be checked.",
+          file: "tbspec.lock",
+          selector: `dep:${dependencyId}`,
+        });
+        continue;
+      }
+
+      if (sourceRecordValue.kind === "bundle") {
+        const installed = Object.values(bundle.lock.dependencies).find((candidate) =>
+          candidate.sources.some(
+            (source) =>
+              source.kind === "bundle" &&
+              source.release === sourceRecordValue.release &&
+              source.selected_resource === sourceRecordValue.selected_resource,
+          ),
+        );
+        if (!installed) {
+          items.push({
+            id: dependencyId,
+            state: "unavailable",
+            lockedSignature,
+            observedSignature: null,
+            comparison: "unavailable",
+            observedSources: [],
+          });
+          diagnostics.push({
+            code: "SOURCE_UNAVAILABLE",
+            severity: "error",
+            message: "The recorded bundled resource is not present in the installed release.",
+            file: "tbspec.lock",
+            selector: `dep:${dependencyId}`,
+          });
+          continue;
+        }
+        const observedSignature = installed.interpretation_signature;
+        const state = observedSignature === lockedSignature ? "unchanged" : "changed";
+        items.push({
+          id: dependencyId,
+          state,
+          lockedSignature,
+          observedSignature,
+          comparison: "complete",
+          observedSources: installed.sources.map(sourceOutput),
+        });
+        if (state === "changed")
+          diagnostics.push({
+            code: "DEPENDENCY_DRIFT",
+            severity: "error",
+            message: "The installed bundled interpretation differs from the locked snapshot.",
+            file: "tbspec.lock",
+            selector: `dep:${dependencyId}`,
+          });
+        continue;
+      }
+
+      let source: SourceInventory | undefined;
+      try {
+        const ref =
+          sourceRecordValue.kind === "git" && sourceRecordValue.revision_kind !== "default"
+            ? String(sourceRecordValue.requested_ref ?? sourceRecordValue.resolved_commit)
+            : undefined;
+        source = await discoverSource({
+          source: String(sourceRecordValue.locator),
+          cwd: root,
+          ...(ref ? { ref } : {}),
+          resource: String(sourceRecordValue.selected_resource),
+          limits,
+          signal: options.signal,
+        });
+        const observed = await resolveDependencySource(
+          {
+            id: dependencyId,
+            kind: dependency.kind as ResourceKind,
+            resource: String(sourceRecordValue.selected_resource),
+          },
+          limits,
+          source,
+        );
+        const state =
+          observed.dependency.interpretation_signature === lockedSignature
+            ? "unchanged"
+            : "changed";
+        items.push({
+          id: dependencyId,
+          state,
+          lockedSignature,
+          observedSignature: observed.dependency.interpretation_signature,
+          comparison: "complete",
+          observedSources: observed.dependency.sources.map(sourceOutput),
+        });
+        if (state === "changed")
+          diagnostics.push({
+            code: "DEPENDENCY_DRIFT",
+            severity: "error",
+            message: "The selected source now resolves to a different interpretation.",
+            file: "tbspec.lock",
+            selector: `dep:${dependencyId}`,
+          });
+      } catch (error) {
+        const result = failure(error);
+        const unavailable = !source || result.status === "unavailable";
+        const state = unavailable ? "unavailable" : "changed";
+        const comparison = unavailable ? "unavailable" : "partial";
+        items.push({
+          id: dependencyId,
+          state,
+          lockedSignature,
+          observedSignature: null,
+          comparison,
+          observedSources: source ? [sourceOutput(sourceRecordValue)] : [],
+        });
+        diagnostics.push(
+          ...result.diagnostics.map((diagnostic) =>
+            unavailable
+              ? { ...diagnostic, selector: diagnostic.selector ?? `dep:${dependencyId}` }
+              : {
+                  ...diagnostic,
+                  code:
+                    diagnostic.code === "SOURCE_UNAVAILABLE" ? diagnostic.code : "DEPENDENCY_DRIFT",
+                  selector: diagnostic.selector ?? `dep:${dependencyId}`,
+                },
+          ),
+        );
+      } finally {
+        await source?.cleanup?.();
+      }
+    }
+    await verifyReads(root, snapshot.reads);
+    const result = ok({ items }, diagnostics);
+    if (items.some((item) => item.state === "unavailable")) result.status = "unavailable";
+    else if (items.some((item) => item.state === "changed")) result.status = "invalid";
+    return result;
+  } catch (error) {
+    return failure(error);
+  }
+}
+
 export interface DependencyAddOptions {
   project?: string;
   cwd?: string;
@@ -1843,6 +2206,7 @@ async function buildClosure(
     const lockedDependency = entry.lockedDependency;
     if (entry.lockedFile && lockedDependency && dependencyId) {
       const sourceKey = entry.lockedFile.key;
+      const activeSourceKeys = dependencyDistances(lockedDependency);
       for (const edge of lockedDependency.edges.filter((value) => value.from === sourceKey)) {
         const target = edge.to
           ? source.entries.get(`dep:${dependencyId}/${String(edge.to)}`)
@@ -1890,7 +2254,10 @@ async function buildClosure(
         });
       }
       for (const choice of lockedDependency.choices.filter(
-        (value) => value.selected && value.context === entry.lockedFile?.context,
+        (value) =>
+          value.selected &&
+          value.context === entry.lockedFile?.context &&
+          activeSourceKeys.has(String(value.selected)),
       )) {
         const selected = source.entries.get(`dep:${dependencyId}/${String(choice.selected)}`);
         if (selected) {
@@ -1900,7 +2267,6 @@ async function buildClosure(
             target_iri: choice.target_iri,
             selected: outputKey(selected),
           });
-          queue.push({ entry: selected, role: "closure" });
         }
       }
       for (const association of lockedDependency.associations.filter(
@@ -2348,46 +2714,7 @@ async function prepareDependencyFromSource(
   source: SourceInventory,
 ): Promise<PreparedDependency> {
   const dependencyId = id(options.id);
-  const requested = options.resource;
-  const requestedEntry =
-    requested === undefined
-      ? undefined
-      : [...source.entries.values()].find((entry) =>
-          [entry.address, entry.sourceResource, inspectedResource(source, entry)].includes(
-            requested,
-          ),
-        );
-  if (requestedEntry?.parseError) throw requestedEntry.parseError;
-  const candidates = [...source.entries.values()].filter((entry) =>
-    resolvedKind(options.kind, entry),
-  );
-  if (!candidates.length)
-    throw new ProjectError(
-      "invalid",
-      "RESOURCE_MISSING",
-      "Source inventory contains no resource of the requested kind.",
-    );
-  const primary =
-    requested === undefined
-      ? candidates.length === 1
-        ? candidates[0]
-        : undefined
-      : candidates.find((entry) =>
-          [entry.address, entry.sourceResource, inspectedResource(source, entry)].includes(
-            requested,
-          ),
-        );
-  if (!primary)
-    throw new ProjectError(
-      requested ? "invalid_arguments" : "invalid_arguments",
-      requested ? "RESOURCE_MISSING" : "RESOURCE_SELECTION_REQUIRED",
-      requested
-        ? "Selected source resource is unavailable or has a different kind."
-        : "Select one resource from the source inventory.",
-    );
-  const closure = await buildClosure(source, primary, limits);
-  await source.verifyIncluded?.(closure.entries);
-  const dependency = dependencyFor(dependencyId, options.kind, source, primary, closure);
+  const { closure, dependency } = await resolveDependencySource(options, limits, source);
   const lock: Lock = {
     ...current.lock,
     dependencies: { ...current.lock.dependencies, [dependencyId]: dependency },
@@ -2449,7 +2776,7 @@ async function prepareDependencyFromSource(
     id: dependencyId,
     kind: options.kind,
     source: source.locator,
-    resource: inspectedResource(source, primary),
+    resource: options.resource ?? dependency.primary,
   });
   const staged = {
     ...snapshot,
@@ -2504,6 +2831,53 @@ async function prepareDependencyFromSource(
     validationComplete: after.data?.project?.validationComplete ?? false,
   };
 }
+
+async function resolveDependencySource(
+  options: Pick<DependencyAddOptions, "id" | "kind" | "resource">,
+  limits: Limits,
+  source: SourceInventory,
+): Promise<{ dependency: Dependency; closure: ClosureResult }> {
+  const dependencyId = id(options.id);
+  const requested = options.resource;
+  const requestedEntry =
+    requested === undefined
+      ? undefined
+      : ([...source.entries.values()].find((entry) =>
+          [entry.address, entry.sourceResource, inspectedResource(source, entry)].includes(
+            requested,
+          ),
+        ) ?? (source.kind === "url" ? source.entries.values().next().value : undefined));
+  if (requestedEntry?.parseError) throw requestedEntry.parseError;
+  const candidates = [...source.entries.values()].filter((entry) =>
+    resolvedKind(options.kind, entry),
+  );
+  if (!candidates.length)
+    throw new ProjectError(
+      "invalid",
+      "RESOURCE_MISSING",
+      "Source inventory contains no resource of the requested kind.",
+    );
+  const primary =
+    requested === undefined
+      ? candidates.length === 1
+        ? candidates[0]
+        : undefined
+      : candidates.includes(requestedEntry as SourceEntry)
+        ? requestedEntry
+        : undefined;
+  if (!primary)
+    throw new ProjectError(
+      "invalid_arguments",
+      requested ? "RESOURCE_MISSING" : "RESOURCE_SELECTION_REQUIRED",
+      requested
+        ? "Selected source resource is unavailable or has a different kind."
+        : "Select one resource from the source inventory.",
+    );
+  const closure = await buildClosure(source, primary, limits);
+  await source.verifyIncluded?.(closure.entries);
+  const dependency = dependencyFor(dependencyId, options.kind, source, primary, closure);
+  return { dependency, closure };
+}
 function previewConflict(prepared: PreparedDependency, code: string, message: string): Result {
   const result = ok(
     {
@@ -2548,18 +2922,151 @@ export async function dependencyList(_options: {
 }): Promise<Result> {
   try {
     const project = await readProject({ project: _options.project, cwd: _options.cwd });
-    const items = Object.entries(project.lock.dependencies)
+    const inspectionSnapshot = await captureInspection(project.root, "graph.list");
+    for (const path of ["tbspec.toml", "tbspec.lock"])
+      if (!project.snapshot.files[path]?.equals(inspectionSnapshot.files[path] ?? Buffer.alloc(0)))
+        throw new ProjectError(
+          "conflict",
+          "REVISION_CONFLICT",
+          "Project changed while dependency candidates were being listed.",
+          path,
+        );
+    const ownedResult = await inspectSnapshot(project.root, inspectionSnapshot, {
+      command: "graph.list",
+    });
+    if (!ownedResult.data)
+      throw new ProjectError(
+        ownedResult.status,
+        ownedResult.diagnostics[0]?.code ?? "PROJECT_INVALID",
+        ownedResult.diagnostics[0]?.message ?? "Project ontology candidates could not be listed.",
+      );
+    const candidates: {
+      selector: string;
+      graphIri: string;
+      signature: string;
+      rank: number;
+      dependencyId?: string;
+      file?: LockedFile;
+    }[] = [];
+    for (const resource of ownedResult.data.items ?? []) {
+      if (resource.kind !== "ontology" || !resource.graphIri) continue;
+      const bytes = inspectionSnapshot.files[resource.file];
+      if (!bytes) continue;
+      const extension = extname(resource.file).toLowerCase();
+      const mediaType = rdfFormats[extension];
+      if (!mediaType) continue;
+      const baseIri = pathToFileURL(await safePath(project.root, resource.file)).href;
+      candidates.push({
+        selector: resource.selector,
+        graphIri: resource.graphIri,
+        signature: graphSignature({
+          byte_digest: digest(bytes),
+          media_type: mediaType,
+          base_iri: baseIri,
+          parser_profile:
+            mediaType === "text/turtle"
+              ? "turtle-strict-v1"
+              : mediaType === "application/n-triples"
+                ? "ntriples-strict-v1"
+                : "rdfxml-no-dtd-v1",
+        }),
+        rank: 0,
+      });
+    }
+    const dependencies = Object.entries(project.lock.dependencies);
+    const distances = new Map<string, Map<string, number>>();
+    for (const [dependencyId, dependency] of dependencies) {
+      const reachable = dependencyDistances(dependency, 1);
+      distances.set(dependencyId, reachable);
+      for (const [key, distance] of reachable) {
+        const file = dependency.files.find((item) => item.key === key);
+        if (file?.kind !== "ontology" || !file.graph_iri) continue;
+        const sourceChoice = dependency.choices.find(
+          (choice) =>
+            choice.kind === "ontology" &&
+            choice.target_iri === file.graph_iri &&
+            choice.context === file.context,
+        );
+        const selectedIsReachable =
+          sourceChoice !== undefined && reachable.has(String(sourceChoice.selected));
+        if (selectedIsReachable && sourceChoice?.selected !== key) continue;
+        candidates.push({
+          selector: `dep:${dependencyId}/${key}`,
+          graphIri: file.graph_iri,
+          signature: file.graph_signature,
+          rank: distance,
+          dependencyId,
+          file,
+        });
+      }
+    }
+    const choices = (project.manifest.ontology_choices as Record<string, string> | undefined) ?? {};
+    const resolutions = new Map(
+      [...new Set(candidates.map((candidate) => candidate.graphIri))].map((graphIri) => [
+        graphIri,
+        resolveOntologyCandidates(graphIri, candidates, choices),
+      ]),
+    );
+    const items = dependencies
       .sort(([left], [right]) => utf8Compare(left, right))
       .map(([name, dependency]) => ({
         id: name,
         kind: dependency.kind,
         primarySelector: `dep:${name}/${dependency.primary}`,
         interpretationSignature: dependency.interpretation_signature,
+        sources: dependency.sources.map(sourceOutput),
+        support: [
+          ...dependency.associations.map((association) => ({
+            kind: "association",
+            context: association.context ?? null,
+            resourceSelector: `dep:${name}/${String(association.resource)}`,
+            supportSelector: `dep:${name}/${String(association.support)}`,
+            role: association.role,
+            origin: association.origin ?? null,
+            active: association.active ?? false,
+          })),
+          ...dependency.bindings.map((binding) => ({
+            kind: "binding",
+            context: binding.context ?? null,
+            resourceSelector: `dep:${name}/${String(binding.resource)}`,
+            ontologySelectors: ((binding.ontologies as string[] | undefined) ?? []).map(
+              (key) => `dep:${name}/${key}`,
+            ),
+            schemaSelectors: ((binding.schemas as string[] | undefined) ?? []).map(
+              (key) => `dep:${name}/${key}`,
+            ),
+            modelType: binding.model_type ?? null,
+          })),
+          ...dependency.choices.map((choice) => ({
+            kind: "source-choice",
+            context: choice.context ?? null,
+            targetIri: choice.target_iri,
+            selectedSelector: `dep:${name}/${String(choice.selected)}`,
+          })),
+        ],
         files: dependency.files.map((file) => ({
           selector: `dep:${name}/${file.key}`,
           file: `${dependency.snapshot_path}/${file.key}`,
           role: file.roles,
         })),
+        ontologies: dependency.files.flatMap((file) => {
+          if (file.kind !== "ontology" || !file.graph_iri) return [];
+          const resolution = resolutions.get(file.graph_iri);
+          return [
+            {
+              graphIri: file.graph_iri,
+              selector: `dep:${name}/${file.key}`,
+              signature: file.graph_signature,
+              effective:
+                resolution?.effective.some(
+                  (candidate) => candidate.selector === `dep:${name}/${file.key}`,
+                ) ?? false,
+              choice: choices[file.graph_iri] ?? null,
+              resolution: resolution?.state ?? "none",
+              candidates: resolution?.conflicted.map((candidate) => candidate.selector) ?? [],
+            },
+          ];
+        }),
       }));
     return ok({ items });
   } catch (error) {

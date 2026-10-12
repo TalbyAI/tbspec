@@ -6,6 +6,7 @@ import { digest, graphSignature, utf8Compare } from "./canonical.ts";
 import { equalRevision, fileBytes, revision, verifyReads } from "./filesystem.ts";
 import type { Check, Resource, Validation } from "./inspection.ts";
 import { rdfTerm as encodeTerm } from "./inspection.ts";
+import { dependencyDistances, resolveOntologyCandidates } from "./ontology-resolution.ts";
 import { type Diagnostic, failure, ok, ProjectError, type Result } from "./output.ts";
 import { safePath } from "./paths.ts";
 import { classifyGraph, parseGraph, parseRdf, rdfFormats } from "./rdf.ts";
@@ -399,28 +400,15 @@ export async function validateInspection(input: {
     });
   const distances = new Map<string, number>();
   if (lock)
-    for (const [id, dep] of Object.entries(lock.dependencies)) {
-      const queue = [{ key: dep.primary, distance: 1 }];
-      for (const { key, distance } of queue) {
-        const selector = `dep:${id}/${key}`;
-        if ((distances.get(selector) ?? Infinity) <= distance) continue;
-        distances.set(selector, distance);
-        for (const edge of dep.edges)
-          if (
-            edge.from === key &&
-            edge.context === records.get(selector)?.context &&
-            typeof edge.to === "string"
-          )
-            queue.push({ key: edge.to, distance: distance + 1 });
-      }
-    }
+    for (const [id, dependency] of Object.entries(lock.dependencies))
+      for (const [key, distance] of dependencyDistances(dependency, 1))
+        distances.set(`dep:${id}/${key}`, distance);
   function ontologyCandidates(iri: string, owner: Resource) {
     let candidates = resources.filter((r) => r.graphIri === iri && r.kind === "ontology");
     const configured = manifest?.ontology_choices as Record<string, string> | undefined;
-    const choice = configured && Object.hasOwn(configured, iri) ? configured[iri] : undefined;
     candidates = candidates.filter((r) => {
-      if (!r.dependencyId || !lock) return !choice;
-      if (choice && r.dependencyId !== choice) return false;
+      if (!r.dependencyId || !lock) return true;
+      if (!distances.has(r.selector)) return false;
       const dep = lock.dependencies[r.dependencyId];
       const sourceChoice = dep?.choices.find(
         (c) =>
@@ -428,27 +416,48 @@ export async function validateInspection(input: {
           c.target_iri === iri &&
           c.context === records.get(`dep:${r.dependencyId}/${dep.primary}`)?.context,
       );
-      return !sourceChoice || sourceChoice.selected === records.get(r.selector)?.key;
+      const selectedIsReachable =
+        sourceChoice !== undefined &&
+        distances.has(`dep:${r.dependencyId}/${String(sourceChoice.selected)}`);
+      return !selectedIsReachable || sourceChoice?.selected === records.get(r.selector)?.key;
     });
-    const rank = (r: Resource) =>
-      r.ownership === "project" ? 0 : (distances.get(r.selector) ?? Infinity);
-    const best = candidates.reduce((value, r) => Math.min(value, rank(r)), Infinity);
-    if (!choice) candidates = candidates.filter((r) => rank(r) === best && best !== Infinity);
-    if (new Set(candidates.map(signature)).size > 1) {
+    const ranked = candidates.map((candidate) => ({
+      selector: candidate.selector,
+      graphIri: iri,
+      signature: signature(candidate),
+      rank: candidate.ownership === "project" ? 0 : (distances.get(candidate.selector) ?? Infinity),
+      ...(candidate.dependencyId ? { dependencyId: candidate.dependencyId } : {}),
+      resource: candidate,
+    }));
+    const resolution = resolveOntologyCandidates(
+      iri,
+      ranked,
+      owner.ownership === "project" ? (configured ?? {}) : {},
+    );
+    if (resolution.state !== "resolved" && resolution.state !== "none") {
       emit(
         owner,
         "ONTOLOGY_CONFLICT",
         "association",
-        "Effective ontology candidates have different content at the winning priority.",
+        resolution.state === "broken-choice"
+          ? "Configured ontology choice has no matching dependency candidate."
+          : resolution.state === "ambiguous-choice"
+            ? "Configured dependency contains multiple different versions of this ontology."
+            : "Effective ontology candidates have different content at the winning priority.",
         {
           kind: "collision",
           iri: { kind: "iri", value: iri },
-          candidates: candidates.map((r) => r.selector).sort(utf8Compare),
+          candidates: resolution.conflicted
+            .map((candidate) => candidate.selector)
+            .sort(utf8Compare),
         },
       );
       return [];
     }
-    return candidates;
+    return resolution.effective.flatMap((candidate) => {
+      const resource = ranked.find((item) => item.selector === candidate.selector)?.resource;
+      return resource ? [resource] : [];
+    });
   }
   async function supportedShapes(resource: Resource) {
     if (shapeGraphs.has(resource.selector)) return shapeGraphs.get(resource.selector);
@@ -504,6 +513,7 @@ export async function validateInspection(input: {
     const seen = new Set<string>();
     async function include(selected: string, role: string, owner: Resource, bound = false) {
       let linked = resources.find((r) => r.selector === expand(selected));
+      let sameContentCandidates: Resource[] = [];
       if (
         linked?.kind === "ontology" &&
         !bound &&
@@ -527,7 +537,11 @@ export async function validateInspection(input: {
           blockers.push(selected);
           return;
         }
-        linked = candidates[0];
+        const sorted = [...candidates].sort((left, right) =>
+          utf8Compare(left.selector, right.selector),
+        );
+        linked = sorted[0];
+        sameContentCandidates = sorted.slice(1);
       }
       const allowed =
         role === "schema"
@@ -629,6 +643,8 @@ export async function validateInspection(input: {
             blockers.push(linked.file);
           }
         }
+      for (const candidate of sameContentCandidates)
+        await include(candidate.selector, "ontology", linked, true);
     }
     if (lock) await include(lock.starters.common_contract, "ontology", resource, true);
     if (resource.kind === "design" && lock) {

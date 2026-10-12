@@ -17,6 +17,7 @@ import {
 } from "./filesystem.ts";
 import { captureInspection } from "./inspection.ts";
 import { withLock } from "./lock.ts";
+import { dependencyDistances, resolveOntologyCandidates } from "./ontology-resolution.ts";
 import { failure, ok, ProjectError, type Result } from "./output.ts";
 import { absoluteIri, id, portablePath, safePath } from "./paths.ts";
 import { discoverProject } from "./project.ts";
@@ -846,35 +847,6 @@ interface Candidate {
   file?: Dependency["files"][number];
 }
 
-function reachableFiles(dependency: Dependency): Map<string, number> {
-  const distances = new Map<string, number>([[dependency.primary, 0]]);
-  const queue = [dependency.primary];
-  const add = (key: string, from: string) => {
-    const distance = (distances.get(from) ?? 0) + 1;
-    if (!distances.has(key) || distance < (distances.get(key) ?? Infinity)) {
-      distances.set(key, distance);
-      queue.push(key);
-    }
-  };
-  while (queue.length) {
-    const key = queue.shift();
-    if (!key) continue;
-    for (const edge of dependency.edges)
-      if (edge.from === key && edge.to) add(String(edge.to), key);
-    for (const binding of dependency.bindings)
-      if (binding.resource === key)
-        for (const file of [
-          ...(Array.isArray(binding.ontologies) ? binding.ontologies : []),
-          ...(Array.isArray(binding.schemas) ? binding.schemas : []),
-        ])
-          add(String(file), key);
-    for (const association of dependency.associations)
-      if (association.resource === key && association.active) add(String(association.support), key);
-    for (const choice of dependency.choices) add(String(choice.selected), key);
-  }
-  return distances;
-}
-
 async function loadFullDataset(root: string): Promise<Store> {
   const snapshot = await captureInspection(root, "status");
   const manifest = parseManifest(snapshot.files["tbspec.toml"]?.toString("utf8") ?? "");
@@ -882,7 +854,7 @@ async function loadFullDataset(root: string): Promise<Store> {
   const bundle = await loadStarters();
   const reachable = new Map<string, Map<string, number>>();
   for (const [idValue, dependency] of Object.entries(lock.dependencies)) {
-    const distances = reachableFiles(dependency);
+    const distances = dependencyDistances(dependency);
     reachable.set(idValue, distances);
   }
   const loaded = new Map<string, LoadedGraph>();
@@ -913,7 +885,7 @@ async function loadFullDataset(root: string): Promise<Store> {
         selector: file,
         graphIri: graph.graphIri,
         signature: graph.signature,
-        rank: 1,
+        rank: 0,
       });
   }
   const dependencyCandidates: Candidate[] = [];
@@ -925,7 +897,7 @@ async function loadFullDataset(root: string): Promise<Store> {
           selector: `dep:${idValue}/${key}`,
           graphIri: file.graph_iri,
           signature: file.graph_signature,
-          rank: 2 + distance,
+          rank: 1 + distance,
           dependencyId: idValue,
           dependency,
           file,
@@ -935,58 +907,46 @@ async function loadFullDataset(root: string): Promise<Store> {
   const allCandidates = [...localCandidates, ...dependencyCandidates];
   const ontologyWinners = new Set<string>();
   const winningCandidateGroups: Candidate[][] = [];
-  const ontologyIris = new Set(allCandidates.map((candidate) => candidate.graphIri));
-  for (const [iri, chosen] of Object.entries(
-    (manifest.ontology_choices as Record<string, string> | undefined) ?? {},
-  ))
-    if (!ontologyIris.has(iri))
-      throw new ProjectError(
-        "conflict",
-        "ONTOLOGY_CONFLICT",
-        "Configured ontology choice has no matching candidate graph.",
-        "tbspec.toml",
-        { graphIri: iri, dependency: chosen },
-      );
+  const choices = (manifest.ontology_choices as Record<string, string> | undefined) ?? {};
+  const ontologyIris = new Set([
+    ...allCandidates.map((candidate) => candidate.graphIri),
+    ...Object.keys(choices),
+  ]);
   for (const graphIri of ontologyIris) {
-    let candidates = allCandidates.filter((candidate) => candidate.graphIri === graphIri);
-    candidates = candidates.filter((candidate) => {
+    const candidates = allCandidates.filter((candidate) => {
+      if (candidate.graphIri !== graphIri) return false;
       if (!candidate.dependency || !candidate.file) return true;
       const choices = candidate.dependency.choices.filter(
         (choice) =>
           choice.kind === "ontology" &&
           choice.target_iri === graphIri &&
-          choice.context === candidate.file?.context,
+          choice.context === candidate.file?.context &&
+          reachable.get(candidate.dependencyId ?? "")?.has(String(choice.selected)),
       );
       return (
         choices.length === 0 || choices.some((choice) => choice.selected === candidate.file?.key)
       );
     });
-    const chosenId = (manifest.ontology_choices as Record<string, string> | undefined)?.[graphIri];
-    if (chosenId) {
-      const selected = candidates.filter((candidate) => candidate.dependencyId === chosenId);
-      if (!selected.length)
-        throw new ProjectError(
-          "conflict",
-          "ONTOLOGY_CONFLICT",
-          "Configured ontology choice has no matching effective dependency candidate.",
-          "tbspec.toml",
-          { graphIri, dependency: chosenId },
-        );
-      candidates = selected;
-    }
-    if (!candidates.length) continue;
-    const rank = Math.min(...candidates.map((candidate) => candidate.rank));
-    const winners = candidates.filter((candidate) => candidate.rank === rank);
-    if (new Set(winners.map((candidate) => candidate.signature)).size > 1)
+    const resolution = resolveOntologyCandidates(graphIri, candidates, choices);
+    if (resolution.state === "none") continue;
+    if (resolution.state !== "resolved")
       throw new ProjectError(
         "conflict",
         "ONTOLOGY_CONFLICT",
-        "Different ontology candidates tie at the effective resolution rank.",
-        null,
-        { graphIri, selectors: winners.map((candidate) => candidate.selector).sort(utf8Compare) },
+        resolution.state === "broken-choice"
+          ? "Configured ontology choice has no matching candidate graph."
+          : resolution.state === "ambiguous-choice"
+            ? "Configured dependency contains multiple different versions of this ontology."
+            : "Different ontology candidates tie at the effective resolution rank.",
+        resolution.state === "broken-choice" ? "tbspec.toml" : null,
+        {
+          graphIri,
+          ...(resolution.chosenDependencyId ? { dependency: resolution.chosenDependencyId } : {}),
+          selectors: resolution.conflicted.map((candidate) => candidate.selector).sort(utf8Compare),
+        },
       );
-    for (const winner of winners) ontologyWinners.add(winner.selector);
-    winningCandidateGroups.push(winners);
+    for (const winner of resolution.effective) ontologyWinners.add(winner.selector);
+    winningCandidateGroups.push(resolution.effective as Candidate[]);
   }
   for (const group of winningCandidateGroups) {
     const selected = [...group].sort((left, right) =>

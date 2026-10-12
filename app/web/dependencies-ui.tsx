@@ -25,6 +25,22 @@ interface DependencyItem {
   primarySelector: string;
   interpretationSignature: string;
   files: { selector: string; file: string; role: string[] }[];
+  sources: Record<string, unknown>[];
+  support: Record<string, unknown>[];
+  ontologies: {
+    graphIri: string;
+    selector: string;
+    signature: string;
+    effective: boolean;
+    choice: string | null;
+    resolution: string;
+    candidates: string[];
+  }[];
+}
+interface CheckItem {
+  id: string;
+  state: "unchanged" | "changed" | "unavailable";
+  comparison: "complete" | "partial" | "unavailable";
 }
 interface Props {
   session: string;
@@ -46,6 +62,7 @@ export function DependenciesPanel({ session, onApplied }: Props) {
   const [kind, setKind] = useState<"ontology" | "model" | "design">("ontology");
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [dependencies, setDependencies] = useState<DependencyItem[]>([]);
+  const [checks, setChecks] = useState<CheckItem[]>([]);
   const [selected, setSelected] = useState<Record<string, unknown> | null>(null);
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [diagnostics, setDiagnostics] = useState<Envelope["diagnostics"]>([]);
@@ -59,6 +76,7 @@ export function DependenciesPanel({ session, onApplied }: Props) {
       path: string,
       body?: Record<string, unknown>,
       signal?: AbortSignal,
+      allowDomainFailure = false,
     ): Promise<Envelope> => {
       const response = await fetch(`/api/project/v1/${path}`, {
         method: body ? "POST" : "GET",
@@ -73,7 +91,7 @@ export function DependenciesPanel({ session, onApplied }: Props) {
       const envelope = (await response.json()) as Envelope;
       if (envelope.schemaVersion !== 1)
         throw new Error("Incompatible project API. Restart the server with a matching release.");
-      if (!response.ok)
+      if (!response.ok && !allowDomainFailure)
         throw new Error(
           envelope.diagnostics.map((diagnostic) => diagnostic.message).join(" ") ||
             "Dependency operation failed.",
@@ -210,6 +228,56 @@ export function DependenciesPanel({ session, onApplied }: Props) {
     }
   }
 
+  async function checkDependencies(id?: string) {
+    const operation = operationId();
+    const controller = new AbortController();
+    activeOperation.current = operation;
+    activeController.current = controller;
+    setBusy(true);
+    setError("");
+    setDiagnostics([]);
+    try {
+      const result = await send(
+        "dependencies/check",
+        { ...(id ? { id } : {}), operationId: operation },
+        controller.signal,
+        true,
+      );
+      setChecks((result.data?.items as CheckItem[]) ?? []);
+      setDiagnostics(result.diagnostics ?? []);
+    } catch (problem) {
+      if (!controller.signal.aborted)
+        setError(problem instanceof Error ? problem.message : "Could not check dependencies.");
+    } finally {
+      if (activeOperation.current === operation) {
+        activeOperation.current = "";
+        activeController.current = null;
+      }
+      setBusy(false);
+    }
+  }
+
+  async function chooseOntology(ontologyIri: string, id: string | null) {
+    setBusy(true);
+    setError("");
+    setDiagnostics([]);
+    try {
+      const result = await send(`dependencies/${id ? "select" : "clear"}`, {
+        ontologyIri,
+        ...(id ? { id } : {}),
+      });
+      setDiagnostics(result.diagnostics ?? []);
+      await loadDependencies();
+      onApplied();
+    } catch (problem) {
+      setError(
+        problem instanceof Error ? problem.message : "Could not update the ontology choice.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const inspect = (event: React.FormEvent) => {
     event.preventDefault();
     if (!source.trim()) return;
@@ -293,7 +361,7 @@ export function DependenciesPanel({ session, onApplied }: Props) {
           </button>
           {busy && (
             <button type="button" onClick={() => void cancelCurrent()}>
-              Cancel acquisition
+              Cancel current dependency operation
             </button>
           )}
         </form>
@@ -305,7 +373,7 @@ export function DependenciesPanel({ session, onApplied }: Props) {
       )}
       {busy && (
         <p role="status">
-          Inspecting and staging source bytes… Other workspace sections remain available.
+          A dependency operation is in progress… Other workspace sections remain available.
         </p>
       )}
       {items.length > 0 && (
@@ -384,6 +452,18 @@ export function DependenciesPanel({ session, onApplied }: Props) {
         </ul>
       )}
       <h3>Locked dependencies</h3>
+      <button type="button" disabled={busy} onClick={() => void checkDependencies()}>
+        Check all dependencies
+      </button>
+      {checks.length > 0 && (
+        <ul aria-label="Dependency check results">
+          {checks.map((result) => (
+            <li key={result.id}>
+              {result.id}: {result.state} ({result.comparison} comparison)
+            </li>
+          ))}
+        </ul>
+      )}
       {dependencies.length === 0 ? (
         <p>No dependencies are locked in this project.</p>
       ) : (
@@ -396,6 +476,49 @@ export function DependenciesPanel({ session, onApplied }: Props) {
                   {item.kind} · {item.files.length} files · {item.primarySelector}
                 </span>
               </button>
+              <button type="button" disabled={busy} onClick={() => void checkDependencies(item.id)}>
+                Check {item.id}
+              </button>
+              {item.ontologies.map((ontology) => (
+                <div key={`${ontology.graphIri}:${ontology.selector}`}>
+                  <span>
+                    {ontology.graphIri} · {ontology.effective ? "effective" : ontology.resolution}
+                    {ontology.choice ? ` · choice ${ontology.choice}` : ""}
+                  </span>
+                  {ontology.choice === item.id ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void chooseOntology(ontology.graphIri, null)}
+                    >
+                      Clear choice for {ontology.graphIri}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void chooseOntology(ontology.graphIri, item.id)}
+                    >
+                      Select {item.id} for {ontology.graphIri}
+                    </button>
+                  )}
+                </div>
+              ))}
+              <details>
+                <summary>Retained selectors, provenance and support</summary>
+                <pre>
+                  {JSON.stringify(
+                    {
+                      files: item.files.map((file) => file.selector),
+                      sources: item.sources,
+                      support: item.support,
+                      ontologies: item.ontologies,
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
+              </details>
             </li>
           ))}
         </ul>

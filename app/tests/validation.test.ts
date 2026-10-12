@@ -708,6 +708,15 @@ test("whole validation keeps independently source-bound vocabulary versions out 
       (await inspectProject({ project: root, command: "validate", selector: `dep:${id}` })).status,
       "ok",
     );
+  await writeFile(
+    join(root, "tbspec.toml"),
+    `${await readFile(join(root, "tbspec.toml"), "utf8")}\n[ontology_choices]\n"urn:ex:vocabulary" = "source-two"\n`,
+  );
+  for (const id of ["source-one", "source-two"])
+    assert.equal(
+      (await inspectProject({ project: root, command: "validate", selector: `dep:${id}` })).status,
+      "ok",
+    );
   const whole = await inspectProject({ project: root, command: "validate" });
   assert.equal(whole.status, "ok", JSON.stringify(whole.diagnostics));
 });

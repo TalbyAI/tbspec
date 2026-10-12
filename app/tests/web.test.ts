@@ -214,6 +214,58 @@ test("authenticated HTTP stages, applies, lists and shows an acquired directory 
   assert.equal(applied.envelope.status, "ok", JSON.stringify(applied.envelope));
   const listed = await request("dependencies");
   assert.ok(listed.envelope.data);
+  const listedSource = (
+    listed.envelope.data.items as {
+      id: string;
+      ontologies: { graphIri: string; effective: boolean; choice: string | null }[];
+    }[]
+  ).find((item) => item.id === "web-source");
+  assert.ok(
+    listedSource?.ontologies.some((item) => item.graphIri === "https://example.org/web-acquired"),
+  );
+  const selected = await request("dependencies/select", {
+    ontologyIri: "https://example.org/web-acquired",
+    id: "web-source",
+  });
+  assert.equal(selected.envelope.status, "ok", JSON.stringify(selected.envelope));
+  const selectedListing = await request("dependencies");
+  assert.ok(selectedListing.envelope.data);
+  const selectedItem = (
+    selectedListing.envelope.data.items as {
+      id: string;
+      ontologies: { graphIri: string; effective: boolean; choice: string | null }[];
+    }[]
+  ).find((item) => item.id === "web-source");
+  assert.ok(
+    selectedItem?.ontologies.some(
+      (item) =>
+        item.graphIri === "https://example.org/web-acquired" &&
+        item.effective &&
+        item.choice === "web-source",
+    ),
+  );
+  const cleared = await request("dependencies/clear", {
+    ontologyIri: "https://example.org/web-acquired",
+  });
+  assert.equal(cleared.envelope.status, "ok", JSON.stringify(cleared.envelope));
+  const checked = await request("dependencies/check", {
+    id: "web-source",
+    operationId: "web-source-check-0001",
+  });
+  assert.equal(checked.status, 422);
+  assert.equal(checked.envelope.status, "invalid");
+  assert.ok(checked.envelope.data);
+  const checkedItem = (checked.envelope.data.items as { state: string; comparison: string }[])[0];
+  assert.equal(checkedItem?.state, "changed");
+  assert.equal(checkedItem?.comparison, "partial");
+  const checkedAll = await request("dependencies/check", {
+    operationId: "web-source-check-all-0001",
+  });
+  assert.equal(checkedAll.status, 422);
+  assert.ok(checkedAll.envelope.data);
+  assert.ok(
+    (checkedAll.envelope.data.items as { id: string }[]).some((item) => item.id === "web-source"),
+  );
   assert.ok(
     (listed.envelope.data.items as { id: string }[]).some((item) => item.id === "web-source"),
   );
