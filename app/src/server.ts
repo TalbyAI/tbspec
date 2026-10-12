@@ -865,12 +865,146 @@ export async function startWebServer(
           );
           return;
         }
+        if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/update") {
+          const body = await jsonBody(request);
+          if (
+            Object.keys(body).some((key) => !["id", "operationId"].includes(key)) ||
+            typeof body.id !== "string" ||
+            (body.operationId !== undefined &&
+              (typeof body.operationId !== "string" ||
+                !/^[A-Za-z0-9_-]{16,64}$/.test(body.operationId)))
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Invalid dependency update fields.",
+            );
+          const operationId = typeof body.operationId === "string" ? body.operationId : token();
+          if (activeDependencyOperations.has(operationId))
+            throw new ProjectError(
+              "conflict",
+              "OPERATION_OWNERSHIP",
+              "Dependency operation ID is already active.",
+            );
+          activeDependencyOperations.set(operationId, credential ?? "");
+          respond(
+            response,
+            await acquire(
+              { operation: "update-preview", id: body.id, operationId },
+              credential ?? "",
+            ),
+          );
+          return;
+        }
+        if (
+          request.method === "POST" &&
+          url.pathname === "/api/project/v1/dependencies/support/set"
+        ) {
+          const body = await jsonBody(request);
+          if (
+            Object.keys(body).some(
+              (key) =>
+                !["id", "target", "role", "source", "ref", "resource", "operationId"].includes(key),
+            ) ||
+            typeof body.id !== "string" ||
+            typeof body.target !== "string" ||
+            (body.role !== "shacl" && body.role !== "design") ||
+            typeof body.source !== "string" ||
+            typeof body.resource !== "string" ||
+            ["ref", "operationId"].some(
+              (key) => body[key] !== undefined && typeof body[key] !== "string",
+            ) ||
+            (body.operationId !== undefined &&
+              !/^[A-Za-z0-9_-]{16,64}$/.test(body.operationId as string))
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Invalid dependency support set fields.",
+            );
+          const operationId = typeof body.operationId === "string" ? body.operationId : token();
+          if (activeDependencyOperations.has(operationId))
+            throw new ProjectError(
+              "conflict",
+              "OPERATION_OWNERSHIP",
+              "Dependency operation ID is already active.",
+            );
+          activeDependencyOperations.set(operationId, credential ?? "");
+          respond(
+            response,
+            await acquire(
+              {
+                operation: "support-set-preview",
+                id: body.id,
+                target: body.target,
+                role: body.role,
+                source: body.source,
+                resource: body.resource,
+                ...(typeof body.ref === "string" ? { ref: body.ref } : {}),
+                operationId,
+              },
+              credential ?? "",
+            ),
+          );
+          return;
+        }
+        if (
+          request.method === "POST" &&
+          url.pathname === "/api/project/v1/dependencies/support/clear"
+        ) {
+          const body = await jsonBody(request);
+          if (
+            Object.keys(body).some(
+              (key) => !["id", "target", "role", "resource", "operationId"].includes(key),
+            ) ||
+            typeof body.id !== "string" ||
+            typeof body.target !== "string" ||
+            (body.role !== "shacl" && body.role !== "design") ||
+            typeof body.resource !== "string" ||
+            (body.operationId !== undefined &&
+              (typeof body.operationId !== "string" ||
+                !/^[A-Za-z0-9_-]{16,64}$/.test(body.operationId)))
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Invalid dependency support clear fields.",
+            );
+          const operationId = typeof body.operationId === "string" ? body.operationId : token();
+          if (activeDependencyOperations.has(operationId))
+            throw new ProjectError(
+              "conflict",
+              "OPERATION_OWNERSHIP",
+              "Dependency operation ID is already active.",
+            );
+          activeDependencyOperations.set(operationId, credential ?? "");
+          respond(
+            response,
+            await acquire(
+              {
+                operation: "support-clear-preview",
+                id: body.id,
+                target: body.target,
+                role: body.role,
+                resource: body.resource,
+                operationId,
+              },
+              credential ?? "",
+            ),
+          );
+          return;
+        }
         if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/apply") {
           const body = await jsonBody(request);
           if (
-            Object.keys(body).some((key) => !["handle", "fingerprint"].includes(key)) ||
+            Object.keys(body).some(
+              (key) => !["schemaVersion", "handle", "fingerprint", "accept"].includes(key),
+            ) ||
+            (body.schemaVersion !== undefined && body.schemaVersion !== 1) ||
             typeof body.handle !== "string" ||
-            typeof body.fingerprint !== "string"
+            typeof body.fingerprint !== "string" ||
+            !Array.isArray(body.accept) ||
+            body.accept.some((item) => typeof item !== "string")
           )
             throw new ProjectError(
               "invalid_arguments",
@@ -880,7 +1014,12 @@ export async function startWebServer(
           respond(
             response,
             await acquire(
-              { operation: "apply", handle: body.handle, fingerprint: body.fingerprint },
+              {
+                operation: "apply",
+                handle: body.handle,
+                fingerprint: body.fingerprint,
+                accept: body.accept as string[],
+              },
               credential ?? "",
             ),
           );

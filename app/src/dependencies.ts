@@ -125,6 +125,7 @@ export interface PreparedDependency {
   diagnostics: Diagnostic[];
   projectValidity: "valid" | "invalid" | "unchecked";
   validationComplete: boolean;
+  requiresImpactAcceptance?: boolean;
 }
 
 function checkCancelled(source: SourceInventory): void {
@@ -1546,6 +1547,130 @@ export async function dependencyAdd(_options: {
   }
 }
 
+export async function dependencyUpdate(options: {
+  project?: string;
+  cwd?: string;
+  id: string;
+  apply?: boolean;
+  acceptImpact?: boolean;
+  acceptedPreview?: string;
+  signal?: AbortSignal;
+}): Promise<Result> {
+  try {
+    if (
+      options.acceptedPreview !== undefined &&
+      !/^sha256:[0-9a-f]{64}$/.test(options.acceptedPreview)
+    )
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "Accepted preview must be a SHA-256 digest.",
+      );
+    if (!options.apply && options.acceptedPreview)
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "--accepted-preview requires --apply for dependency update.",
+      );
+    const prepared = await prepareDependencyUpdate(options);
+    if (!options.apply) return dependencyPreview(prepared, "preview");
+    if (!options.acceptedPreview)
+      return previewConflict(
+        prepared,
+        "PREVIEW_REQUIRED",
+        "Review the dependency update and retry with --accepted-preview.",
+      );
+    if (options.acceptedPreview !== prepared.plan.preview.fingerprint)
+      return previewConflict(
+        prepared,
+        "PREVIEW_CHANGED",
+        "The reacquired dependency differs from the accepted preview. Review the new preview and retry.",
+      );
+    if (prepared.requiresImpactAcceptance && !options.acceptImpact)
+      return previewConflict(
+        prepared,
+        "ACCEPTANCE_REQUIRED",
+        "Dependency update introduces or worsens affected impact. Retry with --accept-impact after review.",
+      );
+    return await publishPreparedDependency(prepared);
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+export async function dependencySupportSet(options: {
+  project?: string;
+  cwd?: string;
+  id: string;
+  target: string;
+  role: "shacl" | "design";
+  source: string;
+  ref?: string;
+  resource: string;
+  acceptedPreview?: string;
+  signal?: AbortSignal;
+}): Promise<Result> {
+  try {
+    if (
+      options.acceptedPreview !== undefined &&
+      !/^sha256:[0-9a-f]{64}$/.test(options.acceptedPreview)
+    )
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "Accepted preview must be a SHA-256 digest.",
+      );
+    const prepared = await prepareDependencySupportSet(options);
+    if (!options.acceptedPreview)
+      return previewConflict(
+        prepared,
+        "PREVIEW_REQUIRED",
+        "Review the manual support preview and retry with its accepted fingerprint.",
+      );
+    if (options.acceptedPreview !== prepared.plan.preview.fingerprint)
+      return previewConflict(
+        prepared,
+        "PREVIEW_CHANGED",
+        "The reacquired manual support differs from the accepted preview. Review the new preview and retry.",
+      );
+    return await publishPreparedDependency(prepared);
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+export async function dependencySupportClear(options: {
+  project?: string;
+  cwd?: string;
+  id: string;
+  target: string;
+  role: "shacl" | "design";
+  resource: string;
+  acceptedPreview?: string;
+}): Promise<Result> {
+  try {
+    if (
+      options.acceptedPreview !== undefined &&
+      !/^sha256:[0-9a-f]{64}$/.test(options.acceptedPreview)
+    )
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "Accepted preview must be a SHA-256 digest.",
+      );
+    const prepared = await prepareDependencySupportClear(options);
+    if (options.acceptedPreview && options.acceptedPreview !== prepared.plan.preview.fingerprint)
+      return previewConflict(
+        prepared,
+        "PREVIEW_CHANGED",
+        "The dependency changed after the support preview. Review the new preview and retry.",
+      );
+    return await publishPreparedDependency(prepared);
+  } catch (error) {
+    return failure(error);
+  }
+}
+
 export async function dependencySelect(options: {
   project?: string;
   cwd?: string;
@@ -1847,23 +1972,54 @@ export async function dependencyCheck(options: {
           limits,
           source,
         );
+        const observedWithManual = preserveManualAttachments(dependency, observed.dependency);
+        const manualState = await checkManualAttachmentSources({
+          dependencyId,
+          dependency,
+          baseDependency: observedWithManual,
+          root,
+          limits,
+          signal: options.signal,
+        });
+        const currentObserved = manualState.observedDependency ?? observedWithManual;
         const state =
-          observed.dependency.interpretation_signature === lockedSignature
-            ? "unchanged"
-            : "changed";
+          manualState.unavailable ||
+          currentObserved.interpretation_signature !== lockedSignature ||
+          manualState.changed
+            ? manualState.unavailable
+              ? "unavailable"
+              : "changed"
+            : "unchanged";
         items.push({
           id: dependencyId,
           state,
           lockedSignature,
-          observedSignature: observed.dependency.interpretation_signature,
-          comparison: "complete",
-          observedSources: observed.dependency.sources.map(sourceOutput),
+          observedSignature:
+            manualState.unavailable || manualState.partial
+              ? null
+              : currentObserved.interpretation_signature,
+          comparison: manualState.partial ? "partial" : "complete",
+          observedSources: [
+            ...observed.dependency.sources.map(sourceOutput),
+            ...manualState.observedSources,
+          ],
         });
+        diagnostics.push(...manualState.diagnostics);
         if (state === "changed")
           diagnostics.push({
             code: "DEPENDENCY_DRIFT",
             severity: "error",
-            message: "The selected source now resolves to a different interpretation.",
+            message: manualState.changed
+              ? "The selected source or an active manual support source now resolves to a different interpretation."
+              : "The selected source now resolves to a different interpretation.",
+            file: "tbspec.lock",
+            selector: `dep:${dependencyId}`,
+          });
+        if (state === "unavailable")
+          diagnostics.push({
+            code: "SOURCE_UNAVAILABLE",
+            severity: "error",
+            message: "An active manual support source could not be checked.",
             file: "tbspec.lock",
             selector: `dep:${dependencyId}`,
           });
@@ -1906,6 +2062,333 @@ export async function dependencyCheck(options: {
   }
 }
 
+async function checkManualAttachmentSources(options: {
+  dependencyId: string;
+  dependency: Dependency;
+  baseDependency: Dependency;
+  root: string;
+  limits: Limits;
+  signal?: AbortSignal;
+}): Promise<{
+  changed: boolean;
+  unavailable: boolean;
+  partial: boolean;
+  diagnostics: Diagnostic[];
+  observedDependency: Dependency | null;
+  observedSources: Row[];
+}> {
+  let changed = false;
+  let unavailable = false;
+  let partial = false;
+  let observedDependency: Dependency | null = options.baseDependency;
+  const diagnostics: Diagnostic[] = [];
+  const observedSources: Row[] = [];
+  const active = options.dependency.attachments.filter(
+    (attachment) =>
+      attachment.active === true &&
+      typeof attachment.source === "string" &&
+      /^manual\/attachment-[1-9]\d*$/.test(attachment.source),
+  );
+  for (const attachment of active) {
+    if (options.signal?.aborted)
+      throw new ProjectError(
+        "conflict",
+        "ACQUISITION_CANCELLED",
+        "Dependency check was cancelled.",
+      );
+    const sourceId = String(attachment.source);
+    const record = options.dependency.sources.find((source) => source.id === sourceId);
+    if (!record) {
+      changed = true;
+      partial = true;
+      diagnostics.push({
+        code: "SOURCE_UNAVAILABLE",
+        severity: "error",
+        message: "The active manual support source record is missing.",
+        file: "tbspec.lock",
+        selector: `dep:${options.dependencyId}/${String(attachment.primary)}`,
+      });
+      continue;
+    }
+    let source: SourceInventory | undefined;
+    try {
+      const ref =
+        record.kind === "git" && record.revision_kind !== "default"
+          ? String(record.requested_ref ?? record.resolved_commit)
+          : undefined;
+      source = await discoverSource({
+        source: String(record.locator),
+        cwd: options.root,
+        ...(ref ? { ref } : {}),
+        resource: String(record.selected_resource),
+        signal: options.signal,
+        limits: options.limits,
+      });
+      const selected = [...source.entries.values()].find((entry) =>
+        [
+          entry.address,
+          entry.sourceResource,
+          inspectedResource(source as SourceInventory, entry),
+        ].includes(String(record.selected_resource)),
+      );
+      if (!selected)
+        throw new ProjectError(
+          "invalid",
+          "RESOURCE_MISSING",
+          "The manually attached source resource is no longer available.",
+          String(record.selected_resource),
+        );
+      if (selected.parseError) throw selected.parseError;
+      const closure = await buildClosure(source, selected, options.limits);
+      await source.verifyIncluded?.(closure.entries);
+      const fresh = dependencyFor(options.dependencyId, "design", source, selected, closure);
+      const projection = projectManualAttachment({
+        dependencyId: options.dependencyId,
+        attachmentId: String(attachment.id),
+        sourceId,
+        role: String(attachment.role),
+        fresh,
+      });
+      if (
+        !manualAttachmentProjectionMatches(
+          options.dependency,
+          projection,
+          sourceId,
+          String(attachment.id),
+        )
+      )
+        changed = true;
+      if (observedDependency)
+        observedDependency = mergeManualAttachmentProjection(
+          observedDependency,
+          projection,
+          sourceId,
+          String(attachment.id),
+        );
+      const observedRecord = sourceRecord(source, selected);
+      observedRecord.id = sourceId;
+      observedSources.push(sourceOutput(observedRecord));
+      diagnostics.push(...closure.diagnostics);
+    } catch (error) {
+      const result = failure(error);
+      if (result.status === "unavailable") unavailable = true;
+      else changed = true;
+      partial = true;
+      observedDependency = null;
+      diagnostics.push(
+        ...result.diagnostics.map((diagnostic) => ({
+          ...diagnostic,
+          selector:
+            diagnostic.selector ?? `dep:${options.dependencyId}/${String(attachment.primary)}`,
+        })),
+      );
+    } finally {
+      await source?.cleanup?.();
+    }
+  }
+  return { changed, unavailable, partial, diagnostics, observedDependency, observedSources };
+}
+
+function mergeManualAttachmentProjection(
+  dependency: Dependency,
+  projection: ReturnType<typeof projectManualAttachment>,
+  sourceId: string,
+  attachmentId: string,
+): Dependency {
+  const inSource = (value: unknown) =>
+    typeof value === "string" && (value === sourceId || value.startsWith(`${sourceId}/`));
+  const referencesSource = (row: Row) =>
+    [row.context, row.from, row.to, row.resource, row.support, row.selected, row.primary].some(
+      inSource,
+    ) ||
+    [row.ontologies, row.schemas].some((values) => Array.isArray(values) && values.some(inSource));
+  const nestedAttachment = (row: Row) =>
+    row.id !== attachmentId &&
+    (String(row.id).startsWith(`${attachmentId}-`) || inSource(row.source));
+  const next: Dependency = {
+    ...dependency,
+    sources: [
+      ...dependency.sources.filter((record) => !inSource(record.id)),
+      ...projection.sources,
+    ],
+    files: [
+      ...dependency.files.filter((file) => !String(file.key).startsWith(`${sourceId}/`)),
+      ...projection.files,
+    ],
+    edges: [...dependency.edges.filter((row) => !referencesSource(row)), ...projection.edges],
+    bindings: [
+      ...dependency.bindings.filter((row) => !referencesSource(row)),
+      ...projection.bindings,
+    ],
+    associations: [
+      ...dependency.associations.filter(
+        (row) => !(row.origin === "source" && referencesSource(row)),
+      ),
+      ...projection.associations,
+    ],
+    choices: [...dependency.choices.filter((row) => !referencesSource(row)), ...projection.choices],
+    attachments: [
+      ...dependency.attachments.filter((row) => !nestedAttachment(row)),
+      ...projection.attachments,
+    ],
+    interpretation_signature: "sha256:" + "0".repeat(64),
+  };
+  next.interpretation_signature = interpretationSignature(next);
+  return next;
+}
+
+function projectManualAttachment(options: {
+  dependencyId: string;
+  attachmentId: string;
+  sourceId: string;
+  role: string;
+  fresh: Dependency;
+}): {
+  files: LockedFile[];
+  sources: Row[];
+  edges: Row[];
+  bindings: Row[];
+  associations: Row[];
+  choices: Row[];
+  attachments: Row[];
+} {
+  const keyMap = new Map(
+    options.fresh.files.map((file) => [file.key, portablePath(`${options.sourceId}/${file.key}`)]),
+  );
+  const sourceMap = new Map(
+    options.fresh.sources.map((record) => [
+      String(record.id),
+      String(record.id) === "source"
+        ? options.sourceId
+        : portablePath(`${options.sourceId}/${String(record.id)}`),
+    ]),
+  );
+  const contextMap = new Map<string, string>();
+  const mappedContext = (context: unknown) => {
+    const value = String(context);
+    let mapped = contextMap.get(value);
+    if (!mapped) {
+      mapped = value === "source" ? options.sourceId : portablePath(`${options.sourceId}/${value}`);
+      contextMap.set(value, mapped);
+    }
+    return mapped;
+  };
+  const mappedKey = (key: unknown) => keyMap.get(String(key)) ?? String(key);
+  const mappedSource = (value: unknown) =>
+    sourceMap.get(String(value)) ?? portablePath(`${options.sourceId}/${String(value)}`);
+  const nestedAttachmentMap = new Map(
+    options.fresh.attachments.map((attachment) => [
+      String(attachment.id),
+      `${options.attachmentId}-${String(attachment.id)}`,
+    ]),
+  );
+  const sources: Row[] = options.fresh.sources.map((record) => ({
+    ...record,
+    id: sourceMap.get(String(record.id)) ?? options.sourceId,
+  }));
+  const files = options.fresh.files.map((file) => {
+    const key = mappedKey(file.key);
+    const roles = file.roles.filter((role) => role !== "primary");
+    if (file.key === options.fresh.primary) roles.push(options.role);
+    return {
+      ...file,
+      key,
+      source: mappedSource(file.source),
+      context: mappedContext(file.context),
+      roles: sortedSet(roles.length ? roles : ["closure"]),
+      graph_iri:
+        file.identity === "declared"
+          ? file.graph_iri
+          : `urn:tbspec:graph:${digest(`dep:${options.dependencyId}/${key}`).slice(7)}`,
+    };
+  });
+  const edges = options.fresh.edges.map((edge) => ({
+    ...edge,
+    context: mappedContext(edge.context),
+    from: mappedKey(edge.from),
+    ...(edge.to ? { to: mappedKey(edge.to) } : {}),
+  }));
+  const bindings = options.fresh.bindings.map((binding) => ({
+    ...binding,
+    context: mappedContext(binding.context),
+    resource: mappedKey(binding.resource),
+    ontologies: ((binding.ontologies as string[]) ?? []).map(mappedKey),
+    schemas: ((binding.schemas as string[]) ?? []).map(mappedKey),
+  }));
+  const associations = options.fresh.associations.map((association) => ({
+    ...association,
+    context: mappedContext(association.context),
+    resource: mappedKey(association.resource),
+    support: mappedKey(association.support),
+    ...(association.attachment
+      ? { attachment: nestedAttachmentMap.get(String(association.attachment)) }
+      : {}),
+  }));
+  const choices = options.fresh.choices.map((choice) => ({
+    ...choice,
+    context: mappedContext(choice.context),
+    selected: mappedKey(choice.selected),
+  }));
+  const attachments = options.fresh.attachments.map((attachment) => ({
+    ...attachment,
+    id: nestedAttachmentMap.get(String(attachment.id)),
+    resource: mappedKey(attachment.resource),
+    source: mappedSource(attachment.source),
+    primary: mappedKey(attachment.primary),
+  }));
+  const sourceRecordValue = sources.find((record) => record.id === options.sourceId);
+  if (sourceRecordValue) {
+    const selected = options.fresh.sources[0];
+    if (selected) sourceRecordValue.selected_resource = selected.selected_resource;
+  }
+  return { files, sources, edges, bindings, associations, choices, attachments };
+}
+
+function manualAttachmentProjectionMatches(
+  dependency: Dependency,
+  projection: ReturnType<typeof projectManualAttachment>,
+  sourceId: string,
+  attachmentId: string,
+): boolean {
+  const equalRows = <T extends object>(left: T[], right: T[]) =>
+    canonical([...left].sort((a, b) => utf8Compare(canonical(a), canonical(b)))) ===
+    canonical([...right].sort((a, b) => utf8Compare(canonical(a), canonical(b))));
+  const inSource = (value: unknown) =>
+    typeof value === "string" && (value === sourceId || value.startsWith(`${sourceId}/`));
+  const referencesSource = (row: Row) =>
+    [row.context, row.from, row.to, row.resource, row.support, row.selected, row.primary].some(
+      inSource,
+    ) ||
+    [row.ontologies, row.schemas].some((values) => Array.isArray(values) && values.some(inSource));
+  const actualSources = dependency.sources
+    .filter((record) => inSource(record.id))
+    .map((record) => ({ id: record.id, selected_resource: record.selected_resource }));
+  const expectedSources = projection.sources.map((record) => ({
+    id: record.id,
+    selected_resource: record.selected_resource,
+  }));
+  const actualAssociations = dependency.associations.filter(
+    (row) => row.origin === "source" && referencesSource(row),
+  );
+  const actualAttachments = dependency.attachments.filter(
+    (row) =>
+      String(row.id).startsWith(`${attachmentId}-`) ||
+      (row.id !== attachmentId && inSource(row.source)),
+  );
+  return (
+    equalRows(
+      dependency.files.filter((file) => String(file.key).startsWith(`${sourceId}/`)),
+      projection.files,
+    ) &&
+    equalRows(actualSources, expectedSources) &&
+    equalRows(dependency.edges.filter(referencesSource), projection.edges) &&
+    equalRows(dependency.bindings.filter(referencesSource), projection.bindings) &&
+    equalRows(actualAssociations, projection.associations) &&
+    equalRows(dependency.choices.filter(referencesSource), projection.choices) &&
+    equalRows(actualAttachments, projection.attachments)
+  );
+}
+
 export interface DependencyAddOptions {
   project?: string;
   cwd?: string;
@@ -1917,6 +2400,598 @@ export interface DependencyAddOptions {
   acceptedPreview?: string;
   signal?: AbortSignal;
 }
+
+export async function prepareDependencyUpdate(options: {
+  project?: string;
+  cwd?: string;
+  id: string;
+  signal?: AbortSignal;
+}): Promise<PreparedDependency> {
+  const dependencyId = id(options.id);
+  const current = await readProject({ project: options.project, cwd: options.cwd });
+  const existing = current.lock.dependencies[dependencyId];
+  if (!existing)
+    throw new ProjectError("invalid_arguments", "RESOURCE_MISSING", "Dependency ID was not found.");
+  const sourceRecordValue = existing.sources.find((record) => record.id === "source");
+  if (!sourceRecordValue)
+    throw new ProjectError(
+      "unavailable",
+      "SOURCE_UNAVAILABLE",
+      "This dependency does not have a refreshable external source.",
+      "tbspec.lock",
+      { selector: `dep:${dependencyId}` },
+    );
+  const limits = defaultLimits(current.manifest);
+  if (sourceRecordValue.kind === "bundle") {
+    if (options.signal?.aborted)
+      throw new ProjectError(
+        "conflict",
+        "ACQUISITION_CANCELLED",
+        "Dependency update was cancelled.",
+      );
+    const bundle = await loadStarters();
+    const installed = Object.values(bundle.lock.dependencies).find(
+      (candidate) =>
+        candidate.kind === existing.kind &&
+        candidate.sources.some(
+          (source) =>
+            source.kind === "bundle" &&
+            source.selected_resource === sourceRecordValue.selected_resource,
+        ),
+    );
+    const installedSource = installed?.sources.find(
+      (source) =>
+        source.kind === "bundle" &&
+        source.selected_resource === sourceRecordValue.selected_resource,
+    );
+    if (!installed || !installedSource)
+      throw new ProjectError(
+        "unavailable",
+        "SOURCE_UNAVAILABLE",
+        "The selected bundled resource is not present in the installed release.",
+        "tbspec.lock",
+        { selector: `dep:${dependencyId}` },
+      );
+    const source: SourceInventory = {
+      kind: "directory",
+      locator: String(installedSource.locator),
+      entries: new Map(),
+      diagnostics: [],
+      deadline: Date.now() + limits.deadlineMs,
+      vettedDigest: bundle.vettedDigest,
+      treeRevision: hash({
+        release: installedSource.release ?? null,
+        inventoryDigest: installedSource.inventory_digest ?? null,
+        files: installed.files.map((file) => ({
+          key: file.key,
+          byteDigest: file.byte_digest,
+          graphSignature: file.graph_signature,
+        })),
+      }),
+    };
+    for (const file of installed.files) {
+      const bytes = bundle.files[`${installed.snapshot_path}/${file.key}`];
+      if (!bytes)
+        throw new ProjectError(
+          "unavailable",
+          "SOURCE_UNAVAILABLE",
+          "A required bundled dependency file is not present in the installed release.",
+          file.key,
+        );
+      source.entries.set(file.key, {
+        address: file.key,
+        sourceResource: file.source_resource,
+        source: file.source,
+        context: file.context,
+        bytes: Buffer.from(bytes),
+        byteLength: file.byte_length,
+        capturedDigest: file.byte_digest,
+        lockedFile: file,
+        mediaType: file.media_type,
+        baseIri: file.base_iri,
+        profile: file.parser_profile,
+        kind: file.kind,
+        classification: file.classification,
+        identity: file.identity as "declared" | "generated",
+        graphIri: file.graph_iri,
+      });
+    }
+    if (options.signal?.aborted)
+      throw new ProjectError(
+        "conflict",
+        "ACQUISITION_CANCELLED",
+        "Dependency update was cancelled.",
+      );
+    return await prepareDependencyFromSource(
+      {
+        id: dependencyId,
+        kind: existing.kind as ResourceKind,
+        resource: String(installedSource.selected_resource),
+      },
+      current,
+      limits,
+      source,
+      "dependency.update",
+      installedSource,
+    );
+  }
+  const ref =
+    sourceRecordValue.kind === "git" && sourceRecordValue.revision_kind !== "default"
+      ? String(sourceRecordValue.requested_ref ?? sourceRecordValue.resolved_commit)
+      : undefined;
+  const source = await discoverSource({
+    source: String(sourceRecordValue.locator),
+    cwd: current.root,
+    ...(ref ? { ref } : {}),
+    resource: String(sourceRecordValue.selected_resource),
+    signal: options.signal,
+    limits,
+  });
+  try {
+    return await prepareDependencyFromSource(
+      {
+        id: dependencyId,
+        kind: existing.kind as ResourceKind,
+        resource: String(sourceRecordValue.selected_resource),
+      },
+      current,
+      limits,
+      source,
+      "dependency.update",
+    );
+  } finally {
+    await source.cleanup?.();
+  }
+}
+
+export async function prepareDependencySupportSet(options: {
+  project?: string;
+  cwd?: string;
+  id: string;
+  target: string;
+  role: "shacl" | "design";
+  source: string;
+  ref?: string;
+  resource: string;
+  signal?: AbortSignal;
+}): Promise<PreparedDependency> {
+  const dependencyId = id(options.id);
+  const current = await readProject({ project: options.project, cwd: options.cwd });
+  const existing = current.lock.dependencies[dependencyId];
+  if (!existing)
+    throw new ProjectError("invalid_arguments", "RESOURCE_MISSING", "Dependency ID was not found.");
+  if (options.role !== "shacl" && options.role !== "design")
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Support role must be shacl or design.",
+    );
+  const targetKey = dependencyKey(dependencyId, options.target);
+  const target = existing.files.find((file) => file.key === targetKey);
+  if (!target)
+    throw new ProjectError(
+      "invalid_arguments",
+      "RESOURCE_MISSING",
+      "Target selector is not in this dependency.",
+    );
+
+  const limits = defaultLimits(current.manifest);
+  const source = await discoverSource({
+    source: options.source,
+    cwd: options.cwd,
+    ref: options.ref,
+    resource: options.resource,
+    signal: options.signal,
+    limits,
+  });
+  try {
+    const expectedKind = options.role === "shacl" ? "shapes" : "design";
+    const selected = [...source.entries.values()].find((entry) =>
+      [entry.address, entry.sourceResource, inspectedResource(source, entry)].includes(
+        options.resource,
+      ),
+    );
+    if (!selected)
+      throw new ProjectError(
+        "invalid_arguments",
+        "RESOURCE_MISSING",
+        "Selected support resource is unavailable.",
+      );
+    if (selected.parseError) throw selected.parseError;
+    if (selected.kind !== expectedKind)
+      throw new ProjectError(
+        "invalid_arguments",
+        "SOURCE_ASSOCIATION_INVALID",
+        `Selected support resource must be a ${expectedKind} graph.`,
+        selected.address,
+      );
+    const closure = await buildClosure(source, selected, limits);
+    await source.verifyIncluded?.(closure.entries);
+
+    const used = new Set(existing.attachments.map((attachment) => String(attachment.id)));
+    let ordinal = 1;
+    while (used.has(`attachment-${ordinal}`)) ordinal++;
+    const attachmentId = `attachment-${ordinal}`;
+    const attachmentSourceId = `manual/${attachmentId}`;
+    const acquired = dependencyFor(dependencyId, "design", source, selected, closure);
+    const keyMap = new Map(
+      acquired.files.map((file) => [file.key, portablePath(`${attachmentSourceId}/${file.key}`)]),
+    );
+    const sourceMap = new Map(
+      acquired.sources.map((record) => [
+        String(record.id),
+        String(record.id) === "source"
+          ? attachmentSourceId
+          : portablePath(`${attachmentSourceId}/${String(record.id)}`),
+      ]),
+    );
+    const contextMap = new Map<string, string>();
+    const mappedContext = (context: unknown) => {
+      const value = String(context);
+      let mapped = contextMap.get(value);
+      if (!mapped) {
+        mapped =
+          value === "source" ? attachmentSourceId : portablePath(`${attachmentSourceId}/${value}`);
+        contextMap.set(value, mapped);
+      }
+      return mapped;
+    };
+    const mappedKey = (key: unknown) => keyMap.get(String(key)) ?? String(key);
+    const mappedSource = (value: unknown) =>
+      sourceMap.get(String(value)) ?? portablePath(`${attachmentSourceId}/${String(value)}`);
+    const nestedAttachmentMap = new Map(
+      acquired.attachments.map((attachment) => [
+        String(attachment.id),
+        `${attachmentId}-${String(attachment.id)}`,
+      ]),
+    );
+    const sourceRows: Row[] = acquired.sources.map((record) => ({
+      ...record,
+      id: sourceMap.get(String(record.id)) ?? attachmentSourceId,
+    }));
+    const sourceRecordValue = sourceRecord(source, selected);
+    sourceRecordValue.id = attachmentSourceId;
+    sourceRows[0] = sourceRecordValue;
+    const files: LockedFile[] = acquired.files.map((file) => {
+      const key = mappedKey(file.key);
+      const roles = file.roles.filter((role) => role !== "primary");
+      if (file.key === acquired.primary) roles.push(options.role);
+      return {
+        ...file,
+        key,
+        source: mappedSource(file.source),
+        context: mappedContext(file.context),
+        roles: sortedSet(roles.length ? roles : ["closure"]),
+        graph_iri:
+          file.identity === "declared"
+            ? file.graph_iri
+            : `urn:tbspec:graph:${digest(`dep:${dependencyId}/${key}`).slice(7)}`,
+      };
+    });
+    const edges = acquired.edges.map((edge) => ({
+      ...edge,
+      context: mappedContext(edge.context),
+      from: mappedKey(edge.from),
+      ...(edge.to ? { to: mappedKey(edge.to) } : {}),
+    }));
+    const bindings = acquired.bindings.map((binding) => ({
+      ...binding,
+      context: mappedContext(binding.context),
+      resource: mappedKey(binding.resource),
+      ontologies: ((binding.ontologies as string[]) ?? []).map(mappedKey),
+      schemas: ((binding.schemas as string[]) ?? []).map(mappedKey),
+    }));
+    const associations = acquired.associations.map((association) => ({
+      ...association,
+      context: mappedContext(association.context),
+      resource: mappedKey(association.resource),
+      support: mappedKey(association.support),
+      ...(association.attachment
+        ? { attachment: nestedAttachmentMap.get(String(association.attachment)) }
+        : {}),
+    }));
+    const choices = acquired.choices.map((choice) => ({
+      ...choice,
+      context: mappedContext(choice.context),
+      selected: mappedKey(choice.selected),
+    }));
+    const attachments = acquired.attachments.map((attachment) => ({
+      ...attachment,
+      id: nestedAttachmentMap.get(String(attachment.id)),
+      resource: mappedKey(attachment.resource),
+      source: mappedSource(attachment.source),
+      primary: mappedKey(attachment.primary),
+    }));
+    const primaryKey = mappedKey(acquired.primary);
+    const manualAssociation: Row = {
+      context: target.context,
+      resource: target.key,
+      role: options.role,
+      support: primaryKey,
+      origin: "manual",
+      active: true,
+      attachment: attachmentId,
+    };
+    const manualAttachment: Row = {
+      id: attachmentId,
+      role: options.role,
+      resource: target.key,
+      source: attachmentSourceId,
+      primary: primaryKey,
+      active: true,
+    };
+    const dependency: Dependency = {
+      ...existing,
+      sources: [
+        ...existing.sources,
+        ...sourceRows.filter(
+          (record) => !existing.sources.some((currentSource) => currentSource.id === record.id),
+        ),
+      ],
+      files: [...existing.files, ...files],
+      edges: [...existing.edges, ...edges],
+      bindings: [...existing.bindings, ...bindings],
+      associations: [...existing.associations, ...associations, manualAssociation],
+      choices: [...existing.choices, ...choices],
+      attachments: [...existing.attachments, ...attachments, manualAttachment],
+      interpretation_signature: "sha256:" + "0".repeat(64),
+    };
+    dependency.interpretation_signature = interpretationSignature(dependency);
+    const sourceBytes = new Map(
+      closure.entries.map((entry) => [
+        mappedKey(outputKey(entry)),
+        Buffer.from(entry.bytes as Buffer),
+      ]),
+    );
+    const lock: Lock = {
+      ...current.lock,
+      dependencies: { ...current.lock.dependencies, [dependencyId]: dependency },
+    };
+    const writes = [
+      { file: "tbspec.lock", bytes: Buffer.from(writeToml(lock)) },
+      ...files.map((file) => ({
+        file: `${existing.snapshot_path}/${file.key}`,
+        bytes: sourceBytes.get(file.key) as Buffer,
+      })),
+    ];
+    return await prepareDependencyPlan(
+      current,
+      dependencyId,
+      existing,
+      dependency,
+      source,
+      "dependency.support.set",
+      {
+        target: `dep:${dependencyId}/${target.key}`,
+        role: options.role,
+        resource: options.resource,
+      },
+      writes,
+      files,
+      closure.diagnostics,
+    );
+  } finally {
+    await source.cleanup?.();
+  }
+}
+
+export async function prepareDependencySupportClear(options: {
+  project?: string;
+  cwd?: string;
+  id: string;
+  target: string;
+  role: "shacl" | "design";
+  resource: string;
+}): Promise<PreparedDependency> {
+  const dependencyId = id(options.id);
+  const current = await readProject({ project: options.project, cwd: options.cwd });
+  const existing = current.lock.dependencies[dependencyId];
+  if (!existing)
+    throw new ProjectError("invalid_arguments", "RESOURCE_MISSING", "Dependency ID was not found.");
+  const targetKey = dependencyKey(dependencyId, options.target);
+  const supportKey = dependencyKey(dependencyId, options.resource);
+  const association = existing.associations.find(
+    (item) =>
+      item.origin === "manual" &&
+      item.active === true &&
+      item.resource === targetKey &&
+      item.support === supportKey &&
+      item.role === options.role,
+  );
+  if (!association)
+    throw new ProjectError(
+      "invalid_arguments",
+      "ASSOCIATION_MISSING",
+      "Active manual support association was not found.",
+    );
+  const next: Dependency = {
+    ...existing,
+    associations: existing.associations.map((item) =>
+      item === association ? { ...item, active: false } : item,
+    ),
+    attachments: existing.attachments.map((attachment) =>
+      attachment.id === association.attachment ? { ...attachment, active: false } : attachment,
+    ),
+    interpretation_signature: "sha256:" + "0".repeat(64),
+  };
+  next.interpretation_signature = interpretationSignature(next);
+  const lock: Lock = {
+    ...current.lock,
+    dependencies: { ...current.lock.dependencies, [dependencyId]: next },
+  };
+  const writes = [{ file: "tbspec.lock", bytes: Buffer.from(writeToml(lock)) }];
+  return prepareDependencyPlan(
+    current,
+    dependencyId,
+    existing,
+    next,
+    null,
+    "dependency.support.clear",
+    {
+      target: `dep:${dependencyId}/${targetKey}`,
+      role: options.role,
+      resource: `dep:${dependencyId}/${supportKey}`,
+    },
+    writes,
+    [],
+  );
+}
+
+function dependencyKey(dependencyId: string, value: string): string {
+  const prefix = `dep:${dependencyId}/`;
+  if (!value.startsWith(prefix) || value.length === prefix.length)
+    throw new ProjectError(
+      "invalid_arguments",
+      "SELECTOR_INVALID",
+      "Dependency resource selector must name a file in the selected dependency.",
+    );
+  return portablePath(value.slice(prefix.length));
+}
+
+async function prepareDependencyPlan(
+  current: Awaited<ReturnType<typeof readProject>>,
+  dependencyId: string,
+  existing: Dependency,
+  dependency: Dependency,
+  source: SourceInventory | null,
+  operation: string,
+  args: Record<string, unknown>,
+  proposedWrites: { file: string; bytes: Uint8Array | null }[],
+  acquiredFiles: LockedFile[],
+  extraDiagnostics: Diagnostic[] = [],
+): Promise<PreparedDependency> {
+  const targetPaths = proposedWrites
+    .filter((write) => write.file !== "tbspec.lock")
+    .map((write) => write.file);
+  const statusSnapshot = await captureInspection(current.root, "status");
+  for (const path of ["tbspec.toml", "tbspec.lock"])
+    if (!statusSnapshot.files[path]?.equals(current.snapshot.files[path] as Buffer))
+      throw new ProjectError(
+        "conflict",
+        "REVISION_CONFLICT",
+        "Project configuration changed while dependency support was prepared; retry with a fresh preview.",
+        path,
+      );
+  const before = await inspectSnapshot(current.root, statusSnapshot, { command: "status" });
+  const destinations = await capture(
+    current.root,
+    ["tbspec.toml", "tbspec.lock", ...targetPaths],
+    [{ path: ".tbspec/dependencies", included: [dependencyId], excluded: [] }],
+  );
+  for (const path of ["tbspec.toml", "tbspec.lock"])
+    if (destinations.files[path]?.equals(current.snapshot.files[path] as Buffer) !== true)
+      throw new ProjectError(
+        "conflict",
+        "REVISION_CONFLICT",
+        "Project configuration changed while dependency support was prepared; retry with a fresh preview.",
+        path,
+      );
+  const reads = new Map(statusSnapshot.reads.map((read) => [canonical(read), read]));
+  for (const read of destinations.reads) reads.set(canonical(read), read);
+  const snapshot = {
+    ...statusSnapshot,
+    files: { ...statusSnapshot.files, ...destinations.files },
+    reads: [...reads.values()],
+  };
+  const existingKeys = new Set(existing.files.map((file) => file.key));
+  for (const write of proposedWrites)
+    if (
+      write.file !== "tbspec.lock" &&
+      snapshot.files[write.file] !== null &&
+      !existingKeys.has(write.file.slice(`${dependency.snapshot_path}/`.length))
+    )
+      throw new ProjectError(
+        "conflict",
+        "DEPENDENCY_SNAPSHOT_EXISTS",
+        "Dependency snapshot destination is already occupied.",
+        write.file,
+      );
+  const plan = preparePlan(snapshot, operation, proposedWrites, {
+    ...args,
+    source: source?.locator ?? null,
+    sourceInventoryRevision: source?.treeRevision ?? null,
+  });
+  const staged = { ...snapshot, files: { ...snapshot.files } };
+  for (const write of proposedWrites)
+    staged.files[write.file] = write.bytes === null ? null : Buffer.from(write.bytes);
+  const after = await inspectSnapshot(current.root, staged, { command: "status" });
+  const oldByKey = new Map(existing.files.map((file) => [file.key, file]));
+  const newByKey = new Map(dependency.files.map((file) => [file.key, file]));
+  const changedKeys = new Set(
+    [...new Set([...oldByKey.keys(), ...newByKey.keys()])].filter(
+      (key) => canonical(oldByKey.get(key) ?? null) !== canonical(newByKey.get(key) ?? null),
+    ),
+  );
+  const changedGraphs = new Set([...changedKeys].map((key) => `dep:${dependencyId}/${key}`));
+  const changedRecords = <T extends Row>(oldRows: T[], newRows: T[]) => {
+    const oldSet = new Set(oldRows.map((row) => canonical(row)));
+    const newSet = new Set(newRows.map((row) => canonical(row)));
+    return [
+      ...oldRows.filter((row) => !newSet.has(canonical(row))),
+      ...newRows.filter((row) => !oldSet.has(canonical(row))),
+    ];
+  };
+  for (const association of changedRecords(existing.associations, dependency.associations))
+    for (const key of [association.resource, association.support])
+      if (typeof key === "string") changedGraphs.add(`dep:${dependencyId}/${key}`);
+  for (const binding of changedRecords(existing.bindings, dependency.bindings))
+    for (const key of [
+      binding.resource,
+      ...(binding.ontologies as string[]),
+      ...(binding.schemas as string[]),
+    ])
+      if (typeof key === "string") changedGraphs.add(`dep:${dependencyId}/${key}`);
+  for (const edge of changedRecords(existing.edges, dependency.edges))
+    for (const key of [edge.from, edge.to])
+      if (typeof key === "string") changedGraphs.add(`dep:${dependencyId}/${key}`);
+  const impact = compareDiagnosticImpact(
+    before.diagnostics,
+    after.diagnostics,
+    [...changedGraphs],
+    {
+      baselineChecks: impactChecks(before),
+      proposedChecks: impactChecks(after),
+      changedFiles: [...changedKeys].map((key) => `${dependency.snapshot_path}/${key}`),
+    },
+  );
+  const completedPlan = withPlanImpact(
+    {
+      ...plan,
+      preview: {
+        ...plan.preview,
+        acquired: acquiredFiles.map((file) => ({
+          selector: selector(`dep:${dependencyId}/${file.key}`),
+          byteDigest: file.byte_digest,
+          graphSignature: file.graph_signature,
+        })),
+        interpretationSignatures: { [dependencyId]: dependency.interpretation_signature },
+      },
+    },
+    {
+      impact: {
+        baselineErrors: impact.baselineErrors,
+        introducedErrors: impact.introducedErrors,
+        worsenedErrors: impact.worsenedErrors,
+        skippedChecks: impact.skippedChecks,
+        affectedFiles: sortedSet([
+          ...new Set([...plan.preview.impact.affectedFiles, ...targetPaths]),
+        ]),
+        acceptance: [],
+      },
+    },
+  );
+  return {
+    root: current.root,
+    id: dependencyId,
+    dependency,
+    plan: completedPlan,
+    diagnostics: [...(source?.diagnostics ?? []), ...extraDiagnostics, ...after.diagnostics],
+    projectValidity: (after.data?.project?.validity ??
+      "unchecked") as PreparedDependency["projectValidity"],
+    validationComplete: after.data?.project?.validationComplete ?? false,
+  };
+}
+
 function inspectedResource(source: SourceInventory, entry: SourceEntry): string {
   return source.kind === "url" ? entry.sourceResource : entry.address;
 }
@@ -1996,6 +3071,24 @@ function sourceIdFor(entry: SourceEntry): string {
 }
 function contextIdFor(entry: SourceEntry): string {
   return entry.lockedFile ? upstreamSourceId(entry, entry.lockedFile.context) : "source";
+}
+function impactChecks(result: Result): {
+  selector: string;
+  kind: string;
+  state: "passed" | "failed" | "skipped";
+  blockedBy: string[];
+  shapesSelector?: string;
+}[] {
+  const validation = (result.data as Row | null)?.validation as Row | undefined;
+  return ((validation?.resources as Row[] | undefined) ?? []).flatMap((resource) =>
+    ((resource.checks as Row[] | undefined) ?? []).map((check) => ({
+      selector: String(resource.selector),
+      kind: String(check.kind),
+      state: String(check.state) as "passed" | "failed" | "skipped",
+      blockedBy: (check.blockedBy as string[]) ?? [],
+      ...(typeof check.shapesSelector === "string" ? { shapesSelector: check.shapesSelector } : {}),
+    })),
+  );
 }
 function entryKind(entry: SourceEntry): string | undefined {
   return entry.kind ?? entry.lockedFile?.kind;
@@ -2708,25 +3801,60 @@ export async function prepareDependencyAdd(
 }
 
 async function prepareDependencyFromSource(
-  options: DependencyAddOptions,
+  options: Pick<DependencyAddOptions, "id" | "kind" | "resource">,
   current: Awaited<ReturnType<typeof readProject>>,
   limits: Limits,
   source: SourceInventory,
+  operation = "dependency.add",
+  sourceRecordOverride?: Row,
 ): Promise<PreparedDependency> {
   const dependencyId = id(options.id);
-  const { closure, dependency } = await resolveDependencySource(options, limits, source);
+  const { closure, dependency: acquiredDependency } = await resolveDependencySource(
+    options,
+    limits,
+    source,
+  );
+  if (sourceRecordOverride) acquiredDependency.sources[0] = sourceRecordOverride;
+  const existing =
+    operation === "dependency.update" ? current.lock.dependencies[dependencyId] : undefined;
+  if (operation === "dependency.update" && !existing)
+    throw new ProjectError(
+      "conflict",
+      "REVISION_CONFLICT",
+      "Dependency disappeared during update.",
+    );
+  const dependency = existing
+    ? preserveManualAttachments(existing, {
+        ...acquiredDependency,
+        snapshot_path: existing.snapshot_path,
+      })
+    : acquiredDependency;
   const lock: Lock = {
     ...current.lock,
     dependencies: { ...current.lock.dependencies, [dependencyId]: dependency },
   };
   const lockBytes = Buffer.from(writeToml(lock));
-  const writes = [
-    { file: "tbspec.lock", bytes: lockBytes },
-    ...closure.entries.map((entry) => ({
-      file: `${dependency.snapshot_path}/${outputKey(entry)}`,
-      bytes: Buffer.from(entry.bytes as Buffer),
-    })),
-  ];
+  const acquired = new Map(
+    closure.entries.map((entry) => [outputKey(entry), Buffer.from(entry.bytes as Buffer)]),
+  );
+  const existingKeys = new Set((existing?.files ?? []).map((file) => file.key));
+  const nextKeys = new Set(dependency.files.map((file) => file.key));
+  const fileWrites = dependency.files.map((file) => {
+    const path = `${dependency.snapshot_path}/${file.key}`;
+    const bytes = acquired.get(file.key) ?? current.snapshot.files[path];
+    if (!bytes)
+      throw new ProjectError(
+        "invalid",
+        "SNAPSHOT_INTEGRITY",
+        "A retained dependency file is missing during update.",
+        path,
+      );
+    return { file: path, bytes: Buffer.from(bytes) };
+  });
+  const retired = (existing?.files ?? [])
+    .filter((file) => !nextKeys.has(file.key))
+    .map((file) => ({ file: `${dependency.snapshot_path}/${file.key}`, bytes: null }));
+  const writes = [{ file: "tbspec.lock", bytes: lockBytes }, ...fileWrites, ...retired];
   const targetPaths = writes
     .filter((write) => write.file !== "tbspec.lock")
     .map((write) => write.file);
@@ -2765,45 +3893,86 @@ async function prepareDependencyFromSource(
     reads: [...existingReads.values()],
   };
   for (const write of writes)
-    if (write.file !== "tbspec.lock" && snapshot.files[write.file] !== null)
+    if (
+      write.file !== "tbspec.lock" &&
+      snapshot.files[write.file] !== null &&
+      !existingKeys.has(write.file.slice(`${dependency.snapshot_path}/`.length))
+    )
       throw new ProjectError(
         "conflict",
         "DEPENDENCY_SNAPSHOT_EXISTS",
         "Dependency snapshot destination is already occupied.",
         write.file,
       );
-  const plan = preparePlan(snapshot, "dependency.add", writes, {
+  const plan = preparePlan(snapshot, operation, writes, {
     id: dependencyId,
     kind: options.kind,
     source: source.locator,
+    sourceInventoryRevision: source.treeRevision ?? null,
     resource: options.resource ?? dependency.primary,
   });
-  const staged = {
-    ...snapshot,
-    files: {
-      ...snapshot.files,
-      "tbspec.lock": lockBytes,
-      ...Object.fromEntries(
-        closure.entries.map((entry) => [
-          `${dependency.snapshot_path}/${outputKey(entry)}`,
-          Buffer.from(entry.bytes as Buffer),
-        ]),
-      ),
-    },
-  };
+  const staged = { ...snapshot, files: { ...snapshot.files } };
+  for (const write of writes) staged.files[write.file] = write.bytes;
   const after = await inspectSnapshot(current.root, staged, { command: "status" });
-  const impact = compareDiagnosticImpact(before.diagnostics, after.diagnostics);
-  const acquired = dependency.files.map((file) => ({
+  const oldFiles = new Map((existing?.files ?? []).map((file) => [file.key, file]));
+  const newFiles = new Map(dependency.files.map((file) => [file.key, file]));
+  const changedKeys = sortedSet(
+    [...new Set([...oldFiles.keys(), ...newFiles.keys()])].filter(
+      (key) => oldFiles.get(key)?.graph_signature !== newFiles.get(key)?.graph_signature,
+    ),
+  );
+  const changedGraphs = new Set(changedKeys.map((key) => `dep:${dependencyId}/${key}`));
+  const changedRecords = <T extends Row>(oldRows: T[], newRows: T[]) => {
+    const oldSet = new Set(oldRows.map((row) => canonical(row)));
+    const newSet = new Set(newRows.map((row) => canonical(row)));
+    return [
+      ...oldRows.filter((row) => !newSet.has(canonical(row))),
+      ...newRows.filter((row) => !oldSet.has(canonical(row))),
+    ];
+  };
+  for (const rows of [
+    changedRecords(existing?.associations ?? [], dependency.associations),
+    changedRecords(existing?.bindings ?? [], dependency.bindings),
+    changedRecords(existing?.edges ?? [], dependency.edges),
+    changedRecords(existing?.choices ?? [], dependency.choices),
+    changedRecords(existing?.attachments ?? [], dependency.attachments),
+  ])
+    for (const row of rows)
+      for (const key of ["resource", "support", "from", "to", "selected", "primary"]) {
+        const value = row[key];
+        if (typeof value === "string") changedGraphs.add(`dep:${dependencyId}/${value}`);
+      }
+  for (const rows of [changedRecords(existing?.bindings ?? [], dependency.bindings)])
+    for (const row of rows)
+      for (const field of ["ontologies", "schemas"])
+        for (const value of (row[field] as string[] | undefined) ?? [])
+          changedGraphs.add(`dep:${dependencyId}/${value}`);
+  const changedFiles = changedKeys.map((key) => `${dependency.snapshot_path}/${key}`);
+  const impact = compareDiagnosticImpact(
+    before.diagnostics,
+    after.diagnostics,
+    [...changedGraphs],
+    {
+      baselineChecks: impactChecks(before),
+      proposedChecks: impactChecks(after),
+      changedFiles,
+    },
+  );
+  const acquiredFiles = dependency.files.map((file) => ({
     selector: selector(`dep:${dependencyId}/${file.key}`),
     byteDigest: file.byte_digest,
     graphSignature: file.graph_signature,
   }));
+  const requiresImpactAcceptance =
+    impact.introducedErrors.length > 0 ||
+    impact.worsenedErrors.length > 0 ||
+    impact.requiresAcceptance;
   const completedPlan = withPlanImpact(
     {
       ...plan,
       preview: {
         ...plan.preview,
-        acquired,
+        acquired: acquiredFiles,
         interpretationSignatures: { [dependencyId]: dependency.interpretation_signature },
       },
     },
@@ -2816,7 +3985,10 @@ async function prepareDependencyFromSource(
         affectedFiles: sortedSet([
           ...new Set([...plan.preview.impact.affectedFiles, ...targetPaths]),
         ]),
-        acceptance: [],
+        acceptance:
+          operation === "dependency.update"
+            ? ["apply", ...(requiresImpactAcceptance ? ["accept-impact"] : [])]
+            : [],
       },
     },
   );
@@ -2829,6 +4001,7 @@ async function prepareDependencyFromSource(
     projectValidity: (after.data?.project?.validity ??
       "unchecked") as PreparedDependency["projectValidity"],
     validationComplete: after.data?.project?.validationComplete ?? false,
+    requiresImpactAcceptance,
   };
 }
 
@@ -2878,25 +4051,105 @@ async function resolveDependencySource(
   const dependency = dependencyFor(dependencyId, options.kind, source, primary, closure);
   return { dependency, closure };
 }
+function dependencyPreview(prepared: PreparedDependency, status: "preview" | "conflict"): Result {
+  return {
+    ...ok(
+      {
+        applied: false,
+        id: prepared.id,
+        dependency: prepared.dependency,
+        primarySelector: `dep:${prepared.id}/${prepared.dependency.primary}`,
+        projectValidity: prepared.projectValidity,
+        validationComplete: prepared.validationComplete,
+        preview: prepared.plan.preview,
+      },
+      prepared.diagnostics,
+    ),
+    status,
+  };
+}
 function previewConflict(prepared: PreparedDependency, code: string, message: string): Result {
-  const result = ok(
-    {
-      applied: false,
-      id: prepared.id,
-      dependency: prepared.dependency,
-      primarySelector: `dep:${prepared.id}/${prepared.dependency.primary}`,
-      projectValidity: prepared.projectValidity,
-      validationComplete: prepared.validationComplete,
-      preview: prepared.plan.preview,
-    },
-    prepared.diagnostics,
-  );
+  const result = dependencyPreview(prepared, "conflict");
   return {
     ...result,
-    status: "conflict",
     diagnostics: [...result.diagnostics, { code, severity: "error", message, file: "tbspec.lock" }],
   };
 }
+
+function preserveManualAttachments(existing: Dependency, refreshed: Dependency): Dependency {
+  const roots = new Set(
+    existing.attachments
+      .map((attachment) => attachment.source)
+      .filter(
+        (source): source is string =>
+          typeof source === "string" && /^manual\/attachment-[1-9]\d*$/.test(source),
+      ),
+  );
+  const manualSources = existing.sources.filter((source) => {
+    const sourceId = source.id;
+    return (
+      typeof sourceId === "string" &&
+      [...roots].some((root) => sourceId === root || sourceId.startsWith(`${root}/`))
+    );
+  });
+  const sourceIds = new Set(manualSources.map((source) => String(source.id)));
+  if (!roots.size) return refreshed;
+
+  const retainedFiles = existing.files.filter(
+    (file) =>
+      [...roots].some((root) => file.key.startsWith(`${root}/`)) ||
+      [...sourceIds].some((source) => file.source === source),
+  );
+  const retainedKeys = new Set(retainedFiles.map((file) => file.key));
+  const attachments = existing.attachments.filter((attachment) =>
+    sourceIds.has(String(attachment.source)),
+  );
+  const attachmentIds = new Set(attachments.map((attachment) => String(attachment.id)));
+  const referencesManual = (row: Row) =>
+    Object.entries(row).some(([key, value]) =>
+      key === "resource" ||
+      key === "support" ||
+      key === "from" ||
+      key === "to" ||
+      key === "selected"
+        ? retainedKeys.has(String(value))
+        : key === "ontologies" || key === "schemas"
+          ? Array.isArray(value) && value.some((item) => retainedKeys.has(String(item)))
+          : false,
+    );
+  const preserveRows = (current: Row[], prior: Row[], include: (row: Row) => boolean) => [
+    ...new Map([...current, ...prior.filter(include)].map((row) => [canonical(row), row])).values(),
+  ];
+  const combined: Dependency = {
+    ...refreshed,
+    sources: preserveRows(refreshed.sources, manualSources, (source) =>
+      sourceIds.has(String(source.id)),
+    ),
+    files: [
+      ...new Map([...refreshed.files, ...retainedFiles].map((file) => [file.key, file])).values(),
+    ],
+    edges: preserveRows(refreshed.edges, existing.edges, (edge) => referencesManual(edge)),
+    bindings: preserveRows(refreshed.bindings, existing.bindings, (binding) =>
+      referencesManual(binding),
+    ),
+    associations: preserveRows(
+      refreshed.associations,
+      existing.associations,
+      (association) =>
+        attachmentIds.has(String(association.attachment)) || referencesManual(association),
+    ),
+    choices: preserveRows(refreshed.choices, existing.choices, (choice) =>
+      referencesManual(choice),
+    ),
+    attachments: preserveRows(refreshed.attachments, attachments, (attachment) =>
+      sourceIds.has(String(attachment.source)),
+    ),
+    interpretation_signature: "sha256:" + "0".repeat(64),
+  };
+  combined.interpretation_signature = interpretationSignature(combined);
+  return combined;
+}
+
 export async function publishPreparedDependency(prepared: PreparedDependency): Promise<Result> {
   try {
     const diagnostics = await publishPlan(prepared.root, prepared.plan);

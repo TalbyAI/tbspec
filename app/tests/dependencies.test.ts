@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
-import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -15,6 +15,8 @@ import {
   dependencyList,
   dependencySelect,
   dependencyShow,
+  dependencySupportSet,
+  dependencyUpdate,
 } from "../src/dependencies.ts";
 import { inspectProject } from "../src/inspection.ts";
 import { initializeProject } from "../src/project.ts";
@@ -95,6 +97,168 @@ test("directory acquisition previews a selected import closure and publishes onl
   assert.equal(
     (shown.data.dependency as { primarySelector: string }).primarySelector,
     "dep:shop/source/shop.ttl",
+  );
+});
+
+test("bundled dependency updates require an explicit preview and keep their recorded bundle source", async () => {
+  const project = await mkdtemp(join(tmpdir(), "tbspec-dependency-bundle-update-"));
+  assert.equal((await initializeProject({ directory: project })).status, "ok");
+  const before = parseLock(await readFile(join(project, "tbspec.lock"), "utf8"));
+  const lockBefore = await readFile(join(project, "tbspec.lock"));
+  const beforeDependency = before.dependencies["tbspec-metadata"];
+  assert.ok(beforeDependency);
+  const beforeFile = await readFile(
+    join(project, beforeDependency.snapshot_path, beforeDependency.primary),
+  );
+
+  const preview = await dependencyUpdate({ project, id: "tbspec-metadata" });
+  assert.equal(preview.status, "preview", JSON.stringify(preview));
+  assert.ok(preview.data);
+  assert.equal((preview.data.preview as { operation: string }).operation, "dependency.update");
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBefore);
+  const applied = await dependencyUpdate({
+    project,
+    id: "tbspec-metadata",
+    apply: true,
+    acceptedPreview: (preview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(applied.status, "ok", JSON.stringify(applied));
+  assert.equal(
+    await readFile(join(project, beforeDependency.snapshot_path, beforeDependency.primary)),
+    beforeFile,
+  );
+  const after = parseLock(await readFile(join(project, "tbspec.lock"), "utf8"));
+  assert.equal(after.dependencies["tbspec-metadata"]?.sources[0]?.kind, "bundle");
+});
+
+test("dependency update requires impact acceptance for a new manual SHACL violation", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "tbspec-dependency-impact-update-"));
+  const source = join(parent, "source");
+  const support = join(parent, "support");
+  const project = join(parent, "project");
+  await mkdir(source);
+  await mkdir(support);
+  assert.equal((await initializeProject({ directory: project })).status, "ok");
+  const model = (included: boolean) =>
+    `@prefix t: <https://talby.ai/ontology/tbspec#> .\n<urn:impact:model> a t:Model${included ? '; <urn:impact:required> "present"' : ""} .\n`;
+  await writeFile(join(source, "model.ttl"), model(true));
+  const addPreview = await dependencyAdd({ project, source, id: "impact-model", kind: "model" });
+  assert.equal(addPreview.status, "conflict");
+  assert.ok(addPreview.data);
+  const added = await dependencyAdd({
+    project,
+    source,
+    id: "impact-model",
+    kind: "model",
+    acceptedPreview: (addPreview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(added.status, "ok", JSON.stringify(added));
+
+  const shape =
+    `@prefix sh: <http://www.w3.org/ns/shacl#> .\n` +
+    `@prefix t: <https://talby.ai/ontology/tbspec#> .\n` +
+    `<urn:impact:shapes> a t:ShapesGraph .\n` +
+    `<urn:impact:shape> a sh:NodeShape; sh:targetNode <urn:impact:model>; ` +
+    `sh:property [ sh:path <urn:impact:required>; sh:minCount 1 ] .\n`;
+  await writeFile(join(support, "required.ttl"), shape);
+  const supportPreview = await dependencySupportSet({
+    project,
+    id: "impact-model",
+    target: "dep:impact-model/source/model.ttl",
+    role: "shacl",
+    source: support,
+    resource: "required.ttl",
+  });
+  assert.equal(supportPreview.status, "conflict");
+  assert.ok(supportPreview.data);
+  const attached = await dependencySupportSet({
+    project,
+    id: "impact-model",
+    target: "dep:impact-model/source/model.ttl",
+    role: "shacl",
+    source: support,
+    resource: "required.ttl",
+    acceptedPreview: (supportPreview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(attached.status, "ok", JSON.stringify(attached));
+
+  const lockBefore = await readFile(join(project, "tbspec.lock"));
+  const snapshotPath = join(project, ".tbspec/dependencies/impact-model/source/model.ttl");
+  const snapshotBefore = await readFile(snapshotPath, "utf8");
+  await writeFile(join(source, "model.ttl"), model(false));
+  const preview = await dependencyUpdate({ project, id: "impact-model" });
+  assert.equal(preview.status, "preview", JSON.stringify(preview));
+  assert.ok(preview.data);
+  const fingerprint = (preview.data.preview as { fingerprint: string }).fingerprint;
+  const acceptance = (preview.data.preview as { impact: { acceptance: string[] } }).impact
+    .acceptance;
+  assert.ok(acceptance.includes("accept-impact"));
+
+  const missingFlags = await dependencyUpdate({ project, id: "impact-model", apply: true });
+  assert.equal(missingFlags.status, "conflict");
+  assert.ok(missingFlags.diagnostics.some((item) => item.code === "PREVIEW_REQUIRED"));
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBefore);
+  assert.equal(await readFile(snapshotPath, "utf8"), snapshotBefore);
+
+  const manifestPath = join(project, "tbspec.toml");
+  const manifestBefore = await readFile(manifestPath, "utf8");
+  await writeFile(manifestPath, `${manifestBefore}# changed project root revision\n`);
+  const rootChanged = await dependencyUpdate({
+    project,
+    id: "impact-model",
+    apply: true,
+    acceptedPreview: fingerprint,
+  });
+  assert.equal(rootChanged.status, "conflict");
+  assert.ok(rootChanged.diagnostics.some((item) => item.code === "PREVIEW_CHANGED"));
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBefore);
+  assert.equal(await readFile(snapshotPath, "utf8"), snapshotBefore);
+  await writeFile(manifestPath, manifestBefore);
+
+  const unrelated = join(source, "unrelated.ttl");
+  await writeFile(
+    unrelated,
+    `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<urn:impact:unrelated> a owl:Ontology .\n`,
+  );
+  const inventoryChanged = await dependencyUpdate({
+    project,
+    id: "impact-model",
+    apply: true,
+    acceptedPreview: fingerprint,
+  });
+  assert.equal(inventoryChanged.status, "conflict");
+  assert.ok(inventoryChanged.diagnostics.some((item) => item.code === "PREVIEW_CHANGED"));
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBefore);
+  assert.equal(await readFile(snapshotPath, "utf8"), snapshotBefore);
+  await unlink(unrelated);
+
+  const blocked = await dependencyUpdate({
+    project,
+    id: "impact-model",
+    apply: true,
+    acceptedPreview: fingerprint,
+  });
+  assert.equal(blocked.status, "conflict");
+  assert.ok(blocked.diagnostics.some((item) => item.code === "ACCEPTANCE_REQUIRED"));
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBefore);
+  assert.equal(await readFile(snapshotPath, "utf8"), snapshotBefore);
+
+  const accepted = await dependencyUpdate({
+    project,
+    id: "impact-model",
+    apply: true,
+    acceptImpact: true,
+    acceptedPreview: fingerprint,
+  });
+  assert.equal(accepted.status, "ok", JSON.stringify(accepted));
+  assert.equal(accepted.data?.applied, true);
+  assert.equal(await readFile(snapshotPath, "utf8"), model(false));
+  assert.equal(
+    await readFile(
+      join(project, ".tbspec/dependencies/impact-model/manual/attachment-1/source/required.ttl"),
+      "utf8",
+    ),
+    shape,
   );
 });
 
