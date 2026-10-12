@@ -203,6 +203,7 @@ export function GraphEditor({
   // Inspection never replaces workspace-owned drafts or their captured revisions.
   useEffect(() => {
     let active = true;
+    onBusyChange(true);
     void call(`editor?selector=${encodeURIComponent(selector)}`)
       .then((result) => {
         if (!active) return;
@@ -212,11 +213,12 @@ export function GraphEditor({
       })
       .catch((problem: Error) => {
         if (active) setError(problem.message);
-      });
+      })
+      .finally(() => onBusyChange(false));
     return () => {
       active = false;
     };
-  }, [selector, call]);
+  }, [selector, call, onBusyChange]);
   const projection = useMemo(() => {
     const terms = new Map<string, EditorTerm>();
     const edges: Edge[] = [];
