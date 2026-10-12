@@ -1,7 +1,7 @@
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Quad, Term } from "@rdfjs/types";
-import { DataFactory, type Store, Writer } from "n3";
+import type { Quad as RdfQuad } from "@rdfjs/types";
+import { DataFactory, type Quad, type Store, type Term, Writer } from "n3";
 import type { PreparedResource } from "./authoring.ts";
 import { publishResource } from "./authoring.ts";
 import { canonical, digest } from "./canonical.ts";
@@ -25,6 +25,7 @@ import { parseLock, parseManifest } from "./schemas.ts";
 import { loadStarters } from "./starters.ts";
 import { preparePlan } from "./transactions.ts";
 import { vocabularyTypes } from "./validation.ts";
+import { captureViewSnapshot, syncViewSourceEdits } from "./views.ts";
 
 export interface EditorTerm {
   kind: "iri" | "blank" | "literal";
@@ -139,7 +140,7 @@ function applicable(kind: string) {
           ? stateMachineBindings
           : [];
 }
-function encode(q: Quad, scope: string): Triple {
+function encode(q: RdfQuad, scope: string): Triple {
   return {
     subject: rdfTerm(q.subject, scope) as unknown as EditorTerm,
     predicate: rdfTerm(q.predicate, scope) as unknown as EditorTerm,
@@ -478,7 +479,8 @@ function requireProcessCreationSelection(iri: string, type: string, store: Store
 
 export async function prepareEdit(options: EditingOptions): Promise<PreparedResource> {
   const loaded = await loadEditor(options);
-  const { root, snapshot, data, store, scope } = loaded;
+  const { root, data, store, scope } = loaded;
+  let snapshot = loaded.snapshot;
   const { resource } = data;
   if (
     resource.ownership !== "project" ||
@@ -522,7 +524,17 @@ export async function prepareEdit(options: EditingOptions): Promise<PreparedReso
       "ARGUMENT_INVALID",
       "Supply source text or exact RDF edits.",
     );
+  snapshot = await captureViewSnapshot(root);
+  const currentSource = snapshot.files[resource.file];
+  if (!currentSource || !equalRevision(revision(currentSource), options.revision))
+    throw new ProjectError(
+      "conflict",
+      "REVISION_CONFLICT",
+      "Source changed while preparing the shared view transaction. Review current selections.",
+      resource.file,
+    );
   let bytes = Buffer.from(data.sourceText);
+  const sourceChanges: { before: Quad; after?: Quad }[] = [];
   if (options.sourceText !== undefined) {
     if (!options.sourceText.isWellFormed())
       throw new ProjectError(
@@ -613,6 +625,8 @@ export async function prepareEdit(options: EditingOptions): Promise<PreparedReso
         store.addQuad(after);
         changed = true;
       }
+      if (before && (edit.action === "remove" || after))
+        sourceChanges.push({ before, ...(after ? { after } : {}) });
     }
     if (options.creation && resource.kind === "state-machine-model")
       validateStateMachineCreation(options.creation, store);
@@ -628,10 +642,22 @@ export async function prepareEdit(options: EditingOptions): Promise<PreparedReso
       );
     }
   }
+  let syncWrites: { file: string; bytes: Buffer }[] = [];
+  if (options.sourceText === undefined && sourceChanges.length && store) {
+    const synchronized = await syncViewSourceEdits(root, snapshot, resource, sourceChanges, store);
+    syncWrites = synchronized.writes;
+  }
+  const proposedSnapshot = {
+    ...snapshot,
+    files: { ...snapshot.files, [resource.file]: bytes },
+  };
+  for (const write of syncWrites) proposedSnapshot.files[write.file] = write.bytes;
   const checked = await inspectSnapshot(
     root,
-    { ...snapshot, files: { ...snapshot.files, [resource.file]: bytes } },
-    { command: "validate", selector: resource.selector },
+    proposedSnapshot,
+    options.sourceText !== undefined
+      ? { command: "status" }
+      : { command: "validate", selector: resource.selector },
   );
   if (checked.status === "unavailable" || checked.status === "conflict")
     throw new ProjectError(
@@ -642,7 +668,12 @@ export async function prepareEdit(options: EditingOptions): Promise<PreparedReso
   const plan = preparePlan(
     snapshot,
     options.sourceText !== undefined ? "graph.source.save" : "graph.edit",
-    equalRevision(resource.revision, revision(bytes)) ? [] : [{ file: resource.file, bytes }],
+    [
+      ...(equalRevision(resource.revision, revision(bytes))
+        ? []
+        : [{ file: resource.file, bytes }]),
+      ...syncWrites,
+    ],
     { selector: resource.selector, revision: options.revision },
   );
   await verifyReads(root, snapshot.reads);

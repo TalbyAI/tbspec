@@ -20,6 +20,7 @@ import { initializeProject } from "./project.ts";
 import { listQueries, queryRemove, queryRun, querySave, showQuery } from "./query.ts";
 import { inspectImpact, moveResource, removeResource } from "./resource-lifecycle.ts";
 import { applicationVersion } from "./runtime.ts";
+import { listViews, showView, viewOperation } from "./views.ts";
 import { webProject } from "./web.ts";
 
 const argv = process.argv.slice(2);
@@ -63,6 +64,7 @@ async function dispatch(): Promise<Result> {
         "--graph",
         "--bindings",
         "--ontology",
+        "--protocol",
         "--accept-impact",
       ].includes(argument)
     )
@@ -97,6 +99,7 @@ async function dispatch(): Promise<Result> {
         "--graph",
         "--bindings",
         "--ontology",
+        "--protocol",
       ].includes(argument)
     ) {
       const value = argv[++index];
@@ -128,6 +131,7 @@ async function dispatch(): Promise<Result> {
       "dependency",
       "impact",
       "resource",
+      "view",
     ].includes(command)
   )
     throw new ProjectError(
@@ -278,6 +282,61 @@ async function dispatch(): Promise<Result> {
       "Use dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]; dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] [--accepted-preview <fingerprint>]; dependency list; dependency show <id>; dependency check [<id>]; dependency select <ontology-iri> <id>; or dependency clear <ontology-iri>.",
     );
   }
+  if (command === "view") {
+    const action = positional[0];
+    if (
+      action === "list" &&
+      positional.length === 1 &&
+      !options.has("--protocol") &&
+      !options.has("--confirm") &&
+      !options.has("--accepted-preview")
+    )
+      return listViews({
+        project: selectedProject,
+        ...(value("--source") ? { source: value("--source") } : {}),
+      });
+    if (
+      action === "show" &&
+      positional.length === 2 &&
+      !options.has("--source") &&
+      !options.has("--protocol") &&
+      !options.has("--confirm") &&
+      !options.has("--accepted-preview")
+    )
+      return showView({ project: selectedProject, selector: positional[1] ?? "" });
+    if (
+      action === "create" &&
+      positional.length === 2 &&
+      value("--source") &&
+      !options.has("--confirm")
+    )
+      return viewOperation({
+        project: selectedProject,
+        action: "create",
+        path: positional[1] ?? "",
+        source: value("--source"),
+        ...(value("--protocol") ? { protocol: value("--protocol") } : {}),
+        ...(value("--accepted-preview") ? { acceptedPreview: value("--accepted-preview") } : {}),
+      });
+    if (
+      action === "remove" &&
+      positional.length === 2 &&
+      !options.has("--source") &&
+      !options.has("--protocol")
+    )
+      return viewOperation({
+        project: selectedProject,
+        action: "remove",
+        selector: positional[1] ?? "",
+        confirm: options.has("--confirm"),
+        ...(value("--accepted-preview") ? { acceptedPreview: value("--accepted-preview") } : {}),
+      });
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Use view list [--source <selector>]; view show <view-selector>; view create <path> --source <selector> [--protocol <selector>]; or view remove <view-selector> [--confirm --accepted-preview <digest>].",
+    );
+  }
   const schemaOperation = command === "model" && positional[0] === "schema";
   if (
     schemaOperation &&
@@ -315,6 +374,7 @@ async function dispatch(): Promise<Result> {
       (command === "model" && positional[0] === "schema" && positional[1] === "remove") ||
       ((command === "ontology" || command === "model" || command === "shapes") &&
         positional[0] === "remove") ||
+      (command === "view" && positional[0] === "remove") ||
       (command === "config" && positional[0] === "model-type" && positional[1] === "remove") ||
       (command === "query" && positional[0] === "remove")
     )
@@ -327,12 +387,13 @@ async function dispatch(): Promise<Result> {
   if (
     options.has("--source") &&
     !(command === "shapes" && positional[0] === "list") &&
+    !(command === "view" && ["list", "create"].includes(positional[0] ?? "")) &&
     !(command === "dependency" && ["inspect", "add"].includes(positional[0] ?? ""))
   )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "--source applies only to shapes list or dependency inspect/add.",
+      "--source applies only to shapes list, view list/create or dependency inspect/add.",
     );
   if (options.has("--apply") && !(command === "resource" && positional[0] === "move"))
     throw new ProjectError(
@@ -363,6 +424,12 @@ async function dispatch(): Promise<Result> {
       "invalid_arguments",
       "ARGUMENT_INVALID",
       "--kind applies only to dependency add.",
+    );
+  if (options.has("--protocol") && !(command === "view" && positional[0] === "create"))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--protocol applies only to view create.",
     );
   const queryAction = command === "query" ? positional[0] : undefined;
   const queryOptions = ["--file", "--parameters", "--saved", "--graph", "--bindings"];

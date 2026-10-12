@@ -144,7 +144,7 @@ const tree: Record<string, Guidance> = {
     topics: [],
   },
   views: {
-    text: "Views select model elements; presentation stores layout and appearance independently. Bundled designs provide initial appearance rules without runtime assets. View, presentation and design commands arrive in later tickets; inspect resources with tbspec graph list/show once available.",
+    text: "Use tbspec view list [--source <selector>], view show <view-selector>, view create <path> --source <owned-or-locked-selector> [--protocol <project-ontology-selector>], and view remove <view-selector> [--confirm --accepted-preview <fingerprint>]. Each view has an independent manifest association and presentation graph. Members are exact IRIs. Relationships are exact source triples with IRI subject and object; parallel predicates remain separate and self-loops are allowed. Selecting a relationship includes both endpoints. Adding a member selects only existing source relationships that connect it to a member already selected in that view. Removing a member clears its incident selections and presentation locally. Semantic source graph/form edits synchronize affected selected tuples in every associated view through the shared transaction; raw Turtle saves preserve view files and report stale selections. Locked source snapshots stay read-only while project-owned views remain editable. Optional protocol selectors are opaque project annotations with no built-in vocabulary behavior. Removal previews the manifest row and both owned graph files, then requires --confirm.",
     topics: [],
   },
   dependencies: {
@@ -236,6 +236,16 @@ export function guidance(topics: string[]): { found: boolean; data: Guidance } {
   };
 }
 export function help(command: string): Guidance {
+  if (command === "view")
+    return {
+      text: "Usage: tbspec view list [--source <selector>]\n       tbspec view show <view-selector>\n       tbspec view create <path> --source <owned-or-locked-selector> [--protocol <project-ontology-selector>]\n       tbspec view remove <view-selector> [--confirm --accepted-preview <fingerprint>]\nOptions: --project <dir>, --json, --help\nEach view owns independent exact member and relationship selections plus a separate presentation graph. Removal previews all three files.",
+      topics: [
+        {
+          invocation: "tbspec llms views",
+          description: "View selection, presentation and synchronization contracts.",
+        },
+      ],
+    };
   if (command === "dependency")
     return {
       text: "Usage: tbspec dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]\n       tbspec dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] [--accepted-preview <fingerprint>]\n       tbspec dependency list\n       tbspec dependency show <id>\n       tbspec dependency check [<id>]\n       tbspec dependency select <ontology-iri> <id>\n       tbspec dependency clear <ontology-iri>\nOptions: --project <dir>, --json, --help\nAdd requires review: the first call returns a concrete conflict preview and fingerprint; retrying reacquires and applies only an unchanged preview. Check reports source drift without changing snapshots. Direct HTTP(S) sources contribute one RDF graph without recursive crawling.",
@@ -348,7 +358,7 @@ export function help(command: string): Guidance {
       topics: guidance([]).data.topics,
     };
   return {
-    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, impact, resource move, shapes list/create/remove, graph list/show, ontology list/show/create/import/remove, model list/show/create/import/remove/schema list/add/remove, dependency inspect/add/list/show/check/select/clear, query list/show/save/run/remove, config show/model-type list/show/set/disable/enable/reset/design/remove, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExamples: tbspec impact ontology vocabularies/core.ttl --json; tbspec dependency inspect --source ../vocabulary --json\nCLI and authenticated browser share queries, configuration, authoring, dependencies and project operations. Use tbspec llms queries, llms impact, llms resource, llms dependencies and llms project for guidance.",
+    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, impact, resource move, shapes list/create/remove, graph list/show, ontology list/show/create/import/remove, model list/show/create/import/remove/schema list/add/remove, view list/show/create/remove, dependency inspect/add/list/show/check/select/clear, query list/show/save/run/remove, config show/model-type list/show/set/disable/enable/reset/design/remove, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExamples: tbspec impact ontology vocabularies/core.ttl --json; tbspec dependency inspect --source ../vocabulary --json\nCLI and authenticated browser share views, queries, configuration, authoring, dependencies and project operations. Use tbspec llms views, llms queries, llms impact, llms resource, llms dependencies and llms project for guidance.",
     topics: [
       { invocation: "tbspec init --help", description: "Initialize an offline project." },
       { invocation: "tbspec llms --help", description: "Recursive agent guidance." },
