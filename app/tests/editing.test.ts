@@ -228,6 +228,60 @@ test("form recognition uses explicit exact types while creation uses resolved av
   );
 });
 
+test("typed creation offers declared custom properties and rejects unavailable initial predicates", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-create-fields-"));
+  await initializeProject({ directory: root });
+  await writeFile(
+    join(root, "ontology.ttl"),
+    `
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+<urn:ontology> a owl:Ontology .
+owl:NamedIndividual a owl:Class .
+<urn:custom> a owl:DatatypeProperty .
+<urn:relation> a rdf:Property .
+`,
+  );
+  const shown = (await showEditor({ project: root, selector: "ontology.ttl" })).data;
+  assert.ok(shown);
+  assert.ok(shown.creationFields.includes("urn:custom"));
+  assert.ok(shown.creationFields.includes("urn:relation"));
+  const bytes = await readFile(join(root, "ontology.ttl"));
+  const options = {
+    project: root,
+    selector: "ontology.ttl",
+    revision: shown.resource.revision,
+    creation: { iri: "urn:individual", type: "http://www.w3.org/2002/07/owl#NamedIndividual" },
+  };
+  const edit = {
+    action: "add" as const,
+    after: {
+      subject: { kind: "iri" as const, value: "urn:individual" },
+      predicate: { kind: "iri" as const, value: "urn:unavailable" },
+      object: { kind: "literal" as const, value: "valor", language: "es" },
+    },
+  };
+  const rejected = await editGraph({ ...options, edits: [edit] });
+  assert.equal(rejected.status, "invalid_arguments");
+  assert.ok(rejected.diagnostics.some((d) => d.code === "VOCABULARY_UNKNOWN"));
+  assert.deepEqual(await readFile(join(root, "ontology.ttl")), bytes);
+  const saved = await editGraph({
+    ...options,
+    edits: [
+      {
+        ...edit,
+        after: { ...edit.after, predicate: { kind: "iri", value: "urn:custom" } },
+      },
+    ],
+  });
+  assert.equal(saved.status, "ok", JSON.stringify(saved));
+  const current = (await showEditor({ project: root, selector: "ontology.ttl" })).data;
+  assert.equal(current?.triples.filter((q) => q.subject.value === "urn:individual").length, 2);
+  assert.ok(
+    current?.triples.some((q) => q.predicate.value === "urn:custom" && q.object.language === "es"),
+  );
+});
+
 test("source drafts retain exact text, reject repeated conflicts, and repair malformed graphs", async () => {
   const root = await mkdtemp(join(tmpdir(), "tb-draft-"));
   await initializeProject({ directory: root });

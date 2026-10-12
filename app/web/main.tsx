@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { EditorData } from "../src/editing.ts";
 import type { Result } from "../src/output.ts";
+import type { EditorDraft } from "./drafts.ts";
 import { GraphEditor } from "./editor.tsx";
 import "./style.css";
 
@@ -173,8 +173,27 @@ function App() {
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [status, setStatus] = useState<Envelope | null>(null);
   const [graph, setGraph] = useState<Envelope | null>(null);
+  const graphSelector = useRef("");
+  // shortcut: drafts live only in this page; add session recovery if reload persistence is required.
+  const [drafts] = useState(() => new Map<string, EditorDraft>());
+  const [hasDrafts, setHasDrafts] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const draftChanged = useCallback(() => {
+    setHasDrafts([...drafts.values()].some((d) => d.sourceDraft || d.pending || d.creationDraft));
+  }, [drafts]);
+  useEffect(() => {
+    if (!hasDrafts) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [hasDrafts]);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(true);
+  const [reading, setBusy] = useState(true);
+  const [editorBusy, setEditorBusy] = useState(false);
+  const busy = reading || editorBusy;
   const [tab, setTab] = useState("resources");
   const [selector, setSelector] = useState("");
   const [operation, setOperation] = useState("model.create");
@@ -190,9 +209,14 @@ function App() {
     fingerprint: string;
     accept: string[];
   } | null>(null);
-  const refresh = useCallback(async (token: string) => {
+  const refresh = useCallback(async (token: string, saved = false) => {
+    const selectedSelector = graphSelector.current;
     setBusy(true);
     setError("");
+    setStatus(null);
+    setValidation(null);
+    setValidationTarget(undefined);
+    setSupportList(null);
     try {
       const configuration = await request("config", token);
       setConfig(configuration.data);
@@ -200,12 +224,19 @@ function App() {
       setResources((inventory.data?.items as Resource[]) ?? []);
       const currentStatus = await request("status", token);
       setStatus(currentStatus);
-      setValidation(null);
-      setValidationTarget(undefined);
-      setGraph(null);
+      if (selectedSelector) {
+        const selectedGraph = await request(
+          `editor?selector=${encodeURIComponent(selectedSelector)}`,
+          token,
+        );
+        if (graphSelector.current === selectedSelector) setGraph(selectedGraph);
+      }
     } catch (problem) {
-      setError(problem instanceof Error ? problem.message : "Workspace is unavailable.");
+      setError(
+        `${saved ? "Saved successfully, but workspace inspection failed. " : ""}${problem instanceof Error ? problem.message : "Workspace is unavailable."}`,
+      );
     } finally {
+      setRefreshVersion((version) => version + 1);
       setBusy(false);
     }
   }, []);
@@ -221,6 +252,8 @@ function App() {
       });
   }, [refresh]);
   async function show(selector: string, kind?: string) {
+    const previousSelector = graphSelector.current;
+    graphSelector.current = selector;
     setBusy(true);
     setError("");
     try {
@@ -228,10 +261,13 @@ function App() {
         kind ?? resources.find((resource) => resource.selector === selector)?.kind;
       const endpoint =
         resourceKind === "model" || resourceKind?.endsWith("-model") ? "model" : "graph";
-      setGraph(await request(`${endpoint}?selector=${encodeURIComponent(selector)}`, session));
+      const result = await request(`${endpoint}?selector=${encodeURIComponent(selector)}`, session);
+      if (graphSelector.current !== selector) return;
+      setGraph(result);
       setSupportList(null);
       setTab("resources");
     } catch (problem) {
+      if (graphSelector.current === selector) graphSelector.current = previousSelector;
       setError(problem instanceof Error ? problem.message : "Graph is unavailable.");
     } finally {
       setBusy(false);
@@ -338,10 +374,9 @@ function App() {
       (await request(path, session, body)) as Result,
     [session],
   );
-  const editorSaved = useCallback(
-    (result: Result<EditorData>) => setGraph(result as unknown as Envelope),
-    [],
-  );
+  const editorSaved = useCallback(async () => {
+    await refresh(session, true);
+  }, [refresh, session]);
   const selected = graph?.data?.resource as Resource | undefined;
   const associations = selected
     ? [
@@ -398,7 +433,9 @@ function App() {
             ? "Reading project…"
             : project
               ? `${project.validity} · ${counts?.resources ?? 0} owned graphs · ${counts?.dependencies ?? 0} locked dependencies`
-              : "Authentication required"}
+              : session
+                ? "Project status unavailable"
+                : "Authentication required"}
         </div>
         {project && !project.validationComplete && (
           <div className="notice">
@@ -414,6 +451,7 @@ function App() {
                   type="button"
                   key={name}
                   aria-current={tab === name ? "page" : undefined}
+                  disabled={busy}
                   onClick={() => setTab(name)}
                 >
                   {name[0]?.toUpperCase()}
@@ -885,10 +923,14 @@ function App() {
                         <p>No recorded associations.</p>
                       )}
                       <GraphEditor
-                        key={selected.selector}
+                        key={`${selected.selector}:${refreshVersion}`}
                         selector={selected.selector}
                         call={editorRequest}
                         onSaved={editorSaved}
+                        drafts={drafts}
+                        onDraftChange={draftChanged}
+                        onBusyChange={setEditorBusy}
+                        disabled={busy}
                       />
                       <details>
                         <summary>Exact RDF terms ({triples.length} statements)</summary>

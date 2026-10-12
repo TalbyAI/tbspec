@@ -9,10 +9,10 @@ import {
   ReactFlow,
   useNodesState,
 } from "@xyflow/react";
-import { useEffect, useMemo, useState } from "react";
-import type { Edit, EditingOptions, EditorData, EditorTerm, Triple } from "../src/editing.ts";
-import type { Revision } from "../src/filesystem.ts";
+import { type SetStateAction, useEffect, useMemo, useState } from "react";
+import type { EditingOptions, EditorData, EditorTerm, Triple } from "../src/editing.ts";
 import type { Diagnostic, Result } from "../src/output.ts";
+import { type EditorDraft, emptyDraft, updateDraft } from "./drafts.ts";
 import "@xyflow/react/dist/style.css";
 
 const xsdString = "http://www.w3.org/2001/XMLSchema#string";
@@ -144,31 +144,53 @@ export function GraphEditor({
   selector,
   call,
   onSaved,
+  drafts,
+  onDraftChange,
+  onBusyChange,
+  disabled,
 }: {
   selector: string;
   call: (path: string, body?: Record<string, unknown>) => Promise<Result>;
-  onSaved: (result: Result<EditorData>) => void;
+  onSaved: () => Promise<void>;
+  drafts: Map<string, EditorDraft>;
+  onDraftChange: () => void;
+  onBusyChange: (busy: boolean) => void;
+  disabled: boolean;
 }) {
   const [data, setData] = useState<EditorData>();
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState("canvas");
-  const [selected, setSelected] = useState<EditorTerm>();
   const [edge, setEdge] = useState<Triple>();
-  const [section, setSection] = useState("");
-  const [sourceDraft, setSourceDraft] = useState<{ text: string; revision: Revision }>();
-  const [pending, setPending] = useState<{ edit: Edit; revision: Revision }>();
-  const [creationDraft, setCreationDraft] = useState<{
-    iri: string;
-    type: string;
-    revision: Revision;
-  }>();
-  const [initialValues, setInitialValues] = useState<
-    { id: string; predicate: string; object: EditorTerm }[]
-  >([]);
-  const [conflict, setConflict] = useState<EditorData>();
-  const [conflictKind, setConflictKind] = useState("source");
+  const [draft, setLocalDraft] = useState(() => drafts.get(selector) ?? emptyDraft);
+  const {
+    mode,
+    selected,
+    section,
+    sourceDraft,
+    pending,
+    creationDraft,
+    initialValues,
+    conflict,
+    conflictKind,
+  } = draft;
+  function setter<K extends keyof EditorDraft>(field: K) {
+    return (change: SetStateAction<EditorDraft[K]>) => {
+      const current = drafts.get(selector) ?? emptyDraft;
+      const value = typeof change === "function" ? change(current[field]) : change;
+      setLocalDraft(updateDraft(drafts, selector, { [field]: value }));
+      onDraftChange();
+    };
+  }
+  const setMode = setter("mode"),
+    setSelected = setter("selected"),
+    setSection = setter("section"),
+    setSourceDraft = setter("sourceDraft"),
+    setPending = setter("pending"),
+    setCreationDraft = setter("creationDraft"),
+    setInitialValues = setter("initialValues"),
+    setConflict = setter("conflict"),
+    setConflictKind = setter("conflictKind");
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   async function read() {
     const result = await call(`editor?selector=${encodeURIComponent(selector)}`);
@@ -176,10 +198,9 @@ export function GraphEditor({
     const current = result.data as EditorData;
     setData(current);
     setDiagnostics(result.diagnostics);
-    onSaved(result as Result<EditorData>);
     return current;
   }
-  // The editor owns drafts; inspection and mode switching never replace them.
+  // Inspection never replaces workspace-owned drafts or their captured revisions.
   useEffect(() => {
     let active = true;
     void call(`editor?selector=${encodeURIComponent(selector)}`)
@@ -247,7 +268,10 @@ export function GraphEditor({
   const statements =
     data?.triples.filter((q) => selected && key(q.subject) === key(selected)) ?? [];
   async function save(options: Omit<EditingOptions, "selector">, source = false) {
+    if (busy || disabled) return;
+    let published = false;
     setBusy(true);
+    onBusyChange(true);
     setError("");
     setConflict(undefined);
     try {
@@ -270,20 +294,24 @@ export function GraphEditor({
         }
         return;
       }
-      setPending(undefined);
+      published = true;
+      if (!source && !options.creation) setPending(undefined);
       setEdge(undefined);
       if (source) setSourceDraft(undefined);
       if (options.creation) {
         setCreationDraft(undefined);
         setInitialValues([]);
       }
-      await read();
+      await onSaved();
     } catch (problem) {
       setError(
-        `${problem instanceof Error ? problem.message : "Save failed."} Inspect current source before any further write; the outcome may be uncertain.`,
+        published
+          ? `Saved successfully, but editor inspection failed: ${problem instanceof Error ? problem.message : "Reload failed."} Inspect current source before another write.`
+          : `${problem instanceof Error ? problem.message : "Save failed."} Inspect current source before any further write; the outcome may be uncertain.`,
       );
     } finally {
       setBusy(false);
+      onBusyChange(false);
     }
   }
   function edit(triple: Triple) {
@@ -359,483 +387,516 @@ export function GraphEditor({
   return (
     <section aria-label="RDF editor" className="rdf-editor">
       <h3>RDF editor</h3>
-      {!writable && <p>Read only. Use editable import to change a locked snapshot.</p>}
-      <fieldset aria-label="Editor mode">
-        {["canvas", "Turtle", "forms"].map((m) => (
-          <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}>
-            {m === "canvas" ? "Complete graph" : m === "forms" ? "Forms" : "Turtle source"}
-          </button>
-        ))}
-      </fieldset>
-      {error && <p role="alert">{error}</p>}
-      <ul className="diagnostics">
-        {diagnostics.map((d) => (
-          <li key={JSON.stringify(d)}>
-            <strong>
-              {d.severity} · {d.code}
-            </strong>{" "}
-            {d.message}
-          </li>
-        ))}
-      </ul>
-      {conflict && (
-        <section aria-label="Draft reconciliation">
-          <h4>Source changed — draft retained</h4>
-          <h5>Current source</h5>
-          <pre>{conflict.sourceText}</pre>
-          <h5>Your draft</h5>
-          <pre>
-            {conflictKind === "source"
-              ? sourceDraft?.text
-              : JSON.stringify(
-                  conflictKind === "creation" ? { ...creationDraft, initialValues } : pending?.edit,
-                  null,
-                  2,
-                )}
-          </pre>
-          <button
-            type="button"
-            onClick={() => {
-              if (conflictKind === "source") setSourceDraft(undefined);
-              if (conflictKind === "statement") setPending(undefined);
-              if (conflictKind === "creation") {
-                setCreationDraft(undefined);
-                setInitialValues([]);
-              }
-              setConflict(undefined);
-              setError("");
-            }}
-          >
-            Use current source
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (sourceDraft && conflictKind === "source")
-                setSourceDraft({ ...sourceDraft, revision: conflict.resource.revision });
-              if (pending && conflictKind === "statement")
-                setPending({ ...pending, revision: conflict.resource.revision });
-              if (creationDraft && conflictKind === "creation")
-                setCreationDraft({ ...creationDraft, revision: conflict.resource.revision });
-              setConflict(undefined);
-              setError(
-                "Reviewed current revision. Save explicitly; another concurrent change can still conflict. Re-select changed blank nodes or removed statements.",
+      <fieldset disabled={busy || disabled} className="editor-controls">
+        {!writable && <p>Read only. Use editable import to change a locked snapshot.</p>}
+        <fieldset aria-label="Editor mode">
+          {["canvas", "Turtle", "forms"].map((m) => (
+            <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}>
+              {m === "canvas" ? "Complete graph" : m === "forms" ? "Forms" : "Turtle source"}
+            </button>
+          ))}
+        </fieldset>
+        {error && <p role="alert">{error}</p>}
+        <ul className="diagnostics">
+          {diagnostics.map((d) => (
+            <li key={JSON.stringify(d)}>
+              <strong>
+                {d.severity} · {d.code}
+              </strong>{" "}
+              {d.message}
+            </li>
+          ))}
+        </ul>
+        {conflict && (
+          <section aria-label="Draft reconciliation">
+            <h4>Source changed — draft retained</h4>
+            <h5>Current source</h5>
+            <pre>{conflict.sourceText}</pre>
+            <h5>Your draft</h5>
+            <pre>
+              {conflictKind === "source"
+                ? sourceDraft?.text
+                : JSON.stringify(
+                    conflictKind === "creation"
+                      ? { ...creationDraft, initialValues }
+                      : pending?.edit,
+                    null,
+                    2,
+                  )}
+            </pre>
+            <button
+              type="button"
+              onClick={() => {
+                if (conflictKind === "source") setSourceDraft(undefined);
+                if (conflictKind === "statement") setPending(undefined);
+                if (conflictKind === "creation") {
+                  setCreationDraft(undefined);
+                  setInitialValues([]);
+                }
+                setConflict(undefined);
+                setError("");
+              }}
+            >
+              Use current source
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (sourceDraft && conflictKind === "source")
+                  setSourceDraft({ ...sourceDraft, revision: conflict.resource.revision });
+                if (pending && conflictKind === "statement")
+                  setPending({ ...pending, revision: conflict.resource.revision });
+                if (creationDraft && conflictKind === "creation")
+                  setCreationDraft({ ...creationDraft, revision: conflict.resource.revision });
+                setConflict(undefined);
+                setError(
+                  "Reviewed current revision. Save explicitly; another concurrent change can still conflict. Re-select changed blank nodes or removed statements.",
+                );
+              }}
+            >
+              Review and use current revision
+            </button>
+          </section>
+        )}
+        {mode === "Turtle" ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void save(
+                {
+                  revision: sourceDraft?.revision ?? data.resource.revision,
+                  sourceText: sourceDraft?.text ?? data.sourceText,
+                },
+                true,
               );
             }}
           >
-            Review and use current revision
-          </button>
-        </section>
-      )}
-      {mode === "Turtle" ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void save(
-              {
-                revision: sourceDraft?.revision ?? data.resource.revision,
-                sourceText: sourceDraft?.text ?? data.sourceText,
-              },
-              true,
-            );
-          }}
-        >
-          <label htmlFor="turtle-source">Turtle source</label>
-          <textarea
-            id="turtle-source"
-            rows={18}
-            spellCheck={false}
-            readOnly={!writable}
-            value={sourceDraft?.text ?? data.sourceText}
-            onChange={(e) =>
-              setSourceDraft({
-                text: e.target.value,
-                revision: sourceDraft?.revision ?? data.resource.revision,
-              })
-            }
-          />
-          <p>
-            Source saves retain your exact text, including invalid Turtle. Graph and form editing
-            resume after syntax is repaired.
-          </p>
-          <button type="submit" disabled={!writable || busy || !!conflict}>
-            Save Turtle source
-          </button>
-        </form>
-      ) : !data.parseable ? (
-        <p>Repair Turtle syntax in the source editor before using graph or form edits.</p>
-      ) : (
-        <>
-          {mode === "canvas" && (
-            <>
-              <p>Complete source graph · Positions are temporary · Pan and zoom to explore</p>
-              <div className="rdf-canvas">
-                <ReactFlow
-                  nodes={nodes}
-                  edges={projection.edges}
-                  edgeTypes={edgeTypes}
-                  onNodesChange={onNodesChange}
-                  onNodeClick={(_, node) => {
-                    setSelected(JSON.parse(node.id) as EditorTerm);
-                    setEdge(undefined);
-                  }}
-                  onEdgeClick={(_, clicked) => {
-                    const triple = JSON.parse(clicked.id) as Triple;
-                    setEdge(triple);
-                    setSelected(triple.subject);
-                  }}
-                  nodesConnectable={false}
-                  deleteKeyCode={null}
-                  fitView
-                >
-                  <Background />
-                  <Controls />
-                </ReactFlow>
-              </div>
-            </>
-          )}
-          <label>
-            Selected resource
-            <select
-              aria-label="Selected resource"
-              value={selected ? key(selected) : ""}
-              onChange={(e) => {
-                setSelected(
-                  e.target.value ? (JSON.parse(e.target.value) as EditorTerm) : undefined,
-                );
-                setEdge(undefined);
-                setSection("");
-              }}
-            >
-              <option value="">Select a resource</option>
-              {projection.nodes.map((n) => (
-                <option key={n.id} value={n.id}>
-                  {n.data.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {edge && (
-            <section aria-label="Selected exact edge">
-              <h4>Selected exact edge</h4>
-              <code>
-                {text(edge.subject)} {text(edge.predicate)} {text(edge.object)}
-              </code>
+            <label htmlFor="turtle-source">Turtle source</label>
+            <textarea
+              id="turtle-source"
+              rows={18}
+              spellCheck={false}
+              readOnly={!writable}
+              value={sourceDraft?.text ?? data.sourceText}
+              onChange={(e) =>
+                setSourceDraft({
+                  text: e.target.value,
+                  revision: sourceDraft?.revision ?? data.resource.revision,
+                })
+              }
+            />
+            <p>
+              Source saves retain your exact text, including invalid Turtle. Graph and form editing
+              resume after syntax is repaired.
+            </p>
+            <button type="submit" disabled={!writable || busy || !!conflict}>
+              Save Turtle source
+            </button>
+            {sourceDraft && (
               <button
                 type="button"
-                disabled={!writable || busy || !!pending}
-                onClick={() => edit(edge)}
+                onClick={() => {
+                  setSourceDraft(undefined);
+                  if (conflictKind === "source") setConflict(undefined);
+                }}
               >
-                Edit selected edge
+                Discard source draft
               </button>
-              <button
-                type="button"
-                disabled={!writable || busy || !!pending}
-                onClick={() =>
-                  setPending({
-                    revision: data.resource.revision,
-                    edit: { action: "remove", before: edge },
-                  })
-                }
-              >
-                Remove selected edge
-              </button>
-            </section>
-          )}
-          {mode === "forms" &&
-            (binding ? (
+            )}
+          </form>
+        ) : !data.parseable ? (
+          <p>Repair Turtle syntax in the source editor before using graph or form edits.</p>
+        ) : (
+          <>
+            {mode === "canvas" && (
               <>
-                <label>
-                  Applicable type section
-                  <select
-                    aria-label="Applicable type section"
-                    value={binding.type}
-                    onChange={(e) => setSection(e.target.value)}
+                <p>Complete source graph · Positions are temporary · Pan and zoom to explore</p>
+                <div className="rdf-canvas">
+                  <ReactFlow
+                    nodes={nodes}
+                    edges={projection.edges}
+                    edgeTypes={edgeTypes}
+                    onNodesChange={onNodesChange}
+                    onNodeClick={(_, node) => {
+                      setSelected(JSON.parse(node.id) as EditorTerm);
+                      setEdge(undefined);
+                    }}
+                    onEdgeClick={(_, clicked) => {
+                      const triple = JSON.parse(clicked.id) as Triple;
+                      setEdge(triple);
+                      setSelected(triple.subject);
+                    }}
+                    nodesConnectable={false}
+                    deleteKeyCode={null}
+                    fitView
                   >
-                    {sections.map((s) => (
-                      <option key={s.type} value={s.type}>
-                        {s.label} · {s.type}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <p>
-                  Every explicit type remains intact. Unsupported values stay available through
-                  generic editing.
-                </p>
-                {binding.fields.map((field) => (
-                  <section key={field}>
-                    <h4>{field}</h4>
-                    <ul>{statements.filter((q) => q.predicate.value === field).map(row)}</ul>
-                    <button
-                      type="button"
-                      disabled={
-                        !writable || busy || !!pending || !data.creationFields.includes(field)
-                      }
-                      onClick={() =>
-                        add(
-                          field,
-                          field.endsWith("label") || field.endsWith("comment")
-                            ? undefined
-                            : { kind: "iri", value: "" },
-                        )
-                      }
-                    >
-                      Add field value
-                    </button>
-                  </section>
-                ))}
+                    <Background />
+                    <Controls />
+                  </ReactFlow>
+                </div>
               </>
-            ) : (
-              <p>
-                No specialized section applies. Use the complete graph or generic RDF terms below.
-              </p>
-            ))}
-          {selected && (
-            <>
-              <h4>
-                {mode === "canvas"
-                  ? "RDF-term properties"
-                  : "All existing statements / generic access"}
-              </h4>
-              <ul>{statements.map(row)}</ul>
-            </>
-          )}
-          <button type="button" disabled={!writable || busy || !!pending} onClick={() => add()}>
-            Add exact triple
-          </button>
-          {mode === "forms" && writable && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const iri = creationDraft?.iri ?? "";
-                void save({
-                  revision: creationDraft?.revision ?? data.resource.revision,
-                  edits: initialValues.map((v) => ({
-                    action: "add",
-                    after: {
-                      subject: { kind: "iri", value: iri },
-                      predicate: { kind: "iri", value: v.predicate },
-                      object: v.object,
-                    },
-                  })),
-                  creation: { iri, type: creationDraft?.type ?? data.creationTypes[0]?.type ?? "" },
-                });
-              }}
-            >
-              <h4>Create typed resource</h4>
-              <label>
-                Resource IRI
-                <input
-                  name="iri"
-                  aria-label="New resource IRI"
-                  value={creationDraft?.iri ?? ""}
-                  required
-                  onChange={(e) =>
-                    setCreationDraft({
-                      iri: e.target.value,
-                      type: creationDraft?.type ?? data.creationTypes[0]?.type ?? "",
-                      revision: creationDraft?.revision ?? data.resource.revision,
-                    })
-                  }
-                />
-              </label>
-              <label>
-                Exact type
-                <select
-                  name="type"
-                  aria-label="New resource type"
-                  required
-                  value={creationDraft?.type ?? data.creationTypes[0]?.type ?? ""}
-                  onChange={(e) =>
-                    setCreationDraft({
-                      iri: creationDraft?.iri ?? "",
-                      type: e.target.value,
-                      revision: creationDraft?.revision ?? data.resource.revision,
+            )}
+            <label>
+              Selected resource
+              <select
+                aria-label="Selected resource"
+                value={selected ? key(selected) : ""}
+                onChange={(e) => {
+                  setSelected(
+                    e.target.value ? (JSON.parse(e.target.value) as EditorTerm) : undefined,
+                  );
+                  setEdge(undefined);
+                  setSection("");
+                }}
+              >
+                <option value="">Select a resource</option>
+                {projection.nodes.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.data.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {edge && (
+              <section aria-label="Selected exact edge">
+                <h4>Selected exact edge</h4>
+                <code>
+                  {text(edge.subject)} {text(edge.predicate)} {text(edge.object)}
+                </code>
+                <button
+                  type="button"
+                  disabled={!writable || busy || !!pending}
+                  onClick={() => edit(edge)}
+                >
+                  Edit selected edge
+                </button>
+                <button
+                  type="button"
+                  disabled={!writable || busy || !!pending}
+                  onClick={() =>
+                    setPending({
+                      revision: data.resource.revision,
+                      edit: { action: "remove", before: edge },
                     })
                   }
                 >
-                  {data.creationTypes.map((t) => (
-                    <option key={t.type} value={t.type}>
-                      {t.label} · {t.type}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {initialValues.map((value) => (
-                <fieldset key={value.id}>
-                  <legend>Initial field value</legend>
+                  Remove selected edge
+                </button>
+              </section>
+            )}
+            {mode === "forms" &&
+              (binding ? (
+                <>
                   <label>
-                    Exact field
+                    Applicable type section
                     <select
-                      aria-label="Initial field predicate"
-                      value={value.predicate}
-                      onChange={(e) =>
-                        setInitialValues((values) =>
-                          values.map((v) =>
-                            v.id === value.id
-                              ? {
-                                  ...v,
-                                  predicate: e.target.value,
-                                  ...(e.target.value === rdfType
-                                    ? {
-                                        object: {
-                                          kind: "iri" as const,
-                                          value: data.creationClasses[0] ?? "",
-                                        },
-                                      }
-                                    : {}),
-                                }
-                              : v,
-                          ),
-                        )
-                      }
+                      aria-label="Applicable type section"
+                      value={binding.type}
+                      onChange={(e) => setSection(e.target.value)}
                     >
-                      {data.creationFields.map((field) => (
-                        <option key={field} value={field}>
-                          {field}
+                      {sections.map((s) => (
+                        <option key={s.type} value={s.type}>
+                          {s.label} · {s.type}
                         </option>
                       ))}
                     </select>
                   </label>
-                  {value.predicate === rdfType ? (
+                  <p>
+                    Every explicit type remains intact. Unsupported values stay available through
+                    generic editing.
+                  </p>
+                  {binding.fields.map((field) => (
+                    <section key={field}>
+                      <h4>{field}</h4>
+                      <ul>{statements.filter((q) => q.predicate.value === field).map(row)}</ul>
+                      <button
+                        type="button"
+                        disabled={
+                          !writable || busy || !!pending || !data.creationFields.includes(field)
+                        }
+                        onClick={() =>
+                          add(
+                            field,
+                            field.endsWith("label") || field.endsWith("comment")
+                              ? undefined
+                              : { kind: "iri", value: "" },
+                          )
+                        }
+                      >
+                        Add field value
+                      </button>
+                    </section>
+                  ))}
+                </>
+              ) : (
+                <p>
+                  No specialized section applies. Use the complete graph or generic RDF terms below.
+                </p>
+              ))}
+            {selected && (
+              <>
+                <h4>
+                  {mode === "canvas"
+                    ? "RDF-term properties"
+                    : "All existing statements / generic access"}
+                </h4>
+                <ul>{statements.map(row)}</ul>
+              </>
+            )}
+            <button type="button" disabled={!writable || busy || !!pending} onClick={() => add()}>
+              Add exact triple
+            </button>
+            {mode === "forms" && writable && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const iri = creationDraft?.iri ?? "";
+                  void save({
+                    revision: creationDraft?.revision ?? data.resource.revision,
+                    edits: initialValues.map((v) => ({
+                      action: "add",
+                      after: {
+                        subject: { kind: "iri", value: iri },
+                        predicate: { kind: "iri", value: v.predicate },
+                        object: v.object,
+                      },
+                    })),
+                    creation: {
+                      iri,
+                      type: creationDraft?.type ?? data.creationTypes[0]?.type ?? "",
+                    },
+                  });
+                }}
+              >
+                <h4>Create typed resource</h4>
+                <label>
+                  Resource IRI
+                  <input
+                    name="iri"
+                    aria-label="New resource IRI"
+                    value={creationDraft?.iri ?? ""}
+                    required
+                    onChange={(e) =>
+                      setCreationDraft({
+                        iri: e.target.value,
+                        type: creationDraft?.type ?? data.creationTypes[0]?.type ?? "",
+                        revision: creationDraft?.revision ?? data.resource.revision,
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Exact type
+                  <select
+                    name="type"
+                    aria-label="New resource type"
+                    required
+                    value={creationDraft?.type ?? data.creationTypes[0]?.type ?? ""}
+                    onChange={(e) =>
+                      setCreationDraft({
+                        iri: creationDraft?.iri ?? "",
+                        type: e.target.value,
+                        revision: creationDraft?.revision ?? data.resource.revision,
+                      })
+                    }
+                  >
+                    {data.creationTypes.map((t) => (
+                      <option key={t.type} value={t.type}>
+                        {t.label} · {t.type}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {initialValues.map((value) => (
+                  <fieldset key={value.id}>
+                    <legend>Initial field value</legend>
                     <label>
-                      Initial exact class
+                      Exact field
                       <select
-                        aria-label="Initial exact class"
-                        value={value.object.value}
+                        aria-label="Initial field predicate"
+                        value={value.predicate}
                         onChange={(e) =>
                           setInitialValues((values) =>
                             values.map((v) =>
                               v.id === value.id
-                                ? { ...v, object: { kind: "iri", value: e.target.value } }
+                                ? {
+                                    ...v,
+                                    predicate: e.target.value,
+                                    ...(e.target.value === rdfType
+                                      ? {
+                                          object: {
+                                            kind: "iri" as const,
+                                            value: data.creationClasses[0] ?? "",
+                                          },
+                                        }
+                                      : {}),
+                                  }
                                 : v,
                             ),
                           )
                         }
                       >
-                        {data.creationClasses.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
+                        {data.creationFields.map((field) => (
+                          <option key={field} value={field}>
+                            {field}
                           </option>
                         ))}
                       </select>
                     </label>
-                  ) : (
-                    <TermInput
-                      label="Initial object"
-                      value={value.object}
-                      scope={scope}
-                      onChange={(object) =>
-                        setInitialValues((values) =>
-                          values.map((v) => (v.id === value.id ? { ...v, object } : v)),
-                        )
+                    {value.predicate === rdfType ? (
+                      <label>
+                        Initial exact class
+                        <select
+                          aria-label="Initial exact class"
+                          value={value.object.value}
+                          onChange={(e) =>
+                            setInitialValues((values) =>
+                              values.map((v) =>
+                                v.id === value.id
+                                  ? { ...v, object: { kind: "iri", value: e.target.value } }
+                                  : v,
+                              ),
+                            )
+                          }
+                        >
+                          {data.creationClasses.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <TermInput
+                        label="Initial object"
+                        value={value.object}
+                        scope={scope}
+                        onChange={(object) =>
+                          setInitialValues((values) =>
+                            values.map((v) => (v.id === value.id ? { ...v, object } : v)),
+                          )
+                        }
+                      />
+                    )}
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        setInitialValues((values) => values.filter((v) => v.id !== value.id))
                       }
-                    />
-                  )}
+                    >
+                      Discard initial value
+                    </button>
+                  </fieldset>
+                ))}
+                <button
+                  type="button"
+                  disabled={busy || !data.creationFields.length}
+                  onClick={() => {
+                    setCreationDraft(
+                      creationDraft ?? {
+                        iri: "",
+                        type: data.creationTypes[0]?.type ?? "",
+                        revision: data.resource.revision,
+                      },
+                    );
+                    setInitialValues([
+                      ...initialValues,
+                      {
+                        id: crypto.randomUUID(),
+                        predicate: data.creationFields[0],
+                        object:
+                          data.creationFields[0] === rdfType
+                            ? { kind: "iri", value: data.creationClasses[0] ?? "" }
+                            : { kind: "literal", value: "", datatype: xsdString },
+                      },
+                    ]);
+                  }}
+                >
+                  Add initial value
+                </button>
+                {!data.creationTypes.length && (
+                  <p>No supported exact creation terms are available in this graph's vocabulary.</p>
+                )}
+                <button
+                  type="submit"
+                  disabled={busy || !data.creationTypes.length || !!pending || !!conflict}
+                >
+                  Create resource
+                </button>
+                {creationDraft && (
                   <button
                     type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      setInitialValues((values) => values.filter((v) => v.id !== value.id))
-                    }
+                    onClick={() => {
+                      setCreationDraft(undefined);
+                      setInitialValues([]);
+                      if (conflictKind === "creation") setConflict(undefined);
+                    }}
                   >
-                    Discard initial value
+                    Discard creation draft
                   </button>
-                </fieldset>
-              ))}
-              <button
-                type="button"
-                disabled={busy || !data.creationFields.length}
-                onClick={() => {
-                  setCreationDraft(
-                    creationDraft ?? {
-                      iri: "",
-                      type: data.creationTypes[0]?.type ?? "",
-                      revision: data.resource.revision,
-                    },
-                  );
-                  setInitialValues([
-                    ...initialValues,
-                    {
-                      id: crypto.randomUUID(),
-                      predicate: data.creationFields[0],
-                      object: { kind: "literal", value: "", datatype: xsdString },
-                    },
-                  ]);
-                }}
-              >
-                Add initial value
-              </button>
-              {!data.creationTypes.length && (
-                <p>No supported exact creation terms are available in this graph's vocabulary.</p>
-              )}
-              <button
-                type="submit"
-                disabled={busy || !data.creationTypes.length || !!pending || !!conflict}
-              >
-                Create resource
-              </button>
-            </form>
-          )}
-        </>
-      )}
-      {pending && (
-        <form
-          aria-label="Exact statement draft"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void save({ revision: pending.revision, edits: [pending.edit] });
-          }}
-        >
-          <h4>
-            {pending.edit.action === "remove"
-              ? "Review exact triple removal"
-              : "Exact statement draft"}
-          </h4>
-          {pending.edit.action === "remove" ? (
-            <pre>{JSON.stringify(pending.edit.before, null, 2)}</pre>
-          ) : (
-            ["subject", "predicate", "object"].map((part) => {
-              const position = part as keyof Triple;
-              return (
-                <TermInput
-                  key={part}
-                  label={part}
-                  value={
-                    pending.edit.action === "remove"
-                      ? pending.edit.before[position]
-                      : pending.edit.after[position]
-                  }
-                  scope={scope}
-                  resourceOnly={part === "subject"}
-                  iriOnly={part === "predicate"}
-                  onChange={(value) =>
-                    setPending((p) =>
-                      p && p.edit.action !== "remove"
-                        ? { ...p, edit: { ...p.edit, after: { ...p.edit.after, [part]: value } } }
-                        : p,
-                    )
-                  }
-                />
-              );
-            })
-          )}
-          <button type="submit" disabled={busy || !!conflict || !data.parseable}>
-            {pending.edit.action === "remove" ? "Remove reviewed triple" : "Save exact statement"}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              setPending(undefined);
-              setConflict(undefined);
+                )}
+              </form>
+            )}
+          </>
+        )}
+        {pending && (
+          <form
+            aria-label="Exact statement draft"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void save({ revision: pending.revision, edits: [pending.edit] });
             }}
           >
-            Discard statement draft
-          </button>
-        </form>
-      )}
+            <h4>
+              {pending.edit.action === "remove"
+                ? "Review exact triple removal"
+                : "Exact statement draft"}
+            </h4>
+            {pending.edit.action === "remove" ? (
+              <pre>{JSON.stringify(pending.edit.before, null, 2)}</pre>
+            ) : (
+              ["subject", "predicate", "object"].map((part) => {
+                const position = part as keyof Triple;
+                return (
+                  <TermInput
+                    key={part}
+                    label={part}
+                    value={
+                      pending.edit.action === "remove"
+                        ? pending.edit.before[position]
+                        : pending.edit.after[position]
+                    }
+                    scope={scope}
+                    resourceOnly={part === "subject"}
+                    iriOnly={part === "predicate"}
+                    onChange={(value) =>
+                      setPending((p) =>
+                        p && p.edit.action !== "remove"
+                          ? { ...p, edit: { ...p.edit, after: { ...p.edit.after, [part]: value } } }
+                          : p,
+                      )
+                    }
+                  />
+                );
+              })
+            )}
+            <button type="submit" disabled={busy || !!conflict || !data.parseable}>
+              {pending.edit.action === "remove" ? "Remove reviewed triple" : "Save exact statement"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setPending(undefined);
+                setConflict(undefined);
+              }}
+            >
+              Discard statement draft
+            </button>
+          </form>
+        )}
+      </fieldset>
     </section>
   );
 }

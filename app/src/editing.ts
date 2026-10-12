@@ -193,11 +193,18 @@ async function loadEditor(options: EditorOptions) {
           ),
         )
         .map(({ type, label }) => ({ type, label }));
-  const creationFields = blocked
-    ? []
-    : [...new Set(applicable(resource.kind).flatMap((b) => b.fields))].filter((p) =>
-        vocabularyTypes.property.some((type) => available?.countQuads(p, `${rdf}type`, type, null)),
-      );
+  const creationFields =
+    blocked || !applicable(resource.kind).length
+      ? []
+      : [
+          ...new Set(
+            vocabularyTypes.property.flatMap((type) =>
+              (available?.getQuads(null, `${rdf}type`, type, null) ?? [])
+                .filter((q) => q.subject.termType === "NamedNode")
+                .map((q) => q.subject.value),
+            ),
+          ),
+        ];
   const creationClasses = blocked
     ? []
     : [
@@ -411,6 +418,16 @@ export async function prepareEdit(options: EditingOptions): Promise<PreparedReso
       const before = edit.action !== "add" ? statement(edit.before, scope, store) : undefined;
       const after =
         edit.action !== "remove" ? statement(edit.after, scope, store, true) : undefined;
+      if (
+        options.creation &&
+        after?.subject.value === options.creation.iri &&
+        !data.creationFields.includes(after.predicate.value)
+      )
+        throw new ProjectError(
+          "invalid_arguments",
+          "VOCABULARY_UNKNOWN",
+          "Initial properties require available exact property terms.",
+        );
       if (
         options.creation &&
         after?.subject.value === options.creation.iri &&
