@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import type { Quad as RdfjsQuad } from "@rdfjs/types";
 import { DataFactory, type Quad, type Quad_Object, type Quad_Subject, Store, Writer } from "n3";
 import type { PreparedResource } from "./authoring.ts";
 import { publishResource } from "./authoring.ts";
@@ -40,6 +41,10 @@ export interface ViewPosition {
   y: string;
 }
 export type ViewAppearancePatch = Record<string, unknown>;
+export interface SynchronizedStatementRemoval {
+  file: string;
+  statement: RdfjsQuad;
+}
 export interface ViewOptions {
   project?: string;
   cwd?: string;
@@ -1271,6 +1276,7 @@ function updateSynchronizedView(
   source: Store,
   viewFile: string,
   presentationFile: string,
+  removedMember?: string,
 ): boolean {
   let changed = false;
   for (const change of changes) {
@@ -1347,6 +1353,23 @@ function updateSynchronizedView(
     }
     changed = true;
   }
+  if (removedMember) {
+    for (const member of view.getObjects(viewRoot, `${t}member`, null))
+      if (member.termType === "NamedNode" && member.value === removedMember) {
+        view.removeQuad(quad(namedNode(viewRoot), namedNode(`${t}member`), member));
+        changed = true;
+      }
+    for (const record of presentation.getObjects(presentationRoot, `${t}nodePresentation`, null))
+      if (
+        record.termType !== "Literal" &&
+        presentation
+          .getObjects(record as Quad_Subject, `${t}element`, null)
+          .some((element) => element.termType === "NamedNode" && element.value === removedMember)
+      ) {
+        removeRecord(presentation, presentationRoot, `${t}nodePresentation`, record);
+        changed = true;
+      }
+  }
   return changed;
 }
 
@@ -1355,8 +1378,14 @@ async function synchronizeViews(
   source: Resource,
   changes: { before: Quad; after?: Quad }[],
   sourceStore: Store,
-): Promise<{ writes: { file: string; bytes: Buffer }[]; paths: string[] }> {
-  if (!source.graphIri || !changes.length) return { writes: [], paths: [] };
+  removedMember?: string,
+): Promise<{
+  writes: { file: string; bytes: Buffer }[];
+  paths: string[];
+  removedStatements: SynchronizedStatementRemoval[];
+}> {
+  if (!source.graphIri || (!changes.length && !removedMember))
+    return { writes: [], paths: [], removedStatements: [] };
   const matchSource = (value: string) => selectorFor(value, current) === source.selector;
   const candidates: { row: Row; view: ParsedGraph; presentation: ParsedGraph }[] = [];
   for (const row of current.views) {
@@ -1410,7 +1439,7 @@ async function synchronizeViews(
       );
     candidates.push({ row, view, presentation });
   }
-  if (!candidates.length) return { writes: [], paths: [] };
+  if (!candidates.length) return { writes: [], paths: [], removedStatements: [] };
   const baseline = await inspectSnapshot(current.root, current.snapshot, {
     project: current.root,
     command: "status",
@@ -1456,7 +1485,10 @@ async function synchronizeViews(
   });
   const writes: { file: string; bytes: Buffer }[] = [];
   const paths: string[] = [];
+  const removedStatements: SynchronizedStatementRemoval[] = [];
   for (const { row, view, presentation } of candidates) {
+    const previousView = [...view.store];
+    const previousPresentation = [...presentation.store];
     const affected = updateSynchronizedView(
       view.store,
       presentation.store,
@@ -1466,8 +1498,15 @@ async function synchronizeViews(
       sourceStore,
       view.resource.file,
       presentation.resource.file,
+      removedMember,
     );
     if (!affected) continue;
+    for (const statement of previousView)
+      if (!view.store.has(statement))
+        removedStatements.push({ file: view.resource.file, statement });
+    for (const statement of previousPresentation)
+      if (!presentation.store.has(statement))
+        removedStatements.push({ file: presentation.resource.file, statement });
     const pair = await Promise.all([rdfBytes(view.store), rdfBytes(presentation.store)]);
     writes.push(
       { file: view.resource.file, bytes: pair[0] as Buffer },
@@ -1475,7 +1514,7 @@ async function synchronizeViews(
     );
     paths.push(String(row.view), String(row.presentation));
   }
-  return { writes, paths };
+  return { writes, paths, removedStatements };
 }
 
 export async function prepareEditWithViews(options: ViewOptions): Promise<PreparedResource> {
@@ -1536,6 +1575,7 @@ export async function syncViewSourceEdits(
   resource: Resource,
   changes: { before: Quad; after?: Quad }[],
   sourceStore: Store,
+  removedMember?: string,
 ) {
   const manifestText = snapshot.files["tbspec.toml"]?.toString("utf8") ?? "";
   const manifest = parseManifest(manifestText);
@@ -1549,7 +1589,7 @@ export async function syncViewSourceEdits(
     resources: (listed.data?.items as Resource[] | undefined) ?? [],
     diagnostics: listed.diagnostics,
   };
-  return synchronizeViews(current, resource, changes, sourceStore);
+  return synchronizeViews(current, resource, changes, sourceStore, removedMember);
 }
 
 export function viewDataForTesting(value: Result<ViewData>) {

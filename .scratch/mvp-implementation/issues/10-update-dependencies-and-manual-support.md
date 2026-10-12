@@ -2,7 +2,7 @@
 
 Type: task
 Status: ready-for-agent
-State: open
+State: resolved
 Blocked by: 04, 09
 User stories covered: 45, 46, 47, 50, 51, 53, 115, 116
 
@@ -46,3 +46,9 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
+
+## Answer
+
+Implemented dependency update and explicit SHACL/design support through the public API, CLI, authenticated HTTP routes, and browser. Updates use complete semantic diagnostic multisets and required-check coverage to gate introduced or worsened errors; CLI apply reacquires and compares the accepted fingerprint before writing, while browser apply consumes the exact session-owned staged bytes. Manual support records its source and activity, survives main dependency updates, and clearing an association retains its files while excluding inactive support from interpretation.
+
+Verification passed after syncing the current integration tip: root `npm run format` and `npm run check`, app `npm run typecheck` and `npm run build`; focused CLI tests passed 2/2, the public impact-acceptance API test passed 1/1, the built-asset authenticated HTTP dependency workflow passed 1/1, and diagnostic impact tests passed 5/5, with zero failures or skips. A live T3 browser flow applied an update only after the impact acceptance checkbox was selected, then cleared support and confirmed the retained attachment was inactive and no longer interpreted.

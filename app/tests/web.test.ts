@@ -149,7 +149,9 @@ test("authenticated HTTP stages, applies, lists and shows an acquired directory 
   const parent = await privateDirectory(join(tmpdir(), "tbspec-web-dependency-"));
   const root = join(parent, "project");
   const source = join(parent, "source");
+  const supportSource = join(parent, "support");
   await mkdir(source);
+  await mkdir(supportSource);
   await initializeProject({ directory: root });
   const original = `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/web-acquired> a owl:Ontology .\n`;
   await writeFile(join(source, "ontology.ttl"), original);
@@ -207,11 +209,133 @@ test("authenticated HTTP stages, applies, lists and shows an acquired directory 
   assert.equal(typeof staged.handle, "string");
   assert.match(staged.preview.fingerprint, /^sha256:[a-f0-9]{64}$/);
   await writeFile(join(source, "ontology.ttl"), "source changed after preview");
+  const secondLink = await controlRequest(server.record, "opening-link", {});
+  const secondBootstrap = new URL(String(secondLink.openingLink)).hash.slice(
+    "#tbspec-bootstrap=".length,
+  );
+  const secondExchange = await fetch(new URL("api/auth/v1/bootstrap", baseUrl), {
+    method: "POST",
+    headers: { Origin: new URL(baseUrl).origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ protocolVersion: 1, bootstrap: secondBootstrap }),
+  });
+  const secondSession = String(
+    ((await secondExchange.json()) as { data: { sessionToken: string } }).data.sessionToken,
+  );
+  const wrongOwner = await fetch(new URL("api/project/v1/dependencies/apply", baseUrl), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secondSession}`,
+      "X-Tbspec-Schema-Version": "1",
+      Origin: new URL(baseUrl).origin,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      schemaVersion: 1,
+      handle: staged.handle,
+      fingerprint: staged.preview.fingerprint,
+      accept: [],
+    }),
+  });
+  assert.equal(wrongOwner.status, 409);
+  assert.equal(((await wrongOwner.json()) as { status: string }).status, "conflict");
   const applied = await request("dependencies/apply", {
+    schemaVersion: 1,
     handle: staged.handle,
     fingerprint: staged.preview.fingerprint,
+    accept: [],
   });
   assert.equal(applied.envelope.status, "ok", JSON.stringify(applied.envelope));
+  const reused = await request("dependencies/apply", {
+    schemaVersion: 1,
+    handle: staged.handle,
+    fingerprint: staged.preview.fingerprint,
+    accept: [],
+  });
+  assert.equal(reused.envelope.status, "conflict");
+
+  const updated = `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/web-acquired> a owl:Ontology; <urn:web:version> "staged-update" .\n`;
+  await writeFile(join(source, "ontology.ttl"), updated);
+  const updatePreview = await request("dependencies/update", {
+    id: "web-source",
+    operationId: "acquisition-update-0001",
+  });
+  assert.equal(updatePreview.envelope.status, "preview", JSON.stringify(updatePreview.envelope));
+  const updateStaged = updatePreview.envelope.data as {
+    handle: string;
+    preview: { fingerprint: string; impact: { acceptance: string[] } };
+  };
+  assert.ok(updateStaged.preview.impact.acceptance.includes("apply"));
+  const changedAfterPreview = `${updated}# changed after preview\n`;
+  await writeFile(join(source, "ontology.ttl"), changedAfterPreview);
+  const updateApplied = await request("dependencies/apply", {
+    schemaVersion: 1,
+    handle: updateStaged.handle,
+    fingerprint: updateStaged.preview.fingerprint,
+    accept: ["apply"],
+  });
+  assert.equal(updateApplied.envelope.status, "ok", JSON.stringify(updateApplied.envelope));
+  assert.equal(
+    await readFile(join(root, ".tbspec/dependencies/web-source/source/ontology.ttl"), "utf8"),
+    updated,
+  );
+
+  const shape = `@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix t: <https://talby.ai/ontology/tbspec#> .\n<urn:web:shapes> a t:ShapesGraph .\n<urn:web:shape> a sh:NodeShape; sh:targetNode <https://example.org/web-acquired> .\n`;
+  await writeFile(join(supportSource, "rules.ttl"), shape);
+  const supportPreview = await request("dependencies/support/set", {
+    id: "web-source",
+    target: "dep:web-source/source/ontology.ttl",
+    role: "shacl",
+    source: supportSource,
+    resource: "rules.ttl",
+    operationId: "support-set-preview-0001",
+  });
+  assert.equal(supportPreview.envelope.status, "preview", JSON.stringify(supportPreview.envelope));
+  const supportStaged = supportPreview.envelope.data as {
+    handle: string;
+    preview: { fingerprint: string };
+  };
+  await writeFile(join(supportSource, "rules.ttl"), "changed after staging");
+  const supportApplied = await request("dependencies/apply", {
+    schemaVersion: 1,
+    handle: supportStaged.handle,
+    fingerprint: supportStaged.preview.fingerprint,
+    accept: [],
+  });
+  assert.equal(supportApplied.envelope.status, "ok", JSON.stringify(supportApplied.envelope));
+  const supportPath = join(
+    root,
+    ".tbspec/dependencies/web-source/manual/attachment-1/source/rules.ttl",
+  );
+  assert.equal(await readFile(supportPath, "utf8"), shape);
+  const clearPreview = await request("dependencies/support/clear", {
+    id: "web-source",
+    target: "dep:web-source/source/ontology.ttl",
+    role: "shacl",
+    resource: "dep:web-source/manual/attachment-1/source/rules.ttl",
+    operationId: "support-clear-preview-0001",
+  });
+  assert.equal(clearPreview.envelope.status, "preview", JSON.stringify(clearPreview.envelope));
+  const clearStaged = clearPreview.envelope.data as {
+    handle: string;
+    preview: { fingerprint: string };
+  };
+  const clearApplied = await request("dependencies/apply", {
+    schemaVersion: 1,
+    handle: clearStaged.handle,
+    fingerprint: clearStaged.preview.fingerprint,
+    accept: [],
+  });
+  assert.equal(clearApplied.envelope.status, "ok", JSON.stringify(clearApplied.envelope));
+  assert.equal(await readFile(supportPath, "utf8"), shape);
+  const afterClear = await request("dependency?id=web-source");
+  const clearedDependency = afterClear.envelope.data?.dependency as {
+    attachments: { id: string; active: boolean }[];
+    files: { key: string }[];
+  };
+  assert.equal(clearedDependency.attachments[0]?.active, false);
+  assert.ok(
+    clearedDependency.files.some((file) => file.key === "manual/attachment-1/source/rules.ttl"),
+  );
   const listed = await request("dependencies");
   assert.ok(listed.envelope.data);
   const listedSource = (
@@ -257,7 +381,7 @@ test("authenticated HTTP stages, applies, lists and shows an acquired directory 
   assert.ok(checked.envelope.data);
   const checkedItem = (checked.envelope.data.items as { state: string; comparison: string }[])[0];
   assert.equal(checkedItem?.state, "changed");
-  assert.equal(checkedItem?.comparison, "partial");
+  assert.equal(checkedItem?.comparison, "complete");
   const checkedAll = await request("dependencies/check", {
     operationId: "web-source-check-all-0001",
   });
@@ -277,7 +401,7 @@ test("authenticated HTTP stages, applies, lists and shows an acquired directory 
   );
   assert.equal(
     await readFile(join(root, ".tbspec/dependencies/web-source/source/ontology.ttl"), "utf8"),
-    original,
+    updated,
   );
   const invalid = await request("dependencies/inspect", { source, unknown: true });
   assert.equal(invalid.envelope.status, "invalid_arguments");

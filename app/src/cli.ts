@@ -12,6 +12,9 @@ import {
   dependencyList,
   dependencySelect,
   dependencyShow,
+  dependencySupportClear,
+  dependencySupportSet,
+  dependencyUpdate,
 } from "./dependencies.ts";
 import { listDesigns, showDesign } from "./designs.ts";
 import { guidance, help } from "./guidance.ts";
@@ -67,6 +70,8 @@ async function dispatch(): Promise<Result> {
         "--ontology",
         "--protocol",
         "--accept-impact",
+        "--target",
+        "--role",
       ].includes(argument)
     )
       throw new ProjectError(
@@ -100,6 +105,8 @@ async function dispatch(): Promise<Result> {
         "--graph",
         "--bindings",
         "--ontology",
+        "--target",
+        "--role",
         "--protocol",
       ].includes(argument)
     ) {
@@ -205,19 +212,29 @@ async function dispatch(): Promise<Result> {
     typeof options.get(flag) === "string" ? (options.get(flag) as string) : undefined;
   if (command === "dependency") {
     const action = positional[0];
-    if (options.has("--accept-impact"))
+    if (options.has("--accept-impact") && action !== "update")
       throw new ProjectError(
         "invalid_arguments",
         "ARGUMENT_INVALID",
-        "dependency add uses an accepted preview fingerprint and does not accept --accept-impact.",
+        "Only dependency update accepts --accept-impact.",
       );
-    if (options.has("--apply") || options.has("--confirm"))
+    if ((options.has("--apply") && action !== "update") || options.has("--confirm"))
       throw new ProjectError(
         "invalid_arguments",
         "ARGUMENT_INVALID",
-        "--apply and --confirm do not apply to dependency operations.",
+        "--apply applies only to dependency update; --confirm does not apply to dependencies.",
       );
-    const mutationOptions = ["--source", "--ref", "--resource", "--kind", "--accepted-preview"];
+    const mutationOptions = [
+      "--source",
+      "--ref",
+      "--resource",
+      "--kind",
+      "--accepted-preview",
+      "--apply",
+      "--accept-impact",
+      "--target",
+      "--role",
+    ];
     if (
       action === "list" &&
       positional.length === 1 &&
@@ -255,6 +272,61 @@ async function dispatch(): Promise<Result> {
       !mutationOptions.some((flag) => options.has(flag))
     )
       return dependencyClear({ project: selectedProject, ontologyIri: positional[1] ?? "" });
+    if (
+      action === "update" &&
+      positional.length === 2 &&
+      !["--source", "--ref", "--resource", "--kind", "--target", "--role"].some((flag) =>
+        options.has(flag),
+      )
+    )
+      return dependencyUpdate({
+        project: selectedProject,
+        id: positional[1] ?? "",
+        apply: options.has("--apply"),
+        acceptImpact: options.has("--accept-impact"),
+        ...(value("--accepted-preview") ? { acceptedPreview: value("--accepted-preview") } : {}),
+      });
+    if (
+      action === "support" &&
+      positional[1] === "set" &&
+      positional.length === 3 &&
+      value("--target") &&
+      value("--role") &&
+      value("--source") &&
+      value("--resource") &&
+      !["--kind", "--apply", "--confirm", "--accept-impact"].some((flag) => options.has(flag)) &&
+      ["shacl", "design"].includes(value("--role") ?? "")
+    )
+      return dependencySupportSet({
+        project: selectedProject,
+        id: positional[2] ?? "",
+        target: value("--target") as string,
+        role: value("--role") as "shacl" | "design",
+        source: value("--source") as string,
+        resource: value("--resource") as string,
+        ...(value("--ref") ? { ref: value("--ref") } : {}),
+        ...(value("--accepted-preview") ? { acceptedPreview: value("--accepted-preview") } : {}),
+      });
+    if (
+      action === "support" &&
+      positional[1] === "clear" &&
+      positional.length === 3 &&
+      value("--target") &&
+      value("--role") &&
+      value("--resource") &&
+      ["shacl", "design"].includes(value("--role") ?? "") &&
+      !options.has("--source") &&
+      !options.has("--ref") &&
+      !["--kind", "--apply", "--confirm", "--accept-impact"].some((flag) => options.has(flag))
+    )
+      return dependencySupportClear({
+        project: selectedProject,
+        id: positional[2] ?? "",
+        target: value("--target") as string,
+        role: value("--role") as "shacl" | "design",
+        resource: value("--resource") as string,
+        ...(value("--accepted-preview") ? { acceptedPreview: value("--accepted-preview") } : {}),
+      });
     if (action === "inspect" && positional.length === 1 && value("--source"))
       return dependencyInspect({
         project: selectedProject,
@@ -281,7 +353,7 @@ async function dispatch(): Promise<Result> {
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "Use dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]; dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] [--accepted-preview <fingerprint>]; dependency list; dependency show <id>; dependency check [<id>]; dependency select <ontology-iri> <id>; or dependency clear <ontology-iri>.",
+      "Use dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]; dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] --accepted-preview <fingerprint>; dependency update <id> [--apply --accepted-preview <fingerprint> --accept-impact]; dependency support set <id> --target <dep:id/file> --role shacl|design --source <source> --resource <exact-file> --accepted-preview <fingerprint>; dependency support clear <id> --target <dep:id/file> --role shacl|design --resource <dep:id/support-file>; dependency list; dependency show <id>; dependency check [<id>]; dependency select <ontology-iri> <id>; or dependency clear <ontology-iri>.",
     );
   }
   if (command === "view") {
@@ -422,7 +494,10 @@ async function dispatch(): Promise<Result> {
       ((command === "ontology" || command === "model") &&
         ["create", "import"].includes(positional[0] ?? "")) ||
       (schemaOperation && ["add", "remove"].includes(positional[1] ?? "")) ||
-      (command === "dependency" && positional[0] === "add") ||
+      (command === "dependency" && ["add", "update"].includes(positional[0] ?? "")) ||
+      (command === "dependency" &&
+        positional[0] === "support" &&
+        ["set", "clear"].includes(positional[1] ?? "")) ||
       ((command === "ontology" || command === "model" || command === "shapes") &&
         positional[0] === "remove") ||
       (command === "resource" && positional[0] === "move") ||
@@ -457,42 +532,79 @@ async function dispatch(): Promise<Result> {
     options.has("--source") &&
     !(command === "shapes" && positional[0] === "list") &&
     !(command === "view" && ["list", "create"].includes(positional[0] ?? "")) &&
-    !(command === "dependency" && ["inspect", "add"].includes(positional[0] ?? ""))
+    !(command === "dependency" && ["inspect", "add"].includes(positional[0] ?? "")) &&
+    !(command === "dependency" && positional[0] === "support" && positional[1] === "set")
   )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "--source applies only to shapes list, view list/create or dependency inspect/add.",
+      "--source applies only to shapes list, view list/create, dependency inspect/add, or support set.",
     );
-  if (options.has("--apply") && !(command === "resource" && positional[0] === "move"))
+  if (
+    options.has("--apply") &&
+    !(command === "resource" && positional[0] === "move") &&
+    !(command === "dependency" && positional[0] === "update")
+  )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "--apply applies only to resource move.",
+      "--apply applies only to resource move or dependency update.",
     );
   if (
     options.has("--ref") &&
-    !(command === "dependency" && ["inspect", "add"].includes(positional[0] ?? ""))
+    !(command === "dependency" && ["inspect", "add"].includes(positional[0] ?? "")) &&
+    !(command === "dependency" && positional[0] === "support" && positional[1] === "set")
   )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "--ref applies only to dependency inspect/add.",
+      "--ref applies only to dependency inspect/add or support set.",
     );
   if (
     options.has("--resource") &&
-    !(command === "dependency" && ["inspect", "add"].includes(positional[0] ?? ""))
+    !(command === "dependency" && ["inspect", "add"].includes(positional[0] ?? "")) &&
+    !(
+      command === "dependency" &&
+      positional[0] === "support" &&
+      ["set", "clear"].includes(positional[1] ?? "")
+    )
   )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "--resource applies only to dependency inspect/add.",
+      "--resource applies only to dependency inspect/add or support set/clear.",
     );
   if (options.has("--kind") && !(command === "dependency" && positional[0] === "add"))
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
       "--kind applies only to dependency add.",
+    );
+  if (
+    options.has("--target") &&
+    !(
+      command === "dependency" &&
+      positional[0] === "support" &&
+      ["set", "clear"].includes(positional[1] ?? "")
+    )
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--target applies only to dependency support set/clear.",
+    );
+  if (
+    options.has("--role") &&
+    !(
+      command === "dependency" &&
+      positional[0] === "support" &&
+      ["set", "clear"].includes(positional[1] ?? "")
+    )
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--role applies only to dependency support set/clear.",
     );
   if (options.has("--protocol") && !(command === "view" && positional[0] === "create"))
     throw new ProjectError(
@@ -538,12 +650,13 @@ async function dispatch(): Promise<Result> {
       command === "config" &&
       positional[0] === "model-type" &&
       ["set", "reset"].includes(positional[1] ?? "")
-    )
+    ) &&
+    !(command === "dependency" && positional[0] === "update")
   )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "--accept-impact applies only to config model-type set or reset.",
+      "--accept-impact applies only to config model-type set/reset or dependency update.",
     );
   if (command === "query") {
     const action = positional[0];

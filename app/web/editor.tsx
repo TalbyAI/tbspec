@@ -110,6 +110,30 @@ function canvasLabel(term: EditorTerm, rule: CanvasDesignRule | undefined, tripl
     .sort();
   return labels[0] ?? text(term);
 }
+type ElementDeletionReview = {
+  handle: string;
+  projectValidity: string;
+  validation?: { validity: string };
+  preview: {
+    fingerprint: string;
+    arguments: {
+      element: EditorTerm;
+      statements: Triple[];
+      references: {
+        file: string;
+        selector: string;
+        position: string;
+        disposition: "unchanged" | "synchronized";
+        targetIri: string;
+        configurationRole?: "key" | "value";
+        subject?: EditorTerm;
+        predicate?: EditorTerm;
+        object?: EditorTerm;
+      }[];
+    };
+    impact: { affectedFiles: string[]; acceptance: string[] };
+  };
+};
 function text(term: EditorTerm) {
   return term.kind === "iri"
     ? `<${term.value}>`
@@ -266,6 +290,7 @@ export function GraphEditor({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [edge, setEdge] = useState<Triple>();
+  const [deletionReview, setDeletionReview] = useState<ElementDeletionReview>();
   const [draft, setLocalDraft] = useState(() => drafts.get(selector) ?? emptyDraft);
   const {
     mode,
@@ -456,6 +481,13 @@ export function GraphEditor({
       }),
     [data, designChoices.relationships, designData, projection.edges],
   );
+  const selectableResources = useMemo(() => {
+    const terms = new Map<string, EditorTerm>();
+    for (const triple of data?.triples ?? [])
+      for (const term of [triple.subject, triple.predicate, triple.object])
+        if (term.kind !== "literal") terms.set(key(term), term);
+    return [...terms];
+  }, [data]);
   useEffect(() => {
     setNodes((old) =>
       projection.nodes.map((n) => ({
@@ -523,6 +555,103 @@ export function GraphEditor({
           ? `Saved successfully, but editor inspection failed: ${problem instanceof Error ? problem.message : "Reload failed."} Inspect current source before another write.`
           : `${problem instanceof Error ? problem.message : "Save failed."} Inspect current source before any further write; the outcome may be uncertain.`,
       );
+    } finally {
+      setBusy(false);
+      onBusyChange(false);
+    }
+  }
+  async function previewElementDeletion() {
+    if (!data || !selected || busy || disabled || !writable || pending || sourceDraft) return;
+    setBusy(true);
+    onBusyChange(true);
+    setError("");
+    setConflict(undefined);
+    try {
+      const result = await call("editor/delete", {
+        selector,
+        revision: data.resource.revision,
+        element: selected,
+      });
+      if (result.status !== "preview" || !result.data) {
+        setDiagnostics(result.diagnostics);
+        setError(
+          result.diagnostics
+            .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
+            .join(" "),
+        );
+        return;
+      }
+      setDiagnostics(result.diagnostics);
+      setDeletionReview(result.data as unknown as ElementDeletionReview);
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Deletion preview failed.");
+    } finally {
+      setBusy(false);
+      onBusyChange(false);
+    }
+  }
+  async function cancelElementDeletion() {
+    if (!deletionReview || busy) return;
+    setBusy(true);
+    onBusyChange(true);
+    setError("");
+    try {
+      const result = await call("resource/cancel", {
+        schemaVersion: 1,
+        handle: deletionReview.handle,
+      });
+      if (result.status !== "ok") {
+        setDiagnostics(result.diagnostics);
+        setError(
+          result.diagnostics
+            .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
+            .join(" "),
+        );
+        return;
+      }
+      setDeletionReview(undefined);
+    } catch (problem) {
+      setError(
+        problem instanceof Error ? problem.message : "Deletion preview could not be cancelled.",
+      );
+    } finally {
+      setBusy(false);
+      onBusyChange(false);
+    }
+  }
+  async function confirmElementDeletion() {
+    if (!deletionReview || busy || disabled) return;
+    setBusy(true);
+    onBusyChange(true);
+    setError("");
+    try {
+      const result = await call("resource/apply", {
+        schemaVersion: 1,
+        handle: deletionReview.handle,
+        fingerprint: deletionReview.preview.fingerprint,
+        accept: ["confirm"],
+      });
+      if (result.status !== "ok") {
+        setDiagnostics(result.diagnostics);
+        setError(
+          result.diagnostics
+            .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
+            .join(" "),
+        );
+        setDeletionReview(undefined);
+        if (result.diagnostics.some((diagnostic) => diagnostic.code === "REVISION_CONFLICT"))
+          await read();
+        return;
+      }
+      setDiagnostics(result.diagnostics);
+      setDeletionReview(undefined);
+      setSelected(undefined);
+      setEdge(undefined);
+      await read();
+      await onSaved();
+    } catch (problem) {
+      setDeletionReview(undefined);
+      setError(problem instanceof Error ? problem.message : "Element deletion failed.");
     } finally {
       setBusy(false);
       onBusyChange(false);
@@ -601,7 +730,7 @@ export function GraphEditor({
   return (
     <section aria-label="RDF editor" className="rdf-editor">
       <h3>RDF editor</h3>
-      <fieldset disabled={busy || disabled} className="editor-controls">
+      <fieldset disabled={busy || disabled || !!deletionReview} className="editor-controls">
         {!writable && <p>Read only. Use editable import to change a locked snapshot.</p>}
         <fieldset aria-label="Editor mode">
           {["canvas", "Turtle", "forms"].map((m) => (
@@ -855,13 +984,49 @@ export function GraphEditor({
                 }}
               >
                 <option value="">Select a resource</option>
-                {projection.nodes.map((n) => (
-                  <option key={n.id} value={n.id}>
-                    {n.data.label}
+                {selectableResources.map(([id, term]) => (
+                  <option key={id} value={id}>
+                    {text(term)}
                   </option>
                 ))}
               </select>
             </label>
+            {selected && (
+              <section aria-label="Source-element deletion">
+                <h4>Delete source element</h4>
+                {data.resource.identity === "declared" &&
+                data.resource.graphIri === selected.value ? (
+                  <p>Managed graph roots are removed through resource lifecycle controls.</p>
+                ) : (
+                  <>
+                    <p>
+                      Review every statement in this source graph that uses the selected resource as
+                      subject, predicate, or object. Other graphs remain unchanged.
+                    </p>
+                    {selectableResources.some(
+                      ([, term]) =>
+                        term.kind === "iri" &&
+                        term.value === selected.value &&
+                        !projection.nodes.some((node) => node.id === key(term)),
+                    ) && (
+                      <p>
+                        This resource may be used as a predicate without appearing as a canvas node.
+                      </p>
+                    )}
+                    {selected.kind === "blank" && (
+                      <p>Blank-node identity is bound to this source graph revision.</p>
+                    )}
+                    <button
+                      type="button"
+                      disabled={!writable || busy || disabled || !!pending || !!sourceDraft}
+                      onClick={() => void previewElementDeletion()}
+                    >
+                      Preview source-element deletion
+                    </button>
+                  </>
+                )}
+              </section>
+            )}
             {edge && (
               <section aria-label="Selected exact edge">
                 <h4>Selected exact edge</h4>
@@ -1243,6 +1408,107 @@ export function GraphEditor({
           </form>
         )}
       </fieldset>
+      {deletionReview && (
+        <section aria-label="Source-element deletion review">
+          <h4>Confirm source-element deletion</h4>
+          <p>
+            This removes only the reviewed statements from <code>{selector}</code> and synchronizes
+            affected saved views. Other graph and configuration references remain unchanged.
+          </p>
+          <p>
+            Selected resource: <code>{text(deletionReview.preview.arguments.element)}</code>
+          </p>
+          {deletionReview.projectValidity === "invalid" && (
+            <p role="alert">
+              The reviewed result remains invalid. Confirm only if you accept the listed
+              diagnostics.
+            </p>
+          )}
+          <h5>Exact source statements to remove</h5>
+          <ol>
+            {deletionReview.preview.arguments.statements.map((triple) => (
+              <li key={JSON.stringify(triple)}>
+                <code>
+                  {text(triple.subject)} {text(triple.predicate)} {text(triple.object)}
+                </code>
+              </li>
+            ))}
+          </ol>
+          <h5>Exact view references to remove during synchronization</h5>
+          {deletionReview.preview.arguments.references.some(
+            (reference) => reference.disposition === "synchronized",
+          ) ? (
+            <ul>
+              {deletionReview.preview.arguments.references
+                .filter((reference) => reference.disposition === "synchronized")
+                .map((reference) => (
+                  <li key={JSON.stringify(reference)}>
+                    <code>{reference.selector}</code> · {reference.position}
+                    {reference.configurationRole && ` · ${reference.configurationRole}`}
+                    {reference.subject && reference.predicate && reference.object && (
+                      <>
+                        {" "}
+                        ·{" "}
+                        <code>
+                          {text(reference.subject)} {text(reference.predicate)}{" "}
+                          {text(reference.object)}
+                        </code>
+                      </>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          ) : (
+            <p>No exact view references are scheduled for synchronization.</p>
+          )}
+          <h5>Other known references — unchanged</h5>
+          {deletionReview.preview.arguments.references.some(
+            (reference) => reference.disposition === "unchanged",
+          ) ? (
+            <ul>
+              {deletionReview.preview.arguments.references
+                .filter((reference) => reference.disposition === "unchanged")
+                .map((reference) => (
+                  <li key={JSON.stringify(reference)}>
+                    <code>{reference.selector}</code> · {reference.position}
+                    {reference.configurationRole && ` · ${reference.configurationRole}`}
+                    {reference.subject && reference.predicate && reference.object && (
+                      <>
+                        {" "}
+                        ·{" "}
+                        <code>
+                          {text(reference.subject)} {text(reference.predicate)}{" "}
+                          {text(reference.object)}
+                        </code>
+                      </>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          ) : (
+            <p>No other source, configuration, or locked dependency references were found.</p>
+          )}
+          <h5>Affected files</h5>
+          <ul>
+            {deletionReview.preview.impact.affectedFiles.map((file) => (
+              <li key={file}>
+                <code>{file}</code>
+              </li>
+            ))}
+          </ul>
+          {error && <p role="alert">{error}</p>}
+          <button
+            type="button"
+            disabled={busy || disabled}
+            onClick={() => void confirmElementDeletion()}
+          >
+            Confirm source-element deletion
+          </button>
+          <button type="button" disabled={busy} onClick={() => void cancelElementDeletion()}>
+            Cancel deletion preview
+          </button>
+        </section>
+      )}
     </section>
   );
 }

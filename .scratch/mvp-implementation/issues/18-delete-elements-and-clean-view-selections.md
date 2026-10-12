@@ -2,7 +2,7 @@
 
 Type: task
 Status: ready-for-agent
-State: open
+State: resolved
 Blocked by: 05, 13
 User stories covered: 87, 94, 101
 
@@ -44,3 +44,9 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
+
+## Answer
+
+Implemented source-element deletion as a web-only operation at `/editor/delete` and its authenticated project API route; no CLI command was added. The editor previews every exact incident source statement, including unknown predicates, and requires explicit confirmation. Blank-node identity is bound to the selected source graph revision. Deletion removes only the reviewed statements in that graph and synchronizes exact member, relationship, node-presentation, and relationship-presentation occurrences in saved views for that source. Known references in other graphs, configuration, locked dependencies, and unrelated view data are disclosed and left unchanged. Managed-root lifecycle removal and form clearing remain separate operations. Required graph and inventory reads are revision checked, and coupled publication uses transaction rollback.
+
+Public deletion web coverage passed 8/8; deletion rollback, view transaction, saved-view web, and editing web suites passed 1/1, 1/1, 1/1, and 2/2. Root formatting/checks and app typecheck/build passed. A dedicated T3 browser smoke confirmed exact preview, source-scoped deletion, own-source view synchronization, and unchanged other-source graph/view/presentation references.
