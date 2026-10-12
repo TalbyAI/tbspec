@@ -454,3 +454,102 @@ test("CLI configures model types and requires explicit acceptance for incompatib
   ])
     assert.equal(invoke(args, root).status, 2);
 });
+
+test("CLI inventories impact and confirms removals and fingerprint-bound resource moves", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-cli-lifecycle-"));
+  await initializeProject({ directory: root, baseIri: "urn:cli-lifecycle:/" });
+  assert.equal(
+    invoke(["ontology", "create", "vocabulary.ttl", "--iri", "urn:cli-lifecycle:vocabulary"], root)
+      .status,
+    0,
+  );
+  await writeFile(
+    join(root, "vocabulary.ttl"),
+    "<urn:cli-lifecycle:vocabulary> a <http://www.w3.org/2002/07/owl#Ontology> .\n<urn:cli-lifecycle:Term> a <http://www.w3.org/2002/07/owl#Class> .\n",
+  );
+  await writeFile(
+    join(root, "model.ttl"),
+    '<urn:cli-lifecycle:model> a <https://talby.ai/ontology/tbspec#ConceptualDataModel>; <https://talby.ai/ontology/tbspec#modelType> "data" .\n<urn:cli-lifecycle:data> <urn:cli-lifecycle:uses> <urn:cli-lifecycle:Term> .\n',
+  );
+  const impact = invoke(["impact", "ontology", "vocabulary.ttl"], root);
+  assert.equal(impact.envelope.status, "ok", impact.stderr);
+  assert.ok(impact.envelope.data.targetIris.includes("urn:cli-lifecycle:vocabulary"));
+
+  const removal = invoke(["ontology", "remove", "vocabulary.ttl"], root);
+  assert.equal(removal.envelope.status, "preview", removal.stderr);
+  assert.ok(
+    removal.envelope.data.preview.impact.affectedFiles.includes("model.ttl"),
+    JSON.stringify(removal.envelope.data.preview),
+  );
+  const removed = invoke(
+    [
+      "ontology",
+      "remove",
+      "vocabulary.ttl",
+      "--confirm",
+      "--accepted-preview",
+      removal.envelope.data.preview.fingerprint,
+    ],
+    root,
+  );
+  assert.equal(removed.status, 0, removed.stderr);
+  assert.match(await readFile(join(root, "model.ttl"), "utf8"), /urn:cli-lifecycle:Term/);
+  await assert.rejects(readFile(join(root, "vocabulary.ttl")), { code: "ENOENT" });
+
+  await writeFile(join(root, "loose.ttl"), "<urn:loose:s> <urn:loose:p> <urn:loose:o> .\n");
+  const move = invoke(["resource", "move", "loose.ttl", "archive/loose.ttl"], root);
+  assert.equal(move.envelope.status, "preview", move.stderr);
+  assert.ok(
+    move.envelope.data.preview.arguments.identityChanges.some(
+      (item: { identity: string }) => item.identity === "generated",
+    ),
+  );
+  const moved = invoke(
+    [
+      "resource",
+      "move",
+      "loose.ttl",
+      "archive/loose.ttl",
+      "--apply",
+      "--accepted-preview",
+      move.envelope.data.preview.fingerprint,
+    ],
+    root,
+  );
+  assert.equal(moved.status, 0, moved.stderr);
+  await assert.rejects(readFile(join(root, "loose.ttl")), { code: "ENOENT" });
+  assert.match(await readFile(join(root, "archive/loose.ttl"), "utf8"), /urn:loose:s/);
+
+  await writeFile(
+    join(root, "custom.ttl"),
+    "<urn:cli-lifecycle:custom> a <http://www.w3.org/2002/07/owl#Ontology> .\n",
+  );
+  assert.equal(
+    invoke(["config", "model-type", "set", "custom", "--ontology", "custom.ttl"], root).status,
+    0,
+  );
+  assert.equal(invoke(["model", "create", "custom-model.ttl", "--type", "custom"], root).status, 0);
+  const typePreview = invoke(["config", "model-type", "remove", "custom"], root);
+  assert.equal(typePreview.envelope.status, "preview", typePreview.stderr);
+  assert.deepEqual(typePreview.envelope.data.affectedModels, [
+    { selector: "custom-model.ttl", file: "custom-model.ttl" },
+  ]);
+  const typeRemoval = invoke(
+    [
+      "config",
+      "model-type",
+      "remove",
+      "custom",
+      "--confirm",
+      "--accepted-preview",
+      typePreview.envelope.data.preview.fingerprint,
+    ],
+    root,
+  );
+  assert.equal(typeRemoval.status, 0, typeRemoval.stderr);
+  assert.ok(
+    typeRemoval.envelope.diagnostics.some((d: { code: string }) => d.code === "ASSOCIATION_BROKEN"),
+  );
+  await readFile(join(root, "custom-model.ttl"));
+  assert.equal(invoke(["config", "model-type", "remove", "data", "--confirm"], root).status, 2);
+});

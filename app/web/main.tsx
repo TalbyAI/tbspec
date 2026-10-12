@@ -77,10 +77,22 @@ interface Preview {
   arguments: {
     affectedModels?: {
       selector: string;
-      ontologyBefore: string | null;
-      ontologyAfter: string | null;
-      validityBefore: string;
-      validityAfter: string;
+      file?: string;
+      ontologyBefore?: string | null;
+      ontologyAfter?: string | null;
+      validityBefore?: string;
+      validityAfter?: string;
+    }[];
+    identityChanges?: { selector: string; identity: string; before: string; after: string }[];
+    targetIris?: string[];
+    references?: {
+      file: string;
+      selector?: string;
+      position: string;
+      targetIri: string;
+      subject?: Term;
+      predicate?: Term;
+      object?: Term;
     }[];
     removedVocabulary?: Term[];
     removedVocabularyRoles?: { term: Term; roles: string[] }[];
@@ -95,6 +107,15 @@ interface Preview {
     worsenedErrors: Diagnostic[];
     skippedChecks: Diagnostic[];
   };
+}
+interface ImpactOccurrence {
+  file: string;
+  selector?: string;
+  position: string;
+  targetIri: string;
+  subject?: Term;
+  predicate?: Term;
+  object?: Term;
 }
 interface Validation {
   validity: string;
@@ -228,6 +249,8 @@ function App() {
   const [validation, setValidation] = useState<Envelope | null>(null);
   const [validationTarget, setValidationTarget] = useState<string | undefined>();
   const [supportList, setSupportList] = useState<Envelope | null>(null);
+  const [lifecycleImpact, setLifecycleImpact] = useState<Envelope | null>(null);
+  const [moveDestination, setMoveDestination] = useState("");
   const [queries, setQueries] = useState<SavedQuery[]>([]);
   const [queryName, setQueryName] = useState("");
   const [queryText, setQueryText] = useState("SELECT * WHERE { ?subject ?predicate ?object }");
@@ -241,6 +264,7 @@ function App() {
     handle: string;
     fingerprint: string;
     accept: string[];
+    route?: string;
   } | null>(null);
   const refresh = useCallback(async (token: string, saved = false) => {
     const selectedSelector = graphSelector.current;
@@ -315,7 +339,15 @@ function App() {
     setError("");
     if (!apply) setPendingPreview(null);
     try {
-      const result = await request(apply ? "resource/apply" : route, session, body);
+      const requestBody = apply
+        ? {
+            schemaVersion: body.schemaVersion,
+            handle: body.handle,
+            fingerprint: body.fingerprint,
+            accept: body.accept,
+          }
+        : body;
+      const result = await request(apply ? "resource/apply" : route, session, requestBody);
       setAuthored(result);
       if (
         apply &&
@@ -331,12 +363,18 @@ function App() {
           accept:
             (result.data.preview as { impact?: { acceptance?: string[] } }).impact?.acceptance ??
             [],
+          route,
         });
       if (result.status === "preview") setAcceptedImpact(false);
       else if (result.status === "ok") {
+        const lifecycleRemoval = apply && pendingPreview?.route === "resources/remove";
+        if (lifecycleRemoval) {
+          graphSelector.current = "";
+          setGraph(null);
+        }
         await refresh(session);
         const resource = result.data?.resource as Resource | undefined;
-        if (resource) await show(resource.selector, resource.kind);
+        if (resource && !lifecycleRemoval) await show(resource.selector, resource.kind);
       }
     } catch (problem) {
       if (apply) {
@@ -347,6 +385,22 @@ function App() {
       setError(
         `${problem instanceof Error ? problem.message : "Resource operation failed."} Inspect the project before trying another write.`,
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function reviewImpact(kind: string, target: string) {
+    setBusy(true);
+    setError("");
+    try {
+      setLifecycleImpact(
+        await request(
+          `impact?kind=${encodeURIComponent(kind)}&selector=${encodeURIComponent(target)}`,
+          session,
+        ),
+      );
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Impact inspection failed.");
     } finally {
       setBusy(false);
     }
@@ -539,6 +593,15 @@ function App() {
     await refresh(session, true);
   }, [refresh, session]);
   const selected = graph?.data?.resource as Resource | undefined;
+  const lifecycleKind = selected
+    ? selected.kind === "ontology"
+      ? "ontology"
+      : selected.kind === "shapes"
+        ? "shapes"
+        : selected.kind === "model" || selected.kind.endsWith("-model")
+          ? "model"
+          : undefined
+    : undefined;
   const associations = selected
     ? [
         ...new Map(
@@ -890,7 +953,9 @@ function App() {
                             onClick={() => void author(pendingPreview, true)}
                           >
                             {pendingPreview.accept.includes("confirm")
-                              ? "Confirm schema removal"
+                              ? pendingPreview.route === "resources/remove"
+                                ? "Confirm removal"
+                                : "Confirm schema removal"
                               : pendingPreview.accept.includes("accept-impact")
                                 ? "Apply reviewed configuration"
                                 : "modelType" in (authored.data ?? {})
@@ -920,6 +985,71 @@ function App() {
                                     </li>
                                   ))}
                                 </ul>
+                                <h4>Affected files</h4>
+                                <ul>
+                                  {preview.impact.affectedFiles.map((file) => (
+                                    <li key={file}>{file}</li>
+                                  ))}
+                                </ul>
+                                {preview.arguments.targetIris && (
+                                  <>
+                                    <h4>Managed IRIs in scope</h4>
+                                    <ul>
+                                      {preview.arguments.targetIris.map((iri) => (
+                                        <li key={iri}>
+                                          <code>{iri}</code>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
+                                {preview.arguments.references && (
+                                  <>
+                                    <h4>Known reference occurrences</h4>
+                                    {preview.arguments.references.length ? (
+                                      <ul>
+                                        {preview.arguments.references.map((item) => (
+                                          <li
+                                            key={JSON.stringify([
+                                              item.file,
+                                              item.selector,
+                                              item.position,
+                                              item.targetIri,
+                                              item.subject,
+                                              item.predicate,
+                                              item.object,
+                                            ])}
+                                          >
+                                            <code>{item.file}</code>
+                                            {item.selector && <> · {item.selector}</>}
+                                            {` · ${item.position} · `}
+                                            <code>{item.targetIri}</code>
+                                            {item.subject && item.predicate && item.object && (
+                                              <pre>
+                                                {`${termText(item.subject)} ${termText(item.predicate)} ${termText(item.object)}`}
+                                              </pre>
+                                            )}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p>None</p>
+                                    )}
+                                  </>
+                                )}
+                                {preview.arguments.identityChanges && (
+                                  <>
+                                    <h4>Generated identity changes</h4>
+                                    <ul>
+                                      {preview.arguments.identityChanges.map((item) => (
+                                        <li key={`${item.selector}:${item.before}`}>
+                                          {item.selector}: <code>{item.before}</code> →{" "}
+                                          <code>{item.after}</code>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
                                 {preview.arguments.removedVocabulary && (
                                   <>
                                     <h4>Lost vocabulary roles</h4>
@@ -984,9 +1114,12 @@ function App() {
                                       <ul>
                                         {preview.arguments.affectedModels.map((model) => (
                                           <li key={model.selector}>
-                                            {model.selector}: {model.ontologyBefore ?? "unbound"} →{" "}
-                                            {model.ontologyAfter ?? "unbound"}; validity{" "}
-                                            {model.validityBefore} → {model.validityAfter}
+                                            {model.selector}
+                                            {model.file ? ` (${model.file})` : ""}
+                                            {model.ontologyBefore !== undefined &&
+                                              `: ${model.ontologyBefore ?? "unbound"} → ${model.ontologyAfter ?? "unbound"}`}
+                                            {model.validityBefore !== undefined &&
+                                              `; validity ${model.validityBefore} → ${model.validityAfter}`}
                                           </li>
                                         ))}
                                       </ul>
@@ -1098,6 +1231,103 @@ function App() {
                             </button>
                           </form>
                         )}
+                      {selected.ownership === "project" && (
+                        <section aria-label="Resource lifecycle">
+                          <h3>Resource lifecycle</h3>
+                          {lifecycleKind && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void reviewImpact(lifecycleKind, selected.selector)}
+                              >
+                                Review known references
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy || !!pendingPreview}
+                                onClick={() =>
+                                  void author(
+                                    { kind: lifecycleKind, selector: selected.selector },
+                                    false,
+                                    "resources/remove",
+                                  )
+                                }
+                              >
+                                Preview removal
+                              </button>
+                            </>
+                          )}
+                          <form
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              void author(
+                                { selector: selected.selector, destination: moveDestination },
+                                false,
+                                "resources/move",
+                              );
+                            }}
+                          >
+                            <label htmlFor="move-destination">Move destination</label>
+                            <input
+                              id="move-destination"
+                              value={moveDestination}
+                              onChange={(event) => setMoveDestination(event.target.value)}
+                              placeholder="archive/resource.ttl"
+                              required
+                              disabled={busy || !!pendingPreview}
+                            />
+                            <button type="submit" disabled={busy || !!pendingPreview}>
+                              Preview move
+                            </button>
+                          </form>
+                          {lifecycleImpact && (
+                            <section aria-label="Known resource references">
+                              <h4>Known references</h4>
+                              <p>
+                                {String(
+                                  (lifecycleImpact.data?.items as unknown[] | undefined)?.length ??
+                                    0,
+                                )}{" "}
+                                exact occurrences across{" "}
+                                {String(
+                                  (lifecycleImpact.data?.affectedFiles as string[] | undefined)
+                                    ?.length ?? 0,
+                                )}
+                                known files.
+                              </p>
+                              <ul>
+                                {((lifecycleImpact.data?.items as ImpactOccurrence[]) ?? []).map(
+                                  (item) => (
+                                    <li
+                                      key={JSON.stringify([
+                                        item.file,
+                                        item.selector,
+                                        item.position,
+                                        item.targetIri,
+                                        item.subject,
+                                        item.predicate,
+                                        item.object,
+                                      ])}
+                                    >
+                                      <code>{item.file}</code>
+                                      {item.selector && <> · {item.selector}</>}
+                                      {` · ${item.position} · `}
+                                      <code>{item.targetIri}</code>
+                                      {item.subject && item.predicate && item.object && (
+                                        <pre>
+                                          {`${termText(item.subject)} ${termText(item.predicate)} ${termText(item.object)}`}
+                                        </pre>
+                                      )}
+                                    </li>
+                                  ),
+                                )}
+                              </ul>
+                              <Diagnostics items={lifecycleImpact.diagnostics} />
+                            </section>
+                          )}
+                        </section>
+                      )}
                       <dl>
                         <dt>Graph IRI</dt>
                         <dd>
@@ -1225,6 +1455,21 @@ function App() {
                               <summary>{type.name}</summary>
                               <pre>{JSON.stringify(type, null, 2)}</pre>
                             </details>
+                            {type.origin === "manifest" && (
+                              <button
+                                type="button"
+                                disabled={busy || !!pendingPreview}
+                                onClick={() =>
+                                  void author(
+                                    { kind: "model-type", selector: type.name },
+                                    false,
+                                    "resources/remove",
+                                  )
+                                }
+                              >
+                                Preview removal
+                              </button>
+                            )}
                           </td>
                           <td>{type.enabled ? "Enabled" : "Disabled"}</td>
                           <td>
