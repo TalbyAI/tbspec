@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -124,6 +125,130 @@ test("invalid UTF-8 RDF is rejected without rewriting source or publishing a sna
   assert.deepEqual(await readFile(sourcePath), invalid);
   assert.deepEqual(await readFile(join(project, "tbspec.lock")), beforeLock);
   await assert.rejects(access(join(project, ".tbspec/dependencies/broken")), { code: "ENOENT" });
+});
+
+test("directory acquisition bounds retained state, honors closure-only caps, and cancels between files", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "tbspec-dependency-inventory-limit-"));
+  const source = join(parent, "source");
+  const project = join(parent, "project");
+  await mkdir(source);
+  assert.equal((await initializeProject({ directory: project })).status, "ok");
+  const primary =
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<urn:bounded:shop> a owl:Ontology .\n";
+  const unrelated =
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<urn:bounded:unrelated> a owl:Ontology .\n";
+  await writeFile(join(source, "shop.ttl"), primary);
+  await writeFile(join(source, "unrelated.ttl"), unrelated);
+  const manifestPath = join(project, "tbspec.toml");
+  const manifest = await readFile(manifestPath, "utf8");
+  await writeFile(
+    manifestPath,
+    `${manifest}\n[acquisition]\nmax_graph_bytes = 256\nmax_total_bytes = 96\nmax_files = 1\n`,
+  );
+
+  assert.ok(Buffer.byteLength(primary) < 96);
+  assert.ok(Buffer.byteLength(primary) + Buffer.byteLength(unrelated) > 96);
+  const preview = await dependencyAdd({
+    project,
+    source,
+    id: "bounded",
+    kind: "ontology",
+    resource: "shop.ttl",
+  });
+  assert.equal(preview.status, "conflict", JSON.stringify(preview));
+  assert.ok(preview.data);
+  assert.equal((preview.data.dependency as { files: unknown[] }).files.length, 1);
+
+  const linked =
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<urn:bounded:linked> a owl:Ontology; owl:imports <urn:bounded:base> .\n";
+  const base =
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<urn:bounded:base> a owl:Ontology .\n";
+  await writeFile(join(source, "linked.ttl"), linked);
+  await writeFile(join(source, "base.ttl"), base);
+  const linkedLimit = Buffer.byteLength(linked) + 1;
+  assert.ok(Buffer.byteLength(linked) + Buffer.byteLength(base) > linkedLimit);
+  const updatedManifest = await readFile(manifestPath, "utf8");
+  await writeFile(
+    manifestPath,
+    updatedManifest
+      .replace("max_total_bytes = 96", `max_total_bytes = ${linkedLimit}`)
+      .replace("max_files = 1", "max_files = 10"),
+  );
+  const beforeLimitedLock = await readFile(join(project, "tbspec.lock"));
+  const overLimit = await dependencyAdd({
+    project,
+    source,
+    id: "over-limit",
+    kind: "ontology",
+    resource: "linked.ttl",
+  });
+  assert.notEqual(overLimit.status, "ok", JSON.stringify(overLimit));
+  assert.ok(overLimit.diagnostics.some((item) => item.code === "ACQUISITION_LIMIT"));
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), beforeLimitedLock);
+  await assert.rejects(access(join(project, ".tbspec/dependencies/over-limit")), {
+    code: "ENOENT",
+  });
+
+  const before = await readFile(join(project, "tbspec.lock"));
+  let abortChecks = 0;
+  const signal = Object.defineProperty({}, "aborted", {
+    get: () => ++abortChecks >= 3,
+  }) as AbortSignal;
+  const cancelled = await dependencyAdd({
+    project,
+    source,
+    id: "cancelled",
+    kind: "ontology",
+    resource: "shop.ttl",
+    signal,
+  });
+  assert.equal(cancelled.status, "conflict", JSON.stringify(cancelled));
+  assert.ok(cancelled.diagnostics.some((item) => item.code === "ACQUISITION_CANCELLED"));
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), before);
+  await assert.rejects(access(join(project, ".tbspec/dependencies/cancelled")), {
+    code: "ENOENT",
+  });
+});
+
+test("directory lazy reads detect a source change without publishing canonical state", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "tbspec-dependency-lazy-revision-"));
+  const source = join(parent, "source");
+  const project = join(parent, "project");
+  await mkdir(source);
+  assert.equal((await initializeProject({ directory: project })).status, "ok");
+  const sourcePath = join(source, "shop.ttl");
+  const original =
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<urn:lazy:shop> a owl:Ontology .\n";
+  await writeFile(sourcePath, original);
+  const beforeLock = await readFile(join(project, "tbspec.lock"));
+  let changed = false;
+  let lastSignalStack = "";
+  const controller = new AbortController();
+  Object.defineProperty(controller.signal, "aborted", {
+    get: () => {
+      const stack = new Error().stack ?? "";
+      lastSignalStack = stack;
+      if (!changed && stack.includes("readIndexedEntry")) {
+        changed = true;
+        writeFileSync(sourcePath, `${original}# changed after compact indexing\n`);
+      }
+      return false;
+    },
+  });
+  const signal = controller.signal;
+  const result = await dependencyAdd({
+    project,
+    source,
+    id: "stale",
+    kind: "ontology",
+    resource: "shop.ttl",
+    signal,
+  });
+  assert.equal(changed, true, lastSignalStack);
+  assert.equal(result.status, "conflict", JSON.stringify(result));
+  assert.ok(result.diagnostics.some((item) => item.code === "REVISION_CONFLICT"));
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), beforeLock);
+  await assert.rejects(access(join(project, ".tbspec/dependencies/stale")), { code: "ENOENT" });
 });
 
 test("dependency closure is cycle-safe and accepts only exact vetted P-Plan RDF/XML", async () => {
