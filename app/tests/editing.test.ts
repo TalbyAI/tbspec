@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { authorResource, publishResource } from "../src/authoring.ts";
-import { editGraph, prepareEdit, showEditor } from "../src/editing.ts";
+import { type EditorTerm, editGraph, prepareEdit, showEditor } from "../src/editing.ts";
 import { initializeProject } from "../src/project.ts";
 import { parseLock } from "../src/schemas.ts";
 
@@ -226,6 +226,430 @@ test("form recognition uses explicit exact types while creation uses resolved av
     ).status,
     "ok",
   );
+});
+
+test("process forms bind exact types and combine forward and inverse variable associations", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-process-forms-"));
+  await initializeProject({ directory: root, baseIri: "urn:process:/" });
+  const created = await authorResource({
+    project: root,
+    command: "model.create",
+    path: "process.ttl",
+    type: "process",
+  });
+  assert.equal(created.status, "ok", JSON.stringify(created));
+  const manifestPath = join(root, "tbspec.toml");
+  const manifest = await readFile(manifestPath, "utf8");
+  await writeFile(manifestPath, manifest.replace('design = "dep:tbspec-process-design"\n', ""));
+  const file = join(root, "process.ttl");
+  await writeFile(
+    file,
+    `${await readFile(file, "utf8")}
+@prefix p: <http://purl.org/net/p-plan#> .
+@prefix proc: <https://talby.ai/ontology/process#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<urn:plan> a p:Plan .
+<urn:step> a p:Step; p:isStepOfPlan <urn:plan>;
+  p:hasInputVar <urn:input-forward>, <urn:input-both>;
+  p:hasOutputVar <urn:output-forward>, <urn:output-both>;
+  proc:responsibleParty <urn:agent> .
+<urn:decision> a proc:Decision, <urn:custom-type>; p:isStepOfPlan <urn:plan> .
+<urn:input-inverse> p:isInputVarOf <urn:step> .
+<urn:input-both> p:isInputVarOf <urn:step> .
+<urn:output-inverse> p:isOutputVarOf <urn:step> .
+<urn:output-both> p:isOutputVarOf <urn:step> .
+<urn:input-forward> a p:Variable; p:isVariableOfPlan <urn:plan> .
+<urn:input-inverse> a p:Variable; p:isVariableOfPlan <urn:plan> .
+<urn:input-both> a p:Variable; p:isVariableOfPlan <urn:plan> .
+<urn:output-forward> a p:Variable; p:isVariableOfPlan <urn:plan> .
+<urn:output-inverse> a p:Variable; p:isVariableOfPlan <urn:plan> .
+<urn:output-both> a p:Variable; p:isVariableOfPlan <urn:plan> .
+<urn:flow> a proc:Flow; proc:inPlan <urn:plan>; proc:source <urn:step>;
+  proc:target <urn:decision>; proc:condition "approved"@en, "42"^^<http://www.w3.org/2001/XMLSchema#integer>;
+  <urn:unknown> "keep" .
+<urn:alias-only> a <urn:Decision> .
+<urn:sub-step> rdfs:subClassOf p:Step .
+<urn:inherited-only> a <urn:sub-step> .
+<urn:older> <http://purl.org/net/p-plan#isPreceededBy> <urn:step> .
+`,
+  );
+
+  const shown = await showEditor({ project: root, selector: "process.ttl" });
+  assert.ok(shown.data, JSON.stringify(shown));
+  const data = shown.data;
+  const pPlan = "http://purl.org/net/p-plan#";
+  const process = "https://talby.ai/ontology/process#";
+  assert.equal(data.resource.kind, "process-model", JSON.stringify(shown.diagnostics));
+  assert.ok(!data.resource.associations.some((association) => association.role === "design"));
+  for (const type of ["Plan", "Step", "Variable", "Decision", "Flow"])
+    assert.ok(
+      data.sections.some(
+        (section) =>
+          section.type === `${type === "Decision" || type === "Flow" ? process : pPlan}${type}`,
+      ),
+    );
+  assert.ok(!data.sections.some((section) => section.type === "urn:Decision"));
+  assert.ok(!data.sections.some((section) => section.type === "urn:custom-type"));
+  assert.ok(
+    !data.sections.some((section) =>
+      section.subjects.some((subject) => subject.value === "urn:inherited-only"),
+    ),
+  );
+  const decision = data.sections.find((section) => section.type === `${process}Decision`);
+  assert.ok(decision);
+  assert.ok(decision.fields.includes(`${pPlan}isStepOfPlan`));
+  assert.ok(
+    !data.triples.some(
+      (triple) =>
+        triple.subject.value === "urn:decision" &&
+        triple.predicate.value.endsWith("#type") &&
+        triple.object.value === `${pPlan}Step`,
+    ),
+  );
+  assert.ok(
+    data.triples.some(
+      (triple) => triple.predicate.value === "urn:unknown" && triple.object.value === "keep",
+    ),
+  );
+  assert.ok(
+    data.triples.some(
+      (triple) =>
+        triple.predicate.value === `${process}condition` &&
+        triple.object.value === "approved" &&
+        triple.object.language === "en",
+    ),
+  );
+  assert.ok(
+    data.triples.some(
+      (triple) =>
+        triple.predicate.value === `${process}condition` &&
+        triple.object.value === "42" &&
+        triple.object.datatype === "http://www.w3.org/2001/XMLSchema#integer",
+    ),
+  );
+
+  const associations = data.processAssociations;
+  assert.ok(associations);
+  assert.deepEqual(
+    associations
+      .filter(
+        (association) => association.kind === "input" && association.step.value === "urn:step",
+      )
+      .map((association) => [association.variable.value, association.statements.length])
+      .sort(),
+    [
+      ["urn:input-both", 2],
+      ["urn:input-forward", 1],
+      ["urn:input-inverse", 1],
+    ],
+  );
+  assert.deepEqual(
+    associations
+      .filter(
+        (association) => association.kind === "output" && association.step.value === "urn:step",
+      )
+      .map((association) => [association.variable.value, association.statements.length])
+      .sort(),
+    [
+      ["urn:output-both", 2],
+      ["urn:output-forward", 1],
+      ["urn:output-inverse", 1],
+    ],
+  );
+  assert.ok(data.processElements.flows.some((term) => term.value === "urn:flow"));
+
+  const bothInput = associations.find(
+    (association) =>
+      association.kind === "input" && association.variable.value === "urn:input-both",
+  );
+  assert.ok(bothInput);
+  assert.equal(
+    (
+      await editGraph({
+        project: root,
+        selector: "process.ttl",
+        revision: data.resource.revision,
+        edits: bothInput.statements.map((before) => ({ action: "remove", before })),
+      })
+    ).status,
+    "ok",
+  );
+  let current = (await showEditor({ project: root, selector: "process.ttl" })).data;
+  assert.ok(current);
+  assert.ok(
+    !current.processAssociations.some(
+      (triple) =>
+        triple.kind === "input" &&
+        triple.step.value === "urn:step" &&
+        triple.variable.value === "urn:input-both",
+    ),
+  );
+  const bothOutput = current.processAssociations.find(
+    (association) =>
+      association.kind === "output" && association.variable.value === "urn:output-both",
+  );
+  assert.equal(bothOutput?.statements.length, 2);
+  assert.ok(bothOutput);
+  const selectedOutputStatement = bothOutput.statements[0];
+  assert.ok(selectedOutputStatement);
+  assert.equal(
+    (
+      await editGraph({
+        project: root,
+        selector: "process.ttl",
+        revision: current.resource.revision,
+        edits: [{ action: "remove", before: selectedOutputStatement }],
+      })
+    ).status,
+    "ok",
+  );
+  current = (await showEditor({ project: root, selector: "process.ttl" })).data;
+  assert.ok(current);
+  assert.equal(
+    current.processAssociations.find(
+      (association) =>
+        association.kind === "output" && association.variable.value === "urn:output-both",
+    )?.statements.length,
+    1,
+  );
+  const oldInput = current.processAssociations.find(
+    (association) =>
+      association.kind === "input" &&
+      association.step.value === "urn:step" &&
+      association.variable.value === "urn:input-inverse",
+  );
+  assert.ok(oldInput);
+  assert.equal(
+    (
+      await editGraph({
+        project: root,
+        selector: "process.ttl",
+        revision: current.resource.revision,
+        edits: [
+          ...oldInput.statements.map((before) => ({ action: "remove" as const, before })),
+          {
+            action: "add" as const,
+            after: {
+              subject: { kind: "iri" as const, value: "urn:decision" },
+              predicate: { kind: "iri" as const, value: `${pPlan}hasInputVar` },
+              object: { kind: "iri" as const, value: "urn:input-inverse" },
+            },
+          },
+        ],
+      })
+    ).status,
+    "ok",
+  );
+  current = (await showEditor({ project: root, selector: "process.ttl" })).data;
+  assert.ok(current);
+  assert.equal(
+    current.processAssociations.find(
+      (association) =>
+        association.kind === "input" &&
+        association.step.value === "urn:decision" &&
+        association.variable.value === "urn:input-inverse",
+    )?.statements.length,
+    1,
+  );
+  assert.equal(
+    current.processAssociations.find(
+      (association) =>
+        association.kind === "output" && association.variable.value === "urn:output-both",
+    )?.statements.length,
+    1,
+  );
+  assert.ok(
+    current.triples.some(
+      (triple) => triple.predicate.value === "urn:unknown" && triple.object.value === "keep",
+    ),
+  );
+  assert.ok(
+    current.triples.some(
+      (triple) =>
+        triple.predicate.value === `${process}condition` &&
+        triple.object.value === "42" &&
+        triple.object.datatype === "http://www.w3.org/2001/XMLSchema#integer",
+    ),
+  );
+  assert.ok(
+    current.triples.some(
+      (triple) =>
+        triple.predicate.value === `${process}condition` &&
+        triple.object.value === "approved" &&
+        triple.object.language === "en",
+    ),
+  );
+});
+
+test("process creation requires selected memberships and Flow endpoints without materialization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-process-create-"));
+  await initializeProject({ directory: root, baseIri: "urn:process-create:/" });
+  const created = await authorResource({
+    project: root,
+    command: "model.create",
+    path: "process.ttl",
+    type: "process",
+  });
+  assert.equal(created.status, "ok", JSON.stringify(created));
+  const pPlan = "http://purl.org/net/p-plan#";
+  const process = "https://talby.ai/ontology/process#";
+  const rdfType = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+  const shown = (await showEditor({ project: root, selector: "process.ttl" })).data;
+  assert.ok(shown);
+  const plan = { kind: "iri" as const, value: shown.resource.graphIri ?? "" };
+  const unchanged = await readFile(join(root, "process.ttl"));
+  const missingPlan = await editGraph({
+    project: root,
+    selector: "process.ttl",
+    revision: shown.resource.revision,
+    creation: { iri: "urn:orphan-step", type: `${pPlan}Step` },
+    edits: [],
+  });
+  assert.equal(missingPlan.status, "invalid_arguments", JSON.stringify(missingPlan));
+  assert.deepEqual(await readFile(join(root, "process.ttl")), unchanged);
+
+  async function create(iri: string, type: string, fields: [string, EditorTerm][]) {
+    const current = (await showEditor({ project: root, selector: "process.ttl" })).data;
+    assert.ok(current);
+    return editGraph({
+      project: root,
+      selector: "process.ttl",
+      revision: current.resource.revision,
+      creation: { iri, type },
+      edits: fields.map(([predicate, object]) => ({
+        action: "add" as const,
+        after: {
+          subject: { kind: "iri" as const, value: iri },
+          predicate: { kind: "iri" as const, value: predicate },
+          object,
+        },
+      })),
+    });
+  }
+
+  assert.equal(
+    (await create("urn:step", `${pPlan}Step`, [[`${pPlan}isStepOfPlan`, plan]])).status,
+    "ok",
+  );
+  assert.equal(
+    (await create("urn:variable", `${pPlan}Variable`, [[`${pPlan}isVariableOfPlan`, plan]])).status,
+    "ok",
+  );
+  assert.equal(
+    (await create("urn:decision", `${process}Decision`, [[`${pPlan}isStepOfPlan`, plan]])).status,
+    "ok",
+  );
+  const missingEndpoints = await create("urn:missing-flow", `${process}Flow`, []);
+  assert.equal(missingEndpoints.status, "invalid_arguments");
+  const flow = await create("urn:flow", `${process}Flow`, [
+    [`${process}inPlan`, plan],
+    [`${process}source`, { kind: "iri", value: "urn:step" }],
+    [`${process}target`, { kind: "iri", value: "urn:decision" }],
+  ]);
+  assert.equal(flow.status, "ok", JSON.stringify(flow));
+  const current = (await showEditor({ project: root, selector: "process.ttl" })).data;
+  assert.ok(current);
+  const stepStatements = current.triples.filter((triple) => triple.subject.value === "urn:step");
+  assert.deepEqual(
+    stepStatements.map((triple) => [triple.predicate.value, triple.object.value]).sort(),
+    [
+      [rdfType, `${pPlan}Step`],
+      [`${pPlan}isStepOfPlan`, plan.value],
+    ].sort(),
+  );
+  assert.equal(
+    current.triples.some(
+      (triple) =>
+        triple.subject.value === "urn:decision" &&
+        triple.predicate.value === rdfType &&
+        triple.object.value === `${pPlan}Step`,
+    ),
+    false,
+  );
+  assert.deepEqual(
+    current.triples
+      .filter((triple) => triple.subject.value === "urn:flow")
+      .map((triple) => [triple.predicate.value, triple.object.value])
+      .sort(),
+    [
+      [rdfType, `${process}Flow`],
+      [`${process}inPlan`, plan.value],
+      [`${process}source`, "urn:step"],
+      [`${process}target`, "urn:decision"],
+    ].sort(),
+  );
+  assert.ok(!current.triples.some((triple) => triple.predicate.value === `${pPlan}isPrecededBy`));
+});
+
+test("process forms retain existing values when replacement vocabulary omits terms", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-process-vocabulary-"));
+  await initializeProject({ directory: root, baseIri: "urn:process-vocabulary:/" });
+  await writeFile(
+    join(root, "tbspec.toml"),
+    'schema_version = 1\n[model_types.process]\nontology = "replacement.ttl"\n',
+  );
+  await writeFile(
+    join(root, "replacement.ttl"),
+    `@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix p: <http://purl.org/net/p-plan#> .
+<urn:replacement> a owl:Ontology .
+p:Plan a owl:Class .
+p:Step a owl:Class .
+`,
+  );
+  const metadata = "https://talby.ai/ontology/tbspec#";
+  const pPlan = "http://purl.org/net/p-plan#";
+  const process = "https://talby.ai/ontology/process#";
+  const source = `@prefix tbspec: <${metadata}> .
+@prefix p: <${pPlan}> .
+@prefix proc: <${process}> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<urn:process> a tbspec:ProcessModel, p:Plan; tbspec:modelType "process" .
+<urn:step> a p:Step; p:isStepOfPlan <urn:process>; proc:responsibleParty <urn:original-agent> .
+<urn:flow> a proc:Flow; proc:source <urn:step>; proc:target <urn:step>; proc:inPlan <urn:process>;
+  proc:condition "unfinished"@en; rdfs:label "retained" .
+`;
+  await writeFile(join(root, "process.ttl"), source);
+
+  const shown = await showEditor({ project: root, selector: "process.ttl" });
+  assert.ok(shown.data, JSON.stringify(shown));
+  assert.equal(shown.data.resource.kind, "process-model");
+  assert.ok(shown.data.sections.some((section) => section.type === `${pPlan}Step`));
+  assert.ok(shown.data.sections.some((section) => section.type === `${process}Flow`));
+  assert.ok(shown.data.creationTypes.some((item) => item.type === `${pPlan}Plan`));
+  assert.ok(!shown.data.creationTypes.some((item) => item.type === `${process}Flow`));
+  assert.ok(!shown.data.creationTypes.some((item) => item.type === `${pPlan}Step`));
+  assert.ok(shown.diagnostics.length > 0);
+
+  const responsible = shown.data.triples.find(
+    (triple) => triple.predicate.value === `${process}responsibleParty`,
+  );
+  assert.ok(responsible);
+  const saved = await editGraph({
+    project: root,
+    selector: "process.ttl",
+    revision: shown.data.resource.revision,
+    edits: [
+      {
+        action: "replace",
+        before: responsible,
+        after: {
+          ...responsible,
+          object: { kind: "iri", value: "urn:replacement-agent" },
+        },
+      },
+    ],
+  });
+  assert.equal(saved.status, "ok", JSON.stringify(saved));
+  const current = (await showEditor({ project: root, selector: "process.ttl" })).data;
+  assert.ok(current);
+  assert.ok(
+    current.triples.some(
+      (triple) => triple.object.value === "unfinished" && triple.object.language === "en",
+    ),
+  );
+  assert.ok(current.triples.some((triple) => triple.object.value === "retained"));
+  assert.ok(current.triples.some((triple) => triple.object.value === "urn:replacement-agent"));
 });
 
 test("typed creation offers declared custom properties and rejects unavailable initial predicates", async () => {

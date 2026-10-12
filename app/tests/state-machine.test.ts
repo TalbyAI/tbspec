@@ -201,7 +201,13 @@ test("known state-machine data stays editable when replacement vocabulary lacks 
   );
   await writeFile(
     join(root, "replacement.ttl"),
-    "<urn:replacement> a <http://www.w3.org/2002/07/owl#Ontology> . <urn:ReplacementClass> a <http://www.w3.org/2002/07/owl#Class> .",
+    `<urn:replacement> a <http://www.w3.org/2002/07/owl#Ontology> .
+<${sm}StateMachine> a <http://www.w3.org/2002/07/owl#Class> .
+<${sm}State> a <http://www.w3.org/2002/07/owl#Class> .
+<${sm}InitialState> a <http://www.w3.org/2002/07/owl#Class> .
+<${sm}FinalState> a <http://www.w3.org/2002/07/owl#Class> .
+<${sm}Transition> a <http://www.w3.org/2002/07/owl#Class> .
+<urn:ReplacementClass> a <http://www.w3.org/2002/07/owl#Class> .`,
   );
   const manifest = await readFile(join(root, "tbspec.toml"), "utf8");
   await writeFile(
@@ -212,10 +218,18 @@ test("known state-machine data stays editable when replacement vocabulary lacks 
   const shown = await showEditor({ project: root, selector: "machine.ttl" });
   assert.ok(shown.data, JSON.stringify(shown));
   assert.ok(shown.data.sections.some((section) => section.type === `${sm}InitialState`));
-  assert.equal(
-    shown.data.creationTypes.some((type) => type.type.startsWith(sm)),
-    false,
+  assert.ok(
+    shown.data.creationTypes.some((type) => type.type === `${sm}StateMachine`),
+    JSON.stringify({
+      creationTypes: shown.data.creationTypes,
+      creationFields: shown.data.creationFields,
+      diagnostics: shown.diagnostics,
+    }),
   );
+  assert.ok(!shown.data.creationTypes.some((type) => type.type === `${sm}State`));
+  assert.ok(!shown.data.creationTypes.some((type) => type.type === `${sm}InitialState`));
+  assert.ok(!shown.data.creationTypes.some((type) => type.type === `${sm}FinalState`));
+  assert.ok(!shown.data.creationTypes.some((type) => type.type === `${sm}Transition`));
   assert.ok(shown.diagnostics.some((diagnostic) => diagnostic.severity === "error"));
   const label = shown.data.triples.find(
     (triple) => triple.subject.value === "urn:existing-state" && triple.object.value === "Start",
