@@ -1,10 +1,10 @@
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Quad as RdfQuad } from "@rdfjs/types";
+import type { Term as RdfjsTerm, Quad as RdfQuad } from "@rdfjs/types";
 import { DataFactory, type Quad, type Store, type Term, Writer } from "n3";
 import type { PreparedResource } from "./authoring.ts";
 import { publishResource } from "./authoring.ts";
-import { canonical, digest } from "./canonical.ts";
+import { canonical, digest, sortedSet, utf8Compare } from "./canonical.ts";
 import { equalRevision, type Revision, revision, verifyReads } from "./filesystem.ts";
 import { captureInspection, inspectSnapshot, type Resource, rdfTerm } from "./inspection.ts";
 import { failure, ok, ProjectError, type Result } from "./output.ts";
@@ -23,7 +23,7 @@ import { discoverProject, projectDiscoveryScope } from "./project.ts";
 import { parseGraph, parseRdf, rdfFormats } from "./rdf.ts";
 import { parseLock, parseManifest } from "./schemas.ts";
 import { loadStarters } from "./starters.ts";
-import { preparePlan } from "./transactions.ts";
+import { preparePlan, withPlanImpact } from "./transactions.ts";
 import { vocabularyTypes } from "./validation.ts";
 import { captureViewSnapshot, syncViewSourceEdits } from "./views.ts";
 
@@ -53,6 +53,10 @@ export interface EditingOptions extends EditorOptions {
   edits?: Edit[];
   sourceText?: string;
   creation?: { iri: string; type: string };
+}
+export interface ElementDeletionOptions extends EditorOptions {
+  revision: Revision;
+  element: EditorTerm;
 }
 export interface Section {
   type: string;
@@ -694,4 +698,337 @@ export async function editGraph(options: EditingOptions): Promise<Result> {
   } catch (error) {
     return failure(error);
   }
+}
+
+type ExternalReference = {
+  file: string;
+  selector: string;
+  position: "subject" | "predicate" | "object" | "configuration";
+  targetIri: string;
+  disposition: "unchanged" | "synchronized";
+  configurationRole?: "key" | "value";
+  subject?: EditorTerm;
+  predicate?: EditorTerm;
+  object?: EditorTerm;
+};
+
+function statementIdentity(statement: RdfQuad) {
+  const termIdentity = (term: RdfjsTerm) =>
+    term.termType === "Literal"
+      ? [term.termType, term.value, term.language, term.datatype.value]
+      : [term.termType, term.value];
+  return canonical([
+    termIdentity(statement.subject),
+    termIdentity(statement.predicate),
+    termIdentity(statement.object),
+  ]);
+}
+
+function configurationReferences(
+  value: unknown,
+  target: string,
+  file: string,
+  path = "",
+  role: "key" | "value" = "value",
+): ExternalReference[] {
+  if (typeof value === "string")
+    return value === target
+      ? [
+          {
+            file,
+            selector: path,
+            position: "configuration",
+            targetIri: target,
+            disposition: "unchanged",
+            configurationRole: role,
+          },
+        ]
+      : [];
+  if (Array.isArray(value))
+    return value.flatMap((item, index) =>
+      configurationReferences(item, target, file, `${path}[${index}]`, "value"),
+    );
+  if (value && typeof value === "object")
+    return Object.entries(value).flatMap(([key, item]) => [
+      ...(key === target
+        ? [
+            {
+              file,
+              selector: path ? `${path}.${key}` : key,
+              position: "configuration" as const,
+              targetIri: target,
+              disposition: "unchanged" as const,
+              configurationRole: "key" as const,
+            },
+          ]
+        : []),
+      ...configurationReferences(item, target, file, path ? `${path}.${key}` : key, "value"),
+    ]);
+  return [];
+}
+
+async function externalReferences(
+  root: string,
+  snapshot: Awaited<ReturnType<typeof captureViewSnapshot>>,
+  source: Resource,
+  target: string,
+  synchronizedStatements: Awaited<ReturnType<typeof syncViewSourceEdits>>["removedStatements"],
+) {
+  const lock = parseLock(snapshot.files["tbspec.lock"]?.toString("utf8") ?? "");
+  const manifest = parseManifest(snapshot.files["tbspec.toml"]?.toString("utf8") ?? "");
+  const listed = await inspectSnapshot(root, snapshot, { project: root, command: "graph.list" });
+  if (!listed.data?.items)
+    throw new ProjectError(
+      listed.status,
+      listed.diagnostics[0]?.code ?? "IO_FAILURE",
+      listed.diagnostics[0]?.message ?? "Cannot inspect project references.",
+    );
+  const resources = listed.data.items as Resource[];
+  const byFile = new Map(resources.map((resource) => [resource.file, resource]));
+  const synchronizedKeys = new Set(
+    synchronizedStatements.map(({ file, statement }) => `${file}\0${statementIdentity(statement)}`),
+  );
+  const references: ExternalReference[] = [];
+  const addGraph = async (file: string, selector: string, bytes: Buffer, store: Store) => {
+    if (file === source.file) return;
+    const scope = `${selector}@${digest(bytes)}`;
+    for (const statement of store) {
+      const encoded = encode(statement, scope);
+      const disposition = synchronizedKeys.has(`${file}\0${statementIdentity(statement)}`)
+        ? "synchronized"
+        : "unchanged";
+      for (const [position, term] of [
+        ["subject", statement.subject],
+        ["predicate", statement.predicate],
+        ["object", statement.object],
+      ] as const)
+        if (term.termType === "NamedNode" && term.value === target)
+          references.push({
+            file,
+            selector,
+            position,
+            targetIri: target,
+            disposition,
+            subject: encoded.subject,
+            predicate: encoded.predicate,
+            object: encoded.object,
+          });
+    }
+  };
+  for (const file of snapshot.ownedPaths) {
+    if (file === source.file) continue;
+    const bytes = snapshot.files[file];
+    const mediaType = rdfFormats[extname(file).toLowerCase()];
+    if (!bytes || !mediaType) continue;
+    try {
+      const store = await parseRdf(
+        bytes,
+        mediaType,
+        pathToFileURL(await safePath(root, file)).href,
+        false,
+        file,
+      );
+      await addGraph(file, byFile.get(file)?.selector ?? file, bytes, store);
+    } catch {
+      throw new ProjectError(
+        "invalid",
+        "RDF_SYNTAX",
+        "A project graph needed for deletion impact is malformed and must be repaired first.",
+        file,
+      );
+    }
+  }
+  const vettedDigest = (await loadStarters()).vettedDigest;
+  for (const [id, dependency] of Object.entries(lock.dependencies))
+    for (const record of dependency.files) {
+      const file = `${dependency.snapshot_path}/${record.key}`;
+      const bytes = snapshot.files[file];
+      if (!bytes)
+        throw new ProjectError(
+          "invalid",
+          "RESOURCE_MISSING",
+          "A locked graph needed for deletion impact is unavailable.",
+          file,
+        );
+      try {
+        await addGraph(
+          file,
+          `dep:${id}/${record.key}`,
+          bytes,
+          await parseGraph(bytes, record, vettedDigest, file),
+        );
+      } catch (error) {
+        if (error instanceof ProjectError) throw error;
+        throw new ProjectError(
+          "invalid",
+          "RDF_SYNTAX",
+          "A locked graph needed for deletion impact is malformed.",
+          file,
+        );
+      }
+    }
+  for (const [file, value] of [
+    ["tbspec.toml", manifest],
+    ["tbspec.lock", lock],
+  ] as const)
+    references.push(...configurationReferences(value, target, file));
+  return references.sort(
+    (left, right) =>
+      utf8Compare(left.file, right.file) ||
+      utf8Compare(left.position, right.position) ||
+      utf8Compare(left.selector, right.selector) ||
+      utf8Compare(
+        canonical([left.subject ?? null, left.predicate ?? null, left.object ?? null]),
+        canonical([right.subject ?? null, right.predicate ?? null, right.object ?? null]),
+      ),
+  );
+}
+
+export async function prepareElementDeletion(
+  options: ElementDeletionOptions,
+): Promise<PreparedResource> {
+  const loaded = await loadEditor(options);
+  const { root, data, scope, store } = loaded;
+  const { resource } = data;
+  if (
+    resource.ownership !== "project" ||
+    !resource.file.endsWith(".ttl") ||
+    projectDiscoveryScope.excluded.some(
+      (path) => resource.file === path || resource.file.startsWith(`${path}/`),
+    )
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "READ_ONLY",
+      "Only discoverable owned Turtle graphs are editable. Import a locked snapshot to edit it.",
+      resource.file,
+    );
+  if (!store)
+    throw new ProjectError(
+      "invalid",
+      "RDF_SYNTAX",
+      "Repair source syntax before deleting a source element.",
+      resource.file,
+    );
+  if (!equalRevision(resource.revision, options.revision))
+    throw new ProjectError(
+      "conflict",
+      "REVISION_CONFLICT",
+      "Source changed. Review current source before deleting an element.",
+      resource.file,
+    );
+  if (!options.element || !["iri", "blank"].includes(options.element.kind))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Select an IRI or a source-revision-scoped blank node to delete.",
+    );
+  const element = decode(options.element, scope, store);
+  if (
+    resource.identity === "declared" &&
+    element.termType === "NamedNode" &&
+    element.value === resource.graphIri
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "MANAGED_ROOT_LIFECYCLE",
+      "Managed graph roots use resource lifecycle removal.",
+      resource.file,
+    );
+
+  const snapshot = await captureViewSnapshot(root);
+  const sourceBytes = snapshot.files[resource.file];
+  if (!sourceBytes || !equalRevision(revision(sourceBytes), options.revision))
+    throw new ProjectError(
+      "conflict",
+      "REVISION_CONFLICT",
+      "Source changed while preparing deletion. Review current source and views.",
+      resource.file,
+    );
+  const statements = [...store]
+    .filter(
+      (statement) =>
+        statement.subject.equals(element) ||
+        statement.predicate.equals(element) ||
+        statement.object.equals(element),
+    )
+    .sort((left, right) =>
+      utf8Compare(canonical(encode(left, scope)), canonical(encode(right, scope))),
+    );
+  if (!statements.length)
+    throw new ProjectError(
+      "invalid_arguments",
+      "RESOURCE_MISSING",
+      "The selected resource has no statements in this source graph.",
+      resource.file,
+    );
+  const targetIri = element.termType === "NamedNode" ? element.value : undefined;
+  for (const statement of statements) store.removeQuad(statement);
+  const writer = new Writer();
+  writer.addQuads([...store]);
+  const bytes = Buffer.from(
+    await new Promise<string>((resolve, reject) =>
+      writer.end((error, text) => (error ? reject(error) : resolve(text))),
+    ),
+  );
+  const synchronized = await syncViewSourceEdits(
+    root,
+    snapshot,
+    resource,
+    statements.map((before) => ({ before: before as unknown as Quad })),
+    store,
+    targetIri,
+  );
+  const references = targetIri
+    ? await externalReferences(root, snapshot, resource, targetIri, synchronized.removedStatements)
+    : [];
+  const proposed = { ...snapshot, files: { ...snapshot.files, [resource.file]: bytes } };
+  for (const write of synchronized.writes) proposed.files[write.file] = write.bytes;
+  const checked = await inspectSnapshot(root, proposed, { project: root, command: "status" });
+  if (["unavailable", "conflict"].includes(checked.status))
+    throw new ProjectError(
+      checked.status,
+      checked.diagnostics[0]?.code ?? "IO_FAILURE",
+      checked.diagnostics[0]?.message ?? "Cannot assess the proposed deletion.",
+    );
+  const reviewed = statements.map((statement) => encode(statement, scope));
+  const plan = withPlanImpact(
+    preparePlan(
+      snapshot,
+      "graph.element.delete",
+      [{ file: resource.file, bytes }, ...synchronized.writes],
+      {
+        selector: resource.selector,
+        element: options.element,
+        statements: reviewed,
+        references,
+        synchronizedViews: sortedSet(synchronized.paths),
+      },
+    ),
+    {
+      impact: {
+        acceptance: ["confirm"],
+        affectedFiles: sortedSet([
+          ...new Set([
+            resource.file,
+            ...synchronized.paths,
+            ...references.map((reference) => reference.file),
+          ]),
+        ]),
+      },
+    },
+  );
+  await verifyReads(root, snapshot.reads);
+  return {
+    root,
+    plan,
+    resource: { ...resource, revision: revision(bytes) },
+    diagnostics: checked.diagnostics,
+    validation: {
+      validity: checked.diagnostics.some((diagnostic) => diagnostic.severity === "error")
+        ? "invalid"
+        : "valid",
+      validationComplete: checked.data?.validationComplete === true,
+    },
+  };
 }
