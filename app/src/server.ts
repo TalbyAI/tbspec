@@ -7,6 +7,7 @@ import type { AuthoringOptions } from "./authoring.ts";
 import { canonical } from "./canonical.ts";
 import type { ModelTypeConfigurationOptions } from "./configuration.ts";
 import type { DependencyWorkerRequest } from "./dependency-worker.ts";
+import { listDesigns, showDesign } from "./designs.ts";
 import type { EditingOptions } from "./editing.ts";
 import type { InspectionCommand } from "./inspection.ts";
 import type { AuthoringRequest, InspectionResponse } from "./inspection-worker.ts";
@@ -1055,6 +1056,27 @@ export async function startWebServer(
           );
           return;
         }
+        if (request.method === "GET" && url.pathname === "/api/project/v1/designs") {
+          if (url.searchParams.size)
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Design listing takes no query parameters.",
+            );
+          respond(response, await listDesigns({ project: root }));
+          return;
+        }
+        if (request.method === "GET" && url.pathname === "/api/project/v1/design") {
+          const selectors = url.searchParams.getAll("selector");
+          if (url.searchParams.size !== 1 || selectors.length !== 1)
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Design inspection requires one selector.",
+            );
+          respond(response, await showDesign({ project: root, selector: selectors[0] ?? "" }));
+          return;
+        }
         if (request.method === "GET" && url.pathname === "/api/project/v1/view") {
           const selectors = url.searchParams.getAll("selector");
           if (url.searchParams.size !== 1 || selectors.length !== 1)
@@ -1089,7 +1111,7 @@ export async function startWebServer(
             url.searchParams.size !== 2 ||
             kinds.length !== 1 ||
             selectors.length !== 1 ||
-            !["ontology", "model", "shapes", "model-type"].includes(kinds[0] ?? "")
+            !["ontology", "model", "design", "shapes", "model-type"].includes(kinds[0] ?? "")
           )
             throw new ProjectError(
               "invalid_arguments",
@@ -1165,10 +1187,20 @@ export async function startWebServer(
                 "members",
                 "relationships",
                 "positions",
+                "nodeAppearances",
+                "relationshipAppearances",
+              ];
+              const required = [
+                "selector",
+                "viewRevision",
+                "presentationRevision",
+                "members",
+                "relationships",
+                "positions",
               ];
               if (
                 Object.keys(body).some((key) => !allowed.includes(key)) ||
-                allowed.some((key) => body[key] === undefined) ||
+                required.some((key) => body[key] === undefined) ||
                 typeof body.selector !== "string" ||
                 !Array.isArray(body.members) ||
                 body.members.length > 10000 ||
@@ -1176,7 +1208,12 @@ export async function startWebServer(
                 !Array.isArray(body.relationships) ||
                 body.relationships.length > 10000 ||
                 !Array.isArray(body.positions) ||
-                body.positions.length > 10000
+                body.positions.length > 10000 ||
+                (body.nodeAppearances !== undefined &&
+                  (!Array.isArray(body.nodeAppearances) || body.nodeAppearances.length > 10000)) ||
+                (body.relationshipAppearances !== undefined &&
+                  (!Array.isArray(body.relationshipAppearances) ||
+                    body.relationshipAppearances.length > 10000))
               )
                 throw new ProjectError(
                   "invalid_arguments",
@@ -1215,6 +1252,86 @@ export async function startWebServer(
                     "View positions require an IRI and string coordinates.",
                   );
               }
+              const validateAppearance = (
+                candidate: unknown,
+                identifiers: string[],
+                appearanceFields: string[],
+              ) => {
+                if (!candidate || typeof candidate !== "object" || Array.isArray(candidate))
+                  return false;
+                const row = candidate as Record<string, unknown>;
+                if (
+                  Object.keys(row).some(
+                    (key) => ![...identifiers, ...appearanceFields].includes(key),
+                  ) ||
+                  identifiers.some((key) => typeof row[key] !== "string")
+                )
+                  return false;
+                for (const [key, value] of Object.entries(row)) {
+                  if (identifiers.includes(key) || value === null || typeof value === "string")
+                    continue;
+                  if (
+                    key === "labelText" &&
+                    value &&
+                    typeof value === "object" &&
+                    !Array.isArray(value) &&
+                    Object.keys(value).every((field) => ["value", "language"].includes(field)) &&
+                    typeof (value as Record<string, unknown>).value === "string" &&
+                    ((value as Record<string, unknown>).language === undefined ||
+                      typeof (value as Record<string, unknown>).language === "string")
+                  )
+                    continue;
+                  return false;
+                }
+                return true;
+              };
+              const nodeFields = [
+                "nodeShape",
+                "fillColor",
+                "strokeColor",
+                "textColor",
+                "strokeWidth",
+                "fontFamily",
+                "fontSize",
+                "fontWeight",
+                "fontStyle",
+                "lineStyle",
+                "labelMode",
+                "labelProperty",
+                "labelText",
+                "chosenRule",
+                "group",
+              ];
+              const edgeFields = [
+                "strokeColor",
+                "textColor",
+                "strokeWidth",
+                "fontFamily",
+                "fontSize",
+                "fontWeight",
+                "fontStyle",
+                "lineStyle",
+                "edgeRouting",
+                "arrowHead",
+                "labelMode",
+                "labelProperty",
+                "labelText",
+                "chosenRule",
+              ];
+              if (
+                (body.nodeAppearances as unknown[] | undefined)?.some(
+                  (item) => !validateAppearance(item, ["element"], nodeFields),
+                ) ||
+                (body.relationshipAppearances as unknown[] | undefined)?.some(
+                  (item) =>
+                    !validateAppearance(item, ["subject", "predicate", "object"], edgeFields),
+                )
+              )
+                throw new ProjectError(
+                  "invalid_arguments",
+                  "ARGUMENT_INVALID",
+                  "Presentation overrides contain an unsupported field or value type.",
+                );
               views = {
                 action,
                 selector: body.selector,
@@ -1223,6 +1340,15 @@ export async function startWebServer(
                 members: body.members as string[],
                 relationships: body.relationships as ViewOptions["relationships"],
                 positions: body.positions as ViewOptions["positions"],
+                ...(Array.isArray(body.nodeAppearances)
+                  ? { nodeAppearances: body.nodeAppearances as ViewOptions["nodeAppearances"] }
+                  : {}),
+                ...(Array.isArray(body.relationshipAppearances)
+                  ? {
+                      relationshipAppearances:
+                        body.relationshipAppearances as ViewOptions["relationshipAppearances"],
+                    }
+                  : {}),
               };
             }
             respond(
@@ -1249,7 +1375,7 @@ export async function startWebServer(
               typeof body.selector !== "string" ||
               (action === "remove" &&
                 (typeof body.kind !== "string" ||
-                  !["ontology", "model", "shapes", "model-type"].includes(body.kind))) ||
+                  !["ontology", "model", "design", "shapes", "model-type"].includes(body.kind))) ||
               (action === "move" && typeof body.destination !== "string")
             )
               throw new ProjectError(
@@ -1340,7 +1466,7 @@ export async function startWebServer(
             return;
           }
           const action = url.pathname.match(
-            /^\/api\/project\/v1\/(ontology|model|shapes|model\/schema)\/(create|import|add|remove)$/,
+            /^\/api\/project\/v1\/(ontology|model|design|shapes|model\/schema)\/(create|import|select|clear|add|remove)$/,
           );
           const cancellation = url.pathname === "/api/project/v1/resource/cancel";
           if (action || url.pathname === "/api/project/v1/resource/apply" || cancellation) {
@@ -1407,6 +1533,10 @@ export async function startWebServer(
                 "model.create",
                 "model.import",
                 "shapes.create",
+                "design.create",
+                "design.import",
+                "design.select",
+                "design.clear",
                 "model.schema.add",
                 "model.schema.remove",
               ].includes(options.command)

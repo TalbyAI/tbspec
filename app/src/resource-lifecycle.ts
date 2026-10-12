@@ -34,7 +34,7 @@ import {
   type Write,
 } from "./transactions.ts";
 
-export type LifecycleResourceKind = "ontology" | "model" | "shapes" | "model-type";
+export type LifecycleResourceKind = "ontology" | "model" | "design" | "shapes" | "model-type";
 
 export interface LifecycleOptions {
   project?: string;
@@ -62,8 +62,10 @@ export interface PreparedResourceLifecycle {
 interface ImpactOccurrence {
   file: string;
   selector?: string;
+  configurationPath?: string;
   position: "subject" | "predicate" | "object" | "configuration";
   targetIri: string;
+  targetSelector?: string;
   subject?: Record<string, unknown>;
   predicate?: Record<string, unknown>;
   object?: Record<string, unknown>;
@@ -93,6 +95,9 @@ const entityTypes = new Set([
   `${owl}AnnotationProperty`,
   `${owl}OntologyProperty`,
   `${owl}NamedIndividual`,
+  "https://talby.ai/ontology/tbspec#VisualRule",
+  "https://talby.ai/ontology/tbspec#NodeVisualRule",
+  "https://talby.ai/ontology/tbspec#EdgeVisualRule",
 ]);
 
 function requireData<T extends Record<string, unknown>>(result: Result<T>, operation: string): T {
@@ -178,9 +183,11 @@ function validateResourceKind(
   const matches =
     kind === "ontology"
       ? resource.kind === "ontology"
-      : kind === "shapes"
-        ? resource.kind === "shapes"
-        : resource.kind === "model" || resource.kind.endsWith("-model");
+      : kind === "design"
+        ? resource.kind === "design"
+        : kind === "shapes"
+          ? resource.kind === "shapes"
+          : resource.kind === "model" || resource.kind.endsWith("-model");
   if (!matches)
     throw new ProjectError(
       "invalid",
@@ -218,6 +225,35 @@ function stringOccurrences(
   return [];
 }
 
+function selectorOccurrences(
+  value: unknown,
+  target: string,
+  file: string,
+  path = "",
+): ImpactOccurrence[] {
+  if (typeof value === "string")
+    return value === target
+      ? [
+          {
+            file,
+            position: "configuration",
+            targetIri: target,
+            targetSelector: target,
+            configurationPath: path,
+          },
+        ]
+      : [];
+  if (Array.isArray(value))
+    return value.flatMap((item, index) =>
+      selectorOccurrences(item, target, file, `${path}[${index}]`),
+    );
+  if (value && typeof value === "object")
+    return Object.entries(value).flatMap(([key, item]) =>
+      selectorOccurrences(item, target, file, path ? `${path}.${key}` : key),
+    );
+  return [];
+}
+
 function namedPositions(quad: Quad, target: string) {
   const positions: { position: "subject" | "predicate" | "object"; term: Term }[] = [];
   if (quad.subject.termType === "NamedNode" && quad.subject.value === target)
@@ -248,12 +284,15 @@ async function referencesFor(
   snapshot: Snapshot & { ownedPaths: string[] },
   lock: Lock,
   targets: string[],
+  targetSelectors: string[] = [],
 ) {
   const references: {
     file: string;
     selector?: string;
+    configurationPath?: string;
     position: "subject" | "predicate" | "object" | "configuration";
     targetIri: string;
+    targetSelector?: string;
     subject?: ReturnType<typeof rdfTerm>;
     predicate?: ReturnType<typeof rdfTerm>;
     object?: ReturnType<typeof rdfTerm>;
@@ -294,6 +333,8 @@ async function referencesFor(
     try {
       const parsed = file === "tbspec.toml" ? parseManifest(value) : parseLock(value);
       for (const target of targets) references.push(...stringOccurrences(parsed, target, file));
+      for (const target of targetSelectors)
+        references.push(...selectorOccurrences(parsed, target, file));
     } catch {
       // The operation's validation diagnostics report malformed configuration separately.
     }
@@ -302,6 +343,7 @@ async function referencesFor(
     (a, b) =>
       utf8Compare(a.file, b.file) ||
       utf8Compare(a.targetIri, b.targetIri) ||
+      utf8Compare(a.targetSelector ?? "", b.targetSelector ?? "") ||
       utf8Compare(a.position, b.position) ||
       utf8Compare(a.selector ?? "", b.selector ?? ""),
   );
@@ -381,7 +423,13 @@ export async function inspectImpact(options: {
         manifest,
       );
     }
-    const references = await referencesFor(root, snapshot, lock, targets);
+    const references = await referencesFor(
+      root,
+      snapshot,
+      lock,
+      targets,
+      options.kind === "design" ? [selected] : [],
+    );
     const affectedFiles = [
       ...new Set([
         ...affectedResources.map((item) => item.file),
@@ -558,7 +606,13 @@ async function prepareRemoval(options: LifecycleOptions): Promise<PreparedResour
   const lock = parseLock(snapshot.files["tbspec.lock"]?.toString("utf8") ?? "");
   const store = await parseSnapshotGraph(root, snapshot, resource.file, lock);
   const targets = referencedEntities(store, resource.graphIri);
-  const references = await referencesFor(root, snapshot, lock, targets);
+  const references = await referencesFor(
+    root,
+    snapshot,
+    lock,
+    targets,
+    options.kind === "design" ? [selected] : [],
+  );
   const manifest = parseManifest(snapshot.files["tbspec.toml"]?.toString("utf8") ?? "");
   const related = resourceRelations(resources, selected, resource.graphIri, manifest);
   const baseline = await fullStatus(root, snapshot);
@@ -669,24 +723,24 @@ async function prepareMove(options: LifecycleOptions): Promise<PreparedResourceL
       "Owned resources cannot move into internal directories.",
       destination,
     );
-  const supportSource =
+  const possibleSupportSource =
     source.endsWith(".ttl") && !source.endsWith(".shacl.ttl")
       ? source.replace(/\.ttl$/i, ".shacl.ttl")
       : undefined;
-  const supportDestination = supportSource
+  const possibleSupportDestination = possibleSupportSource
     ? destination.replace(/\.ttl$/i, ".shacl.ttl")
     : undefined;
-  if (supportSource && !destination.toLowerCase().endsWith(".ttl"))
+  if (possibleSupportSource && !destination.toLowerCase().endsWith(".ttl"))
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
       "A Turtle graph must keep its .ttl extension.",
     );
-  const extra = [destination, ...(supportDestination ? [supportDestination] : [])];
+  const extra = [destination, ...(possibleSupportDestination ? [possibleSupportDestination] : [])];
   const snapshot = await captureInspection(root, "status", undefined, [
     source,
     ...extra,
-    ...(supportSource ? [supportSource] : []),
+    ...(possibleSupportSource ? [possibleSupportSource] : []),
   ]);
   const resources = await inventory(root, snapshot);
   const resource = resources.find((item) => item.selector === source);
@@ -697,8 +751,11 @@ async function prepareMove(options: LifecycleOptions): Promise<PreparedResourceL
       "Selected owned graph is unavailable.",
       source,
     );
+  const supportSource = resource.kind === "design" ? undefined : possibleSupportSource;
+  const supportDestination = resource.kind === "design" ? undefined : possibleSupportDestination;
   if (
     resource.kind !== "ontology" &&
+    resource.kind !== "design" &&
     resource.kind !== "shapes" &&
     resource.kind !== "unclassified" &&
     !resource.kind.endsWith("-model") &&

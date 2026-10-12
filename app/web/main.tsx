@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { Result } from "../src/output.ts";
 import { DependenciesPanel } from "./dependencies-ui.tsx";
 import type { EditorDraft } from "./drafts.ts";
-import { GraphEditor } from "./editor.tsx";
+import { type CanvasDesignChoices, GraphEditor } from "./editor.tsx";
 import { ViewsPanel } from "./views-ui.tsx";
 import "./style.css";
 
@@ -219,6 +219,9 @@ function App() {
   const graphSelector = useRef("");
   // shortcut: drafts live only in this page; add session recovery if reload persistence is required.
   const [drafts] = useState(() => new Map<string, EditorDraft>());
+  const [temporaryDesignChoices, setTemporaryDesignChoices] = useState<
+    Record<string, CanvasDesignChoices>
+  >({});
   const [hasDrafts, setHasDrafts] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const draftChanged = useCallback(() => {
@@ -1393,6 +1396,28 @@ function App() {
                         onDraftChange={draftChanged}
                         onBusyChange={setEditorBusy}
                         disabled={busy}
+                        designChoices={
+                          temporaryDesignChoices[selected.selector] ?? {
+                            nodes: {},
+                            relationships: {},
+                          }
+                        }
+                        onTemporaryDesignChoice={(kind, element, rule) =>
+                          setTemporaryDesignChoices((current) => {
+                            const choices = current[selected.selector] ?? {
+                              nodes: {},
+                              relationships: {},
+                            };
+                            const field = kind === "node" ? "nodes" : "relationships";
+                            const next = { ...choices[field] };
+                            if (rule) next[element] = rule;
+                            else delete next[element];
+                            return {
+                              ...current,
+                              [selected.selector]: { ...choices, [field]: next },
+                            };
+                          })
+                        }
                       />
                       <details>
                         <summary>Exact RDF terms ({triples.length} statements)</summary>
@@ -1437,7 +1462,18 @@ function App() {
               <DependenciesPanel session={session} onApplied={() => void refresh(session, true)} />
             )}
             {tab === "views" && (
-              <ViewsPanel session={session} onApplied={() => void refresh(session, true)} />
+              <ViewsPanel
+                session={session}
+                onApplied={() => void refresh(session, true)}
+                temporaryChoicesBySource={temporaryDesignChoices}
+                onTemporaryChoicesConsumed={(source) =>
+                  setTemporaryDesignChoices((current) => {
+                    const next = { ...current };
+                    delete next[source];
+                    return next;
+                  })
+                }
+              />
             )}
             {tab === "configuration" && (
               <section>

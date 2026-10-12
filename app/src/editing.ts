@@ -6,7 +6,13 @@ import type { PreparedResource } from "./authoring.ts";
 import { publishResource } from "./authoring.ts";
 import { canonical, digest } from "./canonical.ts";
 import { equalRevision, type Revision, revision, verifyReads } from "./filesystem.ts";
-import { captureInspection, inspectSnapshot, type Resource, rdfTerm } from "./inspection.ts";
+import {
+  captureInspection,
+  inspectSnapshot,
+  type Resource,
+  rdfTerm,
+  type Validation,
+} from "./inspection.ts";
 import { failure, ok, ProjectError, type Result } from "./output.ts";
 import { absoluteIri, portablePath, safePath } from "./paths.ts";
 import {
@@ -64,6 +70,7 @@ export interface EditorData extends Record<string, unknown> {
   resource: Resource;
   sourceText: string;
   triples: Triple[];
+  designResolution?: Pick<Validation, "effectivePresentation" | "designRuleOptions">;
   parseable: boolean;
   sections: Section[];
   creationTypes: { type: string; label: string }[];
@@ -212,22 +219,19 @@ async function loadEditor(options: EditorOptions) {
   });
   let available: Store | undefined;
   let blocked = true;
-  const checked =
-    resource.ownership === "project"
-      ? await inspectSnapshot(
-          root,
-          snapshot,
-          { command: "validate", selector: selected },
-          {
-            onVocabulary: (r, vocabulary, blockers) => {
-              if (r.selector === selected) {
-                available = vocabulary;
-                blocked = blockers.length > 0;
-              }
-            },
-          },
-        )
-      : shown;
+  const checked = await inspectSnapshot(
+    root,
+    snapshot,
+    { command: "validate", selector: selected },
+    {
+      onVocabulary: (r, vocabulary, blockers) => {
+        if (r.selector === selected) {
+          available = vocabulary;
+          blocked = blockers.length > 0;
+        }
+      },
+    },
+  );
   const creationFields =
     blocked || !applicable(resource.kind).length
       ? []
@@ -279,6 +283,10 @@ async function loadEditor(options: EditorOptions) {
       resource,
       sourceText: bytes.toString("utf8"),
       triples,
+      designResolution: {
+        effectivePresentation: checked.data?.effectivePresentation,
+        designRuleOptions: checked.data?.designRuleOptions,
+      },
       parseable: !!store,
       sections,
       creationTypes,

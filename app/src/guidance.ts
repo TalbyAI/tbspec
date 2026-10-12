@@ -144,7 +144,16 @@ const tree: Record<string, Guidance> = {
     topics: [],
   },
   views: {
-    text: "Use tbspec view list [--source <selector>], view show <view-selector>, view create <path> --source <owned-or-locked-selector> [--protocol <project-ontology-selector>], and view remove <view-selector> [--confirm --accepted-preview <fingerprint>]. Each view has an independent manifest association and presentation graph. Members are exact IRIs. Relationships are exact source triples with IRI subject and object; parallel predicates remain separate and self-loops are allowed. Selecting a relationship includes both endpoints. Adding a member selects only existing source relationships that connect it to a member already selected in that view. Removing a member clears its incident selections and presentation locally. Semantic source graph/form edits synchronize affected selected tuples in every associated view through the shared transaction; raw Turtle saves preserve view files and report stale selections. Locked source snapshots stay read-only while project-owned views remain editable. Optional protocol selectors are opaque project annotations with no built-in vocabulary behavior. Removal previews the manifest row and both owned graph files, then requires --confirm.",
+    text: "Use tbspec view list [--source <selector>], view show <view-selector>, view create <path> --source <owned-or-locked-selector> [--protocol <project-ontology-selector>], and view remove <view-selector> [--confirm --accepted-preview <fingerprint>]. Each view has an independent manifest association and presentation graph. Members are exact IRIs. Relationships are exact source triples with IRI subject and object; parallel predicates remain separate and self-loops are allowed. Selecting a relationship includes both endpoints. Adding a member selects only existing source relationships that connect it to a member already selected in that view. Removing a member clears its incident selections and presentation locally. Semantic source graph/form edits synchronize affected selected tuples in every associated view through the shared transaction; raw Turtle saves preserve view files and report stale selections. Locked source snapshots stay read-only while project-owned views remain editable. Optional protocol selectors are opaque project annotations with no built-in vocabulary behavior. Removal previews the manifest row and both owned graph files, then requires --confirm. Use tbspec llms views designs for reusable design commands, precedence, exact-type rules and safe appearance fields.",
+    topics: [
+      {
+        invocation: "tbspec llms views designs",
+        description: "Reusable design lifecycle, exact-type resolution and per-view appearance.",
+      },
+    ],
+  },
+  "views designs": {
+    text: "Use tbspec design list; design show <selector>; design create <path> [--iri <iri>] [--accepted-preview <digest>]; design import <source-selector> <path> [--iri <new-iri>] [--accepted-preview <digest>]; design remove <owned-path> [--confirm --accepted-preview <digest>]; design select <concept-iri> <selector> [--accepted-preview <digest>]; and design clear <concept-iri> [--accepted-preview <digest>]. A design graph is tbspec:VisualDesignModel; its NodeVisualRule rules target exact classes and EdgeVisualRule rules target exact properties. Import relocates the design root and rule identities and records provenance without selecting it. Whole designs resolve independently for each exact target by consuming-project choice, owned design, design associated with the effective ontology, then nearest inherited dependency; tied differing winners are diagnosed and fields never merge. Rules match exact explicit class/property types with no subclass or subproperty inheritance. Model-type design associations use config model-type design set <name> <selector> and clear <name>. Effective rules style both the complete graph and saved-view canvases. In the complete graph, exact-rule choices are temporary and never change source RDF; saving them in a view stores chosenRule in that view's presentation graph. In the browser Views workspace, create/import designs, inspect/edit rules, choose or clear exact-target designs, and edit each view's fixed node/edge appearance fields, groups, chosen rules, and coordinates. Appearance is persisted only to the selected presentation graph. A local winning-rule choice must apply to an explicit type; unresolved or ambiguous appearance stays generic with canvas warnings. Renderer inputs use fixed components and bounded typed assignments. Colors are hexadecimal; shape, edge, label, line, font family/style and font weight use the supported enums/ranges. Labels use literal values and never interpret markup. Coordinates are paired finite numeric lexical values, including negative and fractional values.",
     topics: [],
   },
   dependencies: {
@@ -238,11 +247,21 @@ export function guidance(topics: string[]): { found: boolean; data: Guidance } {
 export function help(command: string): Guidance {
   if (command === "view")
     return {
-      text: "Usage: tbspec view list [--source <selector>]\n       tbspec view show <view-selector>\n       tbspec view create <path> --source <owned-or-locked-selector> [--protocol <project-ontology-selector>]\n       tbspec view remove <view-selector> [--confirm --accepted-preview <fingerprint>]\nOptions: --project <dir>, --json, --help\nEach view owns independent exact member and relationship selections plus a separate presentation graph. Removal previews all three files.",
+      text: "Usage: tbspec view list [--source <selector>]\n       tbspec view show <view-selector>\n       tbspec view create <path> --source <owned-or-locked-selector> [--protocol <project-ontology-selector>]\n       tbspec view remove <view-selector> [--confirm --accepted-preview <fingerprint>]\nOptions: --project <dir>, --json, --help\nEach view owns independent exact member and relationship selections plus a separate presentation graph. Removal previews all three files. The browser Views workspace edits presentation; use tbspec llms views designs for rule and appearance behavior.",
       topics: [
         {
           invocation: "tbspec llms views",
           description: "View selection, presentation and synchronization contracts.",
+        },
+      ],
+    };
+  if (command === "design")
+    return {
+      text: "Usage: tbspec design list\n       tbspec design show <selector>\n       tbspec design create <path> [--iri <iri>] [--accepted-preview <digest>]\n       tbspec design import <source-selector> <path> [--iri <new-iri>] [--accepted-preview <digest>]\n       tbspec design remove <owned-path> [--confirm --accepted-preview <digest>]\n       tbspec design select <concept-iri> <selector> [--accepted-preview <digest>]\n       tbspec design clear <concept-iri> [--accepted-preview <digest>]\nOptions: --project <dir>, --json, --help\nCreate, import, select and clear use exact previewed transactions in the browser. The CLI applies locally and can verify --accepted-preview. Import does not auto-select the new design.",
+      topics: [
+        {
+          invocation: "tbspec llms views designs",
+          description: "Design resolution and browser presentation behavior.",
         },
       ],
     };
@@ -358,7 +377,7 @@ export function help(command: string): Guidance {
       topics: guidance([]).data.topics,
     };
   return {
-    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, impact, resource move, shapes list/create/remove, graph list/show, ontology list/show/create/import/remove, model list/show/create/import/remove/schema list/add/remove, view list/show/create/remove, dependency inspect/add/list/show/check/select/clear, query list/show/save/run/remove, config show/model-type list/show/set/disable/enable/reset/design/remove, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExamples: tbspec impact ontology vocabularies/core.ttl --json; tbspec dependency inspect --source ../vocabulary --json\nCLI and authenticated browser share views, queries, configuration, authoring, dependencies and project operations. Use tbspec llms views, llms queries, llms impact, llms resource, llms dependencies and llms project for guidance.",
+    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, impact, resource move, shapes list/create/remove, graph list/show, ontology list/show/create/import/remove, model list/show/create/import/remove/schema list/add/remove, view list/show/create/remove, design list/show/create/import/remove/select/clear, dependency inspect/add/list/show/check/select/clear, query list/show/save/run/remove, config show/model-type list/show/set/disable/enable/reset/design/remove, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExamples: tbspec impact ontology vocabularies/core.ttl --json; tbspec dependency inspect --source ../vocabulary --json\nCLI and authenticated browser share views, designs, queries, configuration, authoring, dependencies and project operations. Use tbspec llms views, llms views designs, llms queries, llms impact, llms resource, llms dependencies and llms project for guidance.",
     topics: [
       { invocation: "tbspec init --help", description: "Initialize an offline project." },
       { invocation: "tbspec llms --help", description: "Recursive agent guidance." },
