@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type AuthoringOptions, authorResource } from "./authoring.ts";
 import { attachConsole } from "./console.ts";
@@ -6,6 +7,7 @@ import { guidance, help } from "./guidance.ts";
 import { type InspectionCommand, inspectProject } from "./inspection.ts";
 import { exits, failure, ok, ProjectError, type Result } from "./output.ts";
 import { initializeProject } from "./project.ts";
+import { listQueries, queryRemove, queryRun, querySave, showQuery } from "./query.ts";
 import { applicationVersion } from "./runtime.ts";
 import { webProject } from "./web.ts";
 
@@ -40,6 +42,11 @@ async function dispatch(): Promise<Result> {
         "--accepted-preview",
         "--confirm",
         "--source",
+        "--file",
+        "--parameters",
+        "--saved",
+        "--graph",
+        "--bindings",
       ].includes(argument)
     )
       throw new ProjectError(
@@ -64,6 +71,11 @@ async function dispatch(): Promise<Result> {
         "--schema",
         "--accepted-preview",
         "--source",
+        "--file",
+        "--parameters",
+        "--saved",
+        "--graph",
+        "--bindings",
       ].includes(argument)
     ) {
       const value = argv[++index];
@@ -91,6 +103,7 @@ async function dispatch(): Promise<Result> {
       "web",
       "ontology",
       "model",
+      "query",
     ].includes(command)
   )
     throw new ProjectError(
@@ -186,12 +199,15 @@ async function dispatch(): Promise<Result> {
     );
   if (
     options.has("--confirm") &&
-    !(command === "model" && positional[0] === "schema" && positional[1] === "remove")
+    !(
+      (command === "model" && positional[0] === "schema" && positional[1] === "remove") ||
+      (command === "query" && positional[0] === "remove")
+    )
   )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "--confirm applies only to model schema remove.",
+      "--confirm applies only to confirmed removal operations.",
     );
   if (options.has("--source") && !(command === "shapes" && positional[0] === "list"))
     throw new ProjectError(
@@ -199,6 +215,85 @@ async function dispatch(): Promise<Result> {
       "ARGUMENT_INVALID",
       "--source applies only to shapes list.",
     );
+  const queryAction = command === "query" ? positional[0] : undefined;
+  const queryOptions = ["--file", "--parameters", "--saved", "--graph", "--bindings"];
+  if (
+    queryOptions.some((flag) => options.has(flag)) &&
+    (command !== "query" || options.has("--help"))
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Query options apply only to query commands.",
+    );
+  if (
+    (options.has("--parameters") && queryAction !== "save") ||
+    (options.has("--saved") && queryAction !== "run") ||
+    (options.has("--graph") && queryAction !== "run") ||
+    (options.has("--bindings") && queryAction !== "run") ||
+    (options.has("--file") && !["save", "run"].includes(queryAction ?? ""))
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Query option is not valid for this action.",
+    );
+  if (command === "query") {
+    const action = positional[0];
+    const queryFile = value("--file");
+    const parameterFile = value("--parameters");
+    const saved = value("--saved");
+    const bindingsFile = value("--bindings");
+    const readText = async (path: string) =>
+      new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await readFile(path));
+    if (
+      action === "list" &&
+      positional.length === 1 &&
+      !queryOptions.some((flag) => options.has(flag))
+    )
+      return listQueries({ project: selectedProject });
+    if (
+      action === "show" &&
+      positional.length === 2 &&
+      !queryOptions.some((flag) => options.has(flag))
+    )
+      return showQuery({ project: selectedProject, name: positional[1] ?? "" });
+    if (action === "save" && positional.length === 2 && queryFile)
+      return querySave({
+        project: selectedProject,
+        name: positional[1] ?? "",
+        queryText: await readText(queryFile),
+        ...(parameterFile ? { parametersText: await readText(parameterFile) } : {}),
+      });
+    if (
+      action === "run" &&
+      positional.length === 1 &&
+      (queryFile !== undefined) !== (saved !== undefined)
+    )
+      return queryRun({
+        project: selectedProject,
+        ...(queryFile ? { queryText: await readText(queryFile) } : { saved }),
+        ...(value("--graph") ? { graph: value("--graph") } : {}),
+        ...(bindingsFile ? { bindingsText: await readText(bindingsFile) } : {}),
+      });
+    if (
+      action === "remove" &&
+      positional.length === 2 &&
+      !["--file", "--parameters", "--saved", "--graph", "--bindings"].some((flag) =>
+        options.has(flag),
+      )
+    )
+      return queryRemove({
+        project: selectedProject,
+        name: positional[1] ?? "",
+        confirm: options.has("--confirm"),
+      });
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Use query list; query show <name>; query save <name> --file <path> [--parameters <path.toml>]; query run (--file <path.rq> | --saved <name>) [--graph <selector>] [--bindings <path.json>]; or query remove <name> [--confirm].",
+    );
+  }
   if (command === "validate") {
     if (positional.length > 1)
       throw new ProjectError(

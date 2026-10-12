@@ -12,6 +12,7 @@ import { withLock } from "./lock.ts";
 import { exits, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
 import { token } from "./ownership.ts";
 import { cleanupPreviews } from "./previews.ts";
+import type { QueryOperation, QueryRevisions } from "./query.ts";
 import { opaqueToken } from "./recovery.ts";
 import {
   claimRuntime,
@@ -90,6 +91,32 @@ async function jsonBody(request: IncomingMessage, limit = 16384): Promise<Record
       "Expected a UTF-8 JSON object with unique field names.",
     );
   }
+}
+function expectedQueryRevisions(value: unknown): QueryRevisions {
+  const invalid = () =>
+    new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Query mutations require valid reviewed file revisions.",
+    );
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
+  const revisions = value as Record<string, unknown>;
+  if (Object.keys(revisions).sort().join(",") !== "parameters,query") throw invalid();
+  const parse = (entry: unknown) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw invalid();
+    const revision = entry as Record<string, unknown>;
+    if (revision.state === "absent" && Object.keys(revision).length === 1)
+      return { state: "absent" } as const;
+    if (
+      revision.state === "present" &&
+      Object.keys(revision).sort().join(",") === "digest,state" &&
+      typeof revision.digest === "string" &&
+      /^sha256:[a-f0-9]{64}$/.test(revision.digest)
+    )
+      return { state: "present", digest: revision.digest } as const;
+    throw invalid();
+  };
+  return { query: parse(revisions.query), parameters: parse(revisions.parameters) };
 }
 async function installedAssets(): Promise<Map<string, { bytes: Buffer; type: string }>> {
   const assets = new Map<string, { bytes: Buffer; type: string }>();
@@ -212,6 +239,7 @@ export async function startWebServer(
     command: InspectionCommand,
     selector?: string,
     authoring?: AuthoringRequest,
+    query?: QueryOperation,
   ): Promise<Result | InspectionResponse> {
     if (jobs.size >= 1)
       return failure(
@@ -250,10 +278,14 @@ export async function startWebServer(
         worker.once("exit", failed);
         worker.postMessage({
           project: root,
-          command,
-          selector,
+          ...(query
+            ? { query }
+            : {
+                command,
+                selector,
+                authoring: authoring ? { ...authoring, instanceId: record.instanceId } : undefined,
+              }),
           warnings: previewWarnings,
-          authoring: authoring ? { ...authoring, instanceId: record.instanceId } : undefined,
         });
       });
     })();
@@ -269,6 +301,8 @@ export async function startWebServer(
       worker.off("exit", failed);
     }
   }
+  const queryProject = (operation: QueryOperation) =>
+    inspect("status", undefined, undefined, operation);
   const server = createServer((request, response) => {
     response.setHeader(
       "Content-Security-Policy",
@@ -543,6 +577,109 @@ export async function startWebServer(
             ),
           );
           return;
+        }
+        if (request.method === "GET" && url.pathname === "/api/project/v1/queries") {
+          respond(response, await queryProject({ action: "list" }));
+          return;
+        }
+        if (request.method === "GET" && url.pathname === "/api/project/v1/query") {
+          const names = url.searchParams.getAll("name");
+          if (names.length !== 1 || [...url.searchParams.keys()].some((key) => key !== "name"))
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Query show requires one name.",
+            );
+          respond(response, await queryProject({ action: "show", name: names[0] ?? "" }));
+          return;
+        }
+        if (request.method === "POST" && url.pathname.startsWith("/api/project/v1/query/")) {
+          const action = url.pathname.slice("/api/project/v1/query/".length);
+          const body = await jsonBody(request, 4194304);
+          if (action === "save") {
+            if (
+              Object.keys(body).some(
+                (key) =>
+                  !["name", "queryText", "parametersText", "expectedRevisions"].includes(key),
+              ) ||
+              typeof body.name !== "string" ||
+              typeof body.queryText !== "string" ||
+              (body.parametersText !== undefined && typeof body.parametersText !== "string")
+            )
+              throw new ProjectError(
+                "invalid_arguments",
+                "ARGUMENT_INVALID",
+                "Invalid saved-query fields.",
+              );
+            const expectedRevisions = expectedQueryRevisions(body.expectedRevisions);
+            respond(
+              response,
+              await queryProject({
+                action: "save",
+                name: body.name,
+                queryText: body.queryText,
+                expectedRevisions,
+                ...(typeof body.parametersText === "string"
+                  ? { parametersText: body.parametersText }
+                  : {}),
+              }),
+            );
+            return;
+          }
+          if (action === "run") {
+            if (
+              Object.keys(body).some(
+                (key) => !["queryText", "saved", "graph", "bindingsText"].includes(key),
+              ) ||
+              (body.queryText !== undefined && typeof body.queryText !== "string") ||
+              (body.saved !== undefined && typeof body.saved !== "string") ||
+              (body.graph !== undefined && typeof body.graph !== "string") ||
+              (body.bindingsText !== undefined && typeof body.bindingsText !== "string")
+            )
+              throw new ProjectError(
+                "invalid_arguments",
+                "ARGUMENT_INVALID",
+                "Invalid query-run fields.",
+              );
+            respond(
+              response,
+              await queryProject({
+                action: "run",
+                ...(typeof body.queryText === "string" ? { queryText: body.queryText } : {}),
+                ...(typeof body.saved === "string" ? { saved: body.saved } : {}),
+                ...(typeof body.graph === "string" ? { graph: body.graph } : {}),
+                ...(typeof body.bindingsText === "string"
+                  ? { bindingsText: body.bindingsText }
+                  : {}),
+              }),
+            );
+            return;
+          }
+          if (action === "remove") {
+            if (
+              Object.keys(body).some(
+                (key) => !["name", "confirm", "expectedRevisions"].includes(key),
+              ) ||
+              typeof body.name !== "string" ||
+              (body.confirm !== undefined && typeof body.confirm !== "boolean")
+            )
+              throw new ProjectError(
+                "invalid_arguments",
+                "ARGUMENT_INVALID",
+                "Invalid query-removal fields.",
+              );
+            const expectedRevisions = expectedQueryRevisions(body.expectedRevisions);
+            respond(
+              response,
+              await queryProject({
+                action: "remove",
+                name: body.name,
+                expectedRevisions,
+                ...(typeof body.confirm === "boolean" ? { confirm: body.confirm } : {}),
+              }),
+            );
+            return;
+          }
         }
         const routes: Record<string, InspectionCommand> = {
           "/api/project/v1/editor": "editor.show",

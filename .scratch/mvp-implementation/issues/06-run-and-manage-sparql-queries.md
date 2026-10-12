@@ -2,7 +2,7 @@
 
 Type: task
 Status: ready-for-agent
-State: open
+State: resolved
 Blocked by: 04
 User stories covered: 11, 95, 96, 97, 98, 99, 100
 
@@ -41,3 +41,9 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
+
+## Answer
+
+Implemented shared read-only query operations with CLI and authenticated browser workflows for listing, inspecting, saving, running, and confirmed removal. Queries pass parsed-AST policy checks and run against isolated local RDF datasets; saved declarations and typed bindings are validated, and browser save/remove mutations bind both saved-file revisions. Documentation and selective query help describe the query forms, parameter shapes, graph scope, policy, and result behavior.
+
+Validation passed for root `npm run format` and `npm run check`, app `npm run typecheck` and `npm run build`, the focused query and editor/state-machine tests (26/26), and the authenticated HTTP query lifecycle test (1/1). A live browser smoke covered saved and ad hoc execution, typed literal bindings, ASK false, stale-save conflict with draft retention, explicit refreshed review, retry, and confirmed removal. The full app suite first reported 171 passes, two platform skips, and one failure in the digit-leading SPARQL variable case; after correcting that rule, the focused query test passed. The full app suite was not rerun after this isolated fix.

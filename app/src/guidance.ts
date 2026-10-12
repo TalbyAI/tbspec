@@ -157,7 +157,24 @@ const tree: Record<string, Guidance> = {
     ],
   },
   queries: {
-    text: "Saved queries will execute against explicitly assembled local datasets with typed RDF-term parameters. Query declarations and execution commands arrive in later tickets. This guidance retrieves no project data and runs no query.",
+    text: "tbspec query list; tbspec query show <name>; tbspec query save <name> --file <path> [--parameters <path.toml>]; tbspec query run (--file <path.rq> | --saved <name>) [--graph <selector>] [--bindings <path.json>]; tbspec query remove <name> [--confirm]. Queries accept SELECT, ASK, CONSTRUCT and DESCRIBE over local in-memory RDF only. Save validates SPARQL and declarations without running the query. Run never changes project files. Removal previews both files and requires --confirm.",
+    topics: [
+      {
+        invocation: "tbspec llms queries parameters",
+        description: "Declaration fields and typed RDF-term bindings.",
+      },
+      {
+        invocation: "tbspec llms queries dataset",
+        description: "Default union, named graphs, isolation and query policy.",
+      },
+    ],
+  },
+  "queries parameters": {
+    text: "Saved queries use queries/<name>.rq and queries/<name>.query.toml with schema_version = 1 and a parameters array. Each parameter requires name (SPARQL variable without ?/$), kind = iri|literal and required = true|false. Literal declarations may constrain one absolute datatype IRI or one well-formed BCP 47 language tag. Bindings JSON maps bare variable names to {kind,value} RDF terms; literals may add datatype or language. Required, unknown, malformed or mismatched bindings fail before execution. Values are RDF terms passed as initial bindings; no text substitution occurs. Parameter errors do not echo binding values.",
+    topics: [],
+  },
+  "queries dataset": {
+    text: "Without --graph, every effective resource is registered under its exact declared or generated graph IRI. Only effective ontology and model triples enter the default union; support and unclassified graphs remain named-only. Use GRAPH <iri> to query a named resource. --graph <selector> loads only that graph as both default and named graph, so unrelated malformed files and ontology-choice conflicts do not block isolated queries. Update, SERVICE at any depth, FROM and FROM NAMED are rejected by parsed-AST validation before engine execution. Query execution uses local project files and locked snapshots and makes no acquisition or dereferencing requests. ASK false is successful; SELECT omits unbound cells; returned blank nodes have scope=result.",
     topics: [],
   },
   repair: {
@@ -211,6 +228,16 @@ export function guidance(topics: string[]): { found: boolean; data: Guidance } {
   };
 }
 export function help(command: string): Guidance {
+  if (command === "query")
+    return {
+      text: "Usage: tbspec query list\n       tbspec query show <name>\n       tbspec query save <name> --file <path> [--parameters <path.toml>]\n       tbspec query run (--file <path.rq> | --saved <name>) [--graph <selector>] [--bindings <path.json>]\n       tbspec query remove <name> [--confirm]\nOptions: --project <dir>, --json, --help\nOnly SELECT, ASK, CONSTRUCT and DESCRIBE run. Removal previews unless confirmed.",
+      topics: [
+        {
+          invocation: "tbspec llms queries",
+          description: "Saved queries, typed bindings and local dataset policy.",
+        },
+      ],
+    };
   if (command === "validate" || command === "shapes")
     return {
       text:
@@ -270,7 +297,7 @@ export function help(command: string): Guidance {
       topics: guidance([]).data.topics,
     };
   return {
-    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, shapes list/create, graph list/show, ontology list/show/create/import, model list/show/create/import/schema list/add/remove, config show/model-type list, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec ontology import dep:tbspec-state-machine ontologies/state.ttl --iri urn:example:state --json\nCLI and authenticated browser share authoring, inspection and offline validation. Dependency administration arrives in later feature tickets.",
+    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, shapes list/create, graph list/show, ontology list/show/create/import, model list/show/create/import/schema list/add/remove, query list/show/save/run/remove, config show/model-type list, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec query run --file explore.rq --graph models/orders.ttl --json\nCLI and authenticated browser share project operations. Use tbspec llms queries for query-specific guidance.",
     topics: [
       { invocation: "tbspec init --help", description: "Initialize an offline project." },
       { invocation: "tbspec llms --help", description: "Recursive agent guidance." },

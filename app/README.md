@@ -38,6 +38,35 @@ Implemented commands are `init`, `status`, `validate`, `shapes list/create`, `gr
 
 `init [directory] [--base-iri <iri>]` defaults to the working directory. Global `--project <dir>` can select the initialization directory instead of a positional directory. Base IRIs must be absolute and end in `/` or `#`. Every `--json` invocation, including help, version and argument errors, writes one schema-version-1 envelope to stdout. Diagnostics go to stderr. Exits are 0 success/preview, 1 invalidity, 2 arguments/policy, 3 conflict/recovery/acceptance and 4 unavailable/I/O. Initialization reports resulting validity as `unchecked`; run `validate` or `status` to establish full project validity.
 
+## SPARQL queries
+
+Use `query list`, `query show <name>`, `query save <name> --file <path.rq> [--parameters <path.toml>]`, `query run (--file <path.rq> | --saved <name>) [--graph <selector>] [--bindings <path.json>]`, and `query remove <name> [--confirm]`. Saved queries live in `queries/<name>.rq` with a version-1 `queries/<name>.query.toml` declaration. A declaration lists only parameters that may be bound; every parameter has a SPARQL variable name, kind (`iri` or `literal`), and required flag, plus an optional literal datatype or language. There are no defaults or text substitutions. For example:
+
+```toml
+schema_version = 1
+
+[[parameters]]
+name = "customer"
+kind = "iri"
+required = true
+
+[[parameters]]
+name = "label"
+kind = "literal"
+required = false
+language = "en"
+```
+
+```json
+{"customer":{"kind":"iri","value":"https://example.org/customer/42"},"label":{"kind":"literal","value":"Order","language":"en"}}
+```
+
+For example, save `SELECT ?order WHERE { ?order <https://example.org/customer> ?customer; <https://example.org/label> ?label }` and run it with `--saved orders-by-customer --bindings bindings.json`. `query show` and `query list` inspect saved declarations; removal first returns a preview and requires `--confirm` to apply. Missing required values and wrong term kinds return `invalid_arguments` (CLI exit 2). To test other forms, run files containing `ASK { <urn:missing> ?p ?o }`, `CONSTRUCT { ?s <urn:copy> ?o } WHERE { ?s ?p ?o }`, or `DESCRIBE <https://example.org/customer/42>`; a false ASK is a successful result, SELECT omits unbound cells, and result blank nodes use `scope: "result"`.
+
+Without `--graph`, the default graph is the resolved ontology/model union, while support and unclassified resources are accessible only by their exact named-graph IRIs. `query run --file explore.rq --graph ontologies/customer.ttl` loads that selected resource alone as both the default and only named graph. This keeps an isolated query usable when another file is malformed or project ontology choices conflict. For explicit hierarchy exploration, use a SPARQL property path such as `rdfs:subClassOf+`; the query adds no entailment or inferred triples.
+
+The parsed AST gate accepts only SELECT, ASK, CONSTRUCT, and DESCRIBE. Update, nested SERVICE, FROM, and FROM NAMED fail before engine execution. Query execution uses local in-memory RDF/JS sources, makes no acquisition or dereferencing requests, and does not change canonical project files. Saved-query edits use the normal revision-checked transaction path. In the browser's **Queries** workspace, inspect or select a saved query, edit its text and parameter declaration, run ad hoc or saved queries with an optional exact graph and typed bindings, and save or confirm removal. If a saved query changes after inspection, the draft remains available; use **Refresh revision review; keep current draft** to inspect the current file revisions before retrying. Query-specific syntax and policy guidance is available through `query --help` and `llms queries`.
+
 ## Shared operations
 
 `showEditor`, `prepareEdit` and `editGraph` in `src/editing.ts` provide complete-graph inspection and revision-checked editing. Open a graph in the authenticated browser and switch between **Complete graph**, **Turtle source**, and **Forms**. The canvas shows IRI/blank-node subjects and resource-valued objects, with an exact selectable edge for each resource-valued triple. Its positions are temporary; no view or presentation file is created. Select a resource to edit individual RDF values or add an exact triple, including new graph-scoped blank nodes. Removing a triple affects only that statement. Individual RDF edits have no CLI command.

@@ -1,7 +1,7 @@
 import type { Term } from "@rdfjs/types";
 import { Parser } from "@traqula/parser-sparql-1-1";
 import { DataFactory, Store } from "n3";
-import { ProjectError } from "./output.ts";
+import { ProjectError, type Status } from "./output.ts";
 import { absoluteIri } from "./paths.ts";
 import type { Row } from "./schemas.ts";
 import { compileXPathPattern } from "./shacl-regex.ts";
@@ -12,8 +12,8 @@ const owl = "http://www.w3.org/2002/07/owl#";
 const xsd = "http://www.w3.org/2001/XMLSchema#";
 const parser = new Parser();
 
-function reject(code: string, message: string): never {
-  throw new ProjectError("invalid", code, message);
+function reject(code: string, message: string, status: Status = "invalid"): never {
+  throw new ProjectError(status, code, message);
 }
 function walk(
   value: unknown,
@@ -33,7 +33,7 @@ function walk(
 }
 
 /** One AST policy for every local query; shape rules additionally enforce SHACL pre-binding. */
-export function localQuery(text: string, shapes = false): void {
+function inspectLocalQuery(text: string, shapes: boolean, status: Status) {
   let ast: Row;
   try {
     ast = parser.parse(text) as unknown as Row;
@@ -41,36 +41,67 @@ export function localQuery(text: string, shapes = false): void {
     reject(
       shapes ? "SHACL_QUERY_REJECTED" : "QUERY_REJECTED",
       "Query cannot be parsed as SPARQL 1.1.",
+      status,
     );
   }
   const code = shapes ? "SHACL_QUERY_REJECTED" : "QUERY_REJECTED";
+  const variables = new Set<string>();
   if (ast.type !== "query" || (shapes && ast.subType !== "select"))
-    reject(code, "Only local query forms are permitted; constraints require SELECT.");
+    reject(code, "Only local query forms are permitted; constraints require SELECT.", status);
   walk(ast, (node, parent, key) => {
+    if (node.subType === "variable" && typeof node.value === "string") variables.add(node.value);
     if (
       node.subType === "service" ||
       (node.type === "datasetClauses" && (node.clauses as unknown[]).length)
     )
-      reject(code, "SERVICE and FROM dataset clauses are forbidden, including nested queries.");
+      reject(
+        code,
+        "SERVICE and FROM dataset clauses are forbidden, including nested queries.",
+        status,
+      );
     if (!shapes) return;
     if (["minus", "values"].includes(String(node.subType)))
-      reject(code, "SHACL pre-binding forbids MINUS and VALUES.");
+      reject(code, "SHACL pre-binding forbids MINUS and VALUES.", status);
     if (node.subType === "variable" && ["shapesGraph", "currentShape"].includes(String(node.value)))
-      reject(code, "The validator does not bind shapesGraph or currentShape.");
+      reject(code, "The validator does not bind shapesGraph or currentShape.", status);
     if (node.subType === "variable" && node.value === "this" && key === "variable")
-      reject(code, "AS must not rebind this.");
+      reject(code, "AS must not rebind this.", status);
     if (
       node.subType === "variable" &&
       node.value === "PATH" &&
       !(parent?.type === "triple" && key === "predicate")
     )
-      reject(code, "$PATH is allowed only as a triple-pattern predicate.");
+      reject(code, "$PATH is allowed only as a triple-pattern predicate.", status);
     if (node.type === "query") {
       const variables = node.variables as Row[] | undefined;
       if (!variables?.some((v) => v.subType === "variable" && v.value === "this"))
-        reject(code, "Every SELECT, including subqueries, must explicitly project this.");
+        reject(code, "Every SELECT, including subqueries, must explicitly project this.", status);
     }
   });
+  const projection = (ast.variables as Row[] | undefined) ?? [];
+  const projectedVariables = projection.flatMap((item) => {
+    if (item.subType === "variable" && typeof item.value === "string") return [item.value];
+    if (item.subType === "bind" && typeof item.variable === "object" && item.variable) {
+      const variable = item.variable as Row;
+      return variable.subType === "variable" && typeof variable.value === "string"
+        ? [variable.value]
+        : [];
+    }
+    return [];
+  });
+  return {
+    form: String(ast.subType),
+    variables,
+    projectedVariables: projection.some((item) => item.subType === "wildcard")
+      ? [...variables]
+      : projectedVariables,
+  };
+}
+export function localQuery(text: string, shapes = false): void {
+  inspectLocalQuery(text, shapes, "invalid");
+}
+export function localQueryInfo(text: string, status: Status = "invalid") {
+  return inspectLocalQuery(text, false, status);
 }
 
 export function prepareShapes(source: Store): Store {
