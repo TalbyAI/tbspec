@@ -11,11 +11,21 @@ declare module "shacl-engine" {
         focusNode: { term: Term };
         shape: { ptr: { term: Term } };
         constraintComponent: Term;
-        message: { value: string }[];
+        message: Term[];
+        severity?: Term;
+        value?: { term?: Term };
+        args?: Record<string, Term>;
       }[];
     }>;
   }
 }
 declare module "shacl-engine/sparql.js" {
   export const validations: unknown;
+}
+
+declare module "xspattern" {
+  export function compile(
+    pattern: string,
+    options?: { language: "xsd" | "xpath" },
+  ): (value: string) => boolean;
 }

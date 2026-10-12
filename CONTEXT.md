@@ -37,6 +37,9 @@ A data model describing classes of entities, their attributes, and their relatio
 **Concrete data model**:
 A data model describing individual resources, their properties, and their values.
 
+**Schema**:
+A conceptual data model associated with a concrete data model to supply additional class/property declarations and associated constraints. A concrete data model may have zero or more schemas; these supplement its model-type ontology.
+
 **Process model**:
 A domain model describing activities, decisions, inputs, outputs, responsible parties, and the flow between activities.
 

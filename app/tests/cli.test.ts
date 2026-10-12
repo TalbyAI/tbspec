@@ -28,6 +28,61 @@ function invoke(args: string[], cwd: string) {
   ]);
   return { ...result, envelope };
 }
+
+test("CLI validates, lists shapes and confirms schema removal offline with exact signatures", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-cli-validate-"));
+  await initializeProject({ directory: root, baseIri: "urn:cli:/" });
+  for (const args of [
+    ["model", "create", "schema.ttl", "--type", "data"],
+    ["model", "create", "model.ttl", "--type", "data", "--profile", "concrete"],
+    ["model", "schema", "add", "model.ttl", "schema.ttl"],
+    ["shapes", "create", "model.ttl"],
+  ])
+    assert.equal(invoke(args, root).status, 0);
+  assert.deepEqual(
+    invoke(["model", "schema", "list", "model.ttl"], root).envelope.data.items.map(
+      (r: { selector: string }) => r.selector,
+    ),
+    ["schema.ttl"],
+  );
+  assert.equal(
+    invoke(["shapes", "list", "--source", "model.ttl"], root).envelope.data.items[0].selector,
+    "model.shacl.ttl",
+  );
+  assert.equal(invoke(["validate", "model.ttl"], root).status, 0);
+  const preview = invoke(["model", "schema", "remove", "model.ttl", "schema.ttl"], root);
+  assert.equal(preview.envelope.status, "preview", preview.stderr);
+  const fingerprint = preview.envelope.data.preview.fingerprint;
+  assert.equal(
+    invoke(
+      [
+        "model",
+        "schema",
+        "remove",
+        "model.ttl",
+        "schema.ttl",
+        "--confirm",
+        "--accepted-preview",
+        fingerprint,
+      ],
+      root,
+    ).status,
+    0,
+  );
+  await writeFile(join(root, "broken.ttl"), "broken Turtle [");
+  assert.equal(invoke(["validate", "model.ttl"], root).status, 0);
+  const whole = invoke(["validate"], root);
+  assert.equal(whole.status, 1);
+  assert.ok(whole.envelope.diagnostics.some((d: { code: string }) => d.code === "RDF_SYNTAX"));
+  for (const args of [
+    ["validate", "one", "two"],
+    ["validate", "--confirm"],
+    ["model", "schema", "add", "model.ttl"],
+    ["model", "schema", "list", "model.ttl", "--type", "data"],
+    ["shapes", "create", "model.ttl", "--source", "schema.ttl"],
+  ])
+    assert.equal(invoke(args, root).status, 2);
+});
 test("CLI authors and inspects every model family and imports locked vocabulary offline", async () => {
   const root = await mkdtemp(join(tmpdir(), "tb-cli-author-"));
   await initializeProject({ directory: root, baseIri: "urn:cli:/" });
@@ -173,7 +228,7 @@ test("CLI init works with Node alone, preserves ignore bytes and explicit root o
   assert.equal(missingParent.envelope.status, "unavailable");
 });
 
-test("inspection CLI routes exact signatures, portable selectors and incomplete status", async () => {
+test("inspection CLI routes exact signatures, portable selectors and complete offline status", async () => {
   const root = await mkdtemp(join(tmpdir(), "tbspec-cli-inspect-"));
   await initializeProject({ directory: root });
   await mkdir(join(root, "models"));
@@ -191,8 +246,8 @@ test("inspection CLI routes exact signatures, portable selectors and incomplete 
     assert.equal(result.envelope.status, "ok");
   }
   const status = invoke(["status"], cwd);
-  assert.equal(status.status, 1);
-  assert.equal(status.envelope.data.project.validationComplete, false);
+  assert.equal(status.status, 0, status.stderr);
+  assert.equal(status.envelope.data.project.validationComplete, true);
   assert.equal(status.envelope.data.counts.resources, 1);
   for (const args of [
     ["status", "extra"],

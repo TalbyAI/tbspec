@@ -138,6 +138,7 @@ async function handle(
               ? "invalid"
               : "unchecked",
             validationComplete: false,
+            ...(prepared.validation ? { validation: prepared.validation } : {}),
           },
           prepared.diagnostics,
         ),

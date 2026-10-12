@@ -23,10 +23,12 @@
     "@comunica/query-sparql-rdfjs-lite": "5.4.1",
     "@comunica/utils-bindings-factory": "5.4.0",
     "@traqula/parser-sparql-1-1": "1.4.0",
+    "@unicode/unicode-15.0.0": "1.6.17",
     "n3": "2.7.12",
     "rdfxml-streaming-parser": "3.3.0",
     "shacl-engine": "1.1.2",
-    "smol-toml": "1.9.0"
+    "smol-toml": "1.9.0",
+    "xspattern": "3.1.0"
   },
   "devDependencies": {
     "@types/n3": "1.26.1",

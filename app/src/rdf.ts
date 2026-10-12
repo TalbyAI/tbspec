@@ -1,4 +1,4 @@
-import { Parser, type Quad, Store } from "n3";
+import { DataFactory, Parser, type Quad, Store } from "n3";
 import { RdfXmlParser } from "rdfxml-streaming-parser";
 import { digest } from "./canonical.ts";
 import { ProjectError } from "./output.ts";
@@ -15,6 +15,7 @@ export async function parseGraph(
   bytes: Uint8Array,
   file: LockedFile,
   vettedDigest?: string,
+  blankScope?: string,
 ): Promise<Store> {
   if (digest(bytes) !== file.byte_digest || bytes.byteLength !== file.byte_length)
     throw new ProjectError(
@@ -28,6 +29,7 @@ export async function parseGraph(
     file.media_type,
     file.base_iri,
     file.parser_profile === "rdfxml-vetted-bundle-v1" && file.byte_digest === vettedDigest,
+    blankScope,
   );
   const declared = classifyGraph(store, file.key);
   if (declared.identity === "declared") {
@@ -58,6 +60,7 @@ export async function parseRdf(
   mediaType: string,
   baseIri: string,
   vetted = false,
+  blankScope?: string,
 ): Promise<Store> {
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   let quads: Quad[];
@@ -95,6 +98,22 @@ export async function parseRdf(
       "RDF_FORMAT_UNSUPPORTED",
       "Only RDF 1.1 single graphs are supported.",
     );
+  if (blankScope) {
+    const labels = new Map<string, string>();
+    const scoped = (term: import("@rdfjs/types").Term) => {
+      if (term.termType !== "BlankNode") return term;
+      if (!labels.has(term.value))
+        labels.set(term.value, `tb_${digest(blankScope).slice(7, 23)}_b${labels.size}`);
+      return DataFactory.blankNode(labels.get(term.value));
+    };
+    quads = quads.map((q) =>
+      DataFactory.quad(
+        scoped(q.subject) as Quad["subject"],
+        q.predicate,
+        scoped(q.object) as Quad["object"],
+      ),
+    );
+  }
   return new Store(quads);
 }
 

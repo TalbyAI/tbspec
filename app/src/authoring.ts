@@ -11,12 +11,20 @@ import { discoverProject, projectDiscoveryScope } from "./project.ts";
 import { classifyGraph, rdfFormats as formats, parseGraph, parseRdf } from "./rdf.ts";
 import { type ModelType, parseLock, parseManifest, selector } from "./schemas.ts";
 import { loadStarters } from "./starters.ts";
+import { prepareSupport } from "./support.ts";
 import { type Plan, preparePlan, publishPlan } from "./transactions.ts";
 
 export interface AuthoringOptions {
   project?: string;
   cwd?: string;
-  command: "ontology.create" | "ontology.import" | "model.create" | "model.import";
+  command:
+    | "ontology.create"
+    | "ontology.import"
+    | "model.create"
+    | "model.import"
+    | "shapes.create"
+    | "model.schema.add"
+    | "model.schema.remove";
   path: string;
   iri?: string;
   type?: string;
@@ -24,6 +32,7 @@ export interface AuthoringOptions {
   schemas?: string[];
   source?: string;
   acceptedPreview?: string;
+  confirm?: boolean;
 }
 export interface PreparedResource {
   root: string;
@@ -31,6 +40,7 @@ export interface PreparedResource {
   resource: Resource;
   diagnostics: Diagnostic[];
   externalSource?: { path: string; digest: string };
+  validation?: { validity: "valid" | "invalid"; validationComplete: boolean };
 }
 const { namedNode, literal, quad } = DataFactory;
 const metadata = "https://talby.ai/ontology/tbspec#";
@@ -53,6 +63,8 @@ const builtInTypes: Record<string, { kinds: string[]; businessType?: string }> =
 };
 
 export async function prepareResource(options: AuthoringOptions): Promise<PreparedResource> {
+  if (options.command === "shapes.create" || options.command.startsWith("model.schema."))
+    return prepareSupport(options);
   const root = await discoverProject(options);
   const path = portablePath(options.path);
   if (
@@ -706,6 +718,7 @@ export async function publishResource(prepared: PreparedResource): Promise<Resul
           ? "invalid"
           : "unchecked",
         validationComplete: false,
+        ...(prepared.validation ? { validation: prepared.validation } : {}),
       },
       [...prepared.diagnostics, ...diagnostics],
     );
@@ -738,6 +751,19 @@ export async function authorResource(options: AuthoringOptions): Promise<Result>
           ),
         ),
         data: { applied: false, preview: prepared.plan.preview },
+      };
+    if (prepared.plan.preview.impact.acceptance.includes("confirm") && !options.confirm)
+      return {
+        ...ok(
+          {
+            applied: false,
+            preview: prepared.plan.preview,
+            resource: prepared.resource,
+            validation: prepared.validation,
+          },
+          prepared.diagnostics,
+        ),
+        status: "preview",
       };
     if (
       prepared.externalSource &&

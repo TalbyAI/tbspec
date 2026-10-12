@@ -35,7 +35,7 @@ const tree: Record<string, Guidance> = {
     ],
   },
   project: {
-    text: "Initialize with tbspec init [directory] [--base-iri <iri>]. Explicit --project <dir> takes precedence over upward tbspec.toml discovery. Inspect effective settings with tbspec config show or tbspec config model-type list. Status reports explicit incomplete validation; configuration mutations and full validation arrive in later tickets.",
+    text: "Initialize with tbspec init [directory] [--base-iri <iri>]. Explicit --project <dir> takes precedence over upward tbspec.toml discovery. Inspect effective settings with tbspec config show or tbspec config model-type list. Status validates offline with explicit coverage. Configuration mutations arrive in later tickets.",
     topics: [
       {
         invocation: "tbspec llms projects init",
@@ -52,7 +52,7 @@ const tree: Record<string, Guidance> = {
     ],
   },
   "project inspect": {
-    text: "tbspec status; tbspec graph list; tbspec graph show <selector>; tbspec config show; tbspec config model-type list. Use --project <dir> and --json as needed. Graph list contains owned RDF only. Show accepts an owned path, dep:<id>, or an exact retained dep:<id>/<file-key>; it returns the expanded selector, physical file, declared/generated graph IRI, source text and scoped RDF terms. Unclassified graphs remain visible; ambiguous roots and malformed RDF are diagnosed. Configuration identifies manifest replacements and locked defaults; absent override design means disconnected. Status currently reports invalid/1 with validationComplete false and explicit skipped checks because full vocabulary/association/SHACL validation belongs to ticket 04. No reads fetch remote content.",
+    text: "tbspec status; tbspec graph list; tbspec graph show <selector>; tbspec config show; tbspec config model-type list. Use --project <dir> and --json as needed. Graph list contains owned RDF only. Show accepts an owned path, dep:<id>, or an exact retained dep:<id>/<file-key>; it returns the expanded selector, physical file, declared/generated graph IRI, source text and scoped RDF terms. Unclassified graphs remain visible; ambiguous roots and malformed RDF are diagnosed. Configuration identifies manifest replacements and locked defaults; absent override design means disconnected. Status establishes validity from syntax, classification, vocabulary, associations and SHACL; errors or required skipped checks produce invalid/1, and coverage reports what ran. No reads fetch remote content.",
     topics: [],
   },
   "project web": {
@@ -65,7 +65,7 @@ const tree: Record<string, Guidance> = {
     ],
   },
   modeling: {
-    text: "Create, list, show and import project-owned ontologies and models with shared offline operations. New roots use an explicit --iri or the configured base IRI plus the percent-encoded final filename stem. Locked snapshots remain read-only. Full project constraint validation is delivered by ticket 04; no authoring result claims complete validity.",
+    text: "Create, inspect and import owned ontologies/models; maintain concrete-model schemas and associated shapes. Validate a selected graph or the whole project offline with explicit diagnostic categories and coverage. New roots use --iri or configured base_iri. Locked snapshots remain read-only. Authoring reports unchecked validity until validation establishes it.",
     topics: [
       {
         invocation: "tbspec llms modeling ontologies",
@@ -75,7 +75,31 @@ const tree: Record<string, Guidance> = {
         invocation: "tbspec llms modeling models",
         description: "Enabled types, model profiles and editable import.",
       },
+      {
+        invocation: "tbspec llms modeling validation",
+        description: "Offline checks, supported shapes and partial coverage.",
+      },
+      {
+        invocation: "tbspec llms modeling schemas",
+        description: "Concrete-model associations and confirmed removal.",
+      },
+      {
+        invocation: "tbspec llms modeling shapes",
+        description: "Associated shapes creation and inventory.",
+      },
     ],
+  },
+  "modeling validation": {
+    text: "tbspec validate [<graph-selector>]; tbspec status. Whole-project validation scans owned RDF and every retained locked file. Selected validation checks the target and its prerequisites, without validating downstream models. The owned inventory resolves graph identities; unrelated owned parse errors are excluded from the selected result, and unrelated dependency bytes are not loaded. No network, inferred persistence or implicit acquisition occurs. SHACL data contains only target triples and explicit effective vocabulary/schema subclass/subproperty hierarchy, also supplied in shapes for class checks. Locked external models retain source bindings. Syntax, classification, vocabulary, associations, view/presentation and SHACL checks have explicit failed/skipped coverage. Malformed prerequisites block dependent checks; independent shapes and resources continue. Results name target, source shapes graph, focus, shape, component, path and value. Violation/Warning/Info map to error/warning/info; warnings alone succeed. Supported shapes: Core and sh:sparql SELECT, with validated prefixes/PATH and explicit this projection. Update, SERVICE, FROM, MINUS, VALUES, AS rebinding of this, missing subquery this, and unbound shapesGraph/currentShape are rejected before execution. SPARQL targets, custom components, rules and JS are unsupported; a rejected graph is skipped whole.",
+    topics: [],
+  },
+  "modeling schemas": {
+    text: "tbspec model schema list <concrete-model-path>; tbspec model schema add <concrete-model-path> <conceptual-model-selector>; tbspec model schema remove <concrete-model-path> <conceptual-model-selector> [--confirm]. Zero schemas is valid. Schema declarations supplement the model's selected ontology and local declarations. Removal previews departing declarations, newly unavailable uses and affected checks. --confirm deliberately publishes even semantic invalidity; status/validate subsequently reports it. Malformed rewritten graphs, stale revisions and unsafe paths still refuse publication. Optional --accepted-preview binds CLI acceptance; browser previews retain exact session/instance-owned bytes for fifteen minutes and require the disclosed confirm flag.",
+    topics: [],
+  },
+  "modeling shapes": {
+    text: "tbspec shapes list [--source <path>]; tbspec shapes create <source-path>. Create an empty declared shapes graph next to an owned ontology/model as <stem>.shacl.ttl, with source graph IRI followed by /shapes. Non-Turtle sources also receive an explicit manifest association, preserving existing manifest bytes. Occupied destinations and identity collisions refuse publication. Existing valid unrooted SHACL graphs can also be associated. Browser creation reviews protected staged bytes before apply. Shapes deletion is delivered in ticket 12.",
+    topics: [],
   },
   "modeling ontologies": {
     text: "tbspec ontology list; tbspec ontology show <path>; tbspec ontology create <path> [--iri <iri>]; tbspec ontology import <source-selector> <path> [--iri <new-iri>]. Paths are project-relative .ttl destinations outside runtime/dependency directories. Creation declares owl:Ontology. Show includes exact identity, selectors, support associations and provenance.",
@@ -116,7 +140,7 @@ const tree: Record<string, Guidance> = {
     topics: [],
   },
   "modeling models import": {
-    text: "tbspec model import <local-file|dep:id|dep:id/file-key> <path> --type <name> [--iri <new-iri>]. Explicitly choose the receiving type; do not reuse an upstream type name implicitly. Preserve compatible source classification, terms, unknown statements and schema IRIs. The resulting copy can be semantically invalid: import still succeeds and reports VOCABULARY_UNKNOWN or broken schema associations with validity invalid. No silent dependency copy, term renaming or vocabulary rebinding occurs. Full SHACL and project validation arrives in ticket 04. The browser previews the copy and applies staged bytes once with revision checks; inspect after uncertain outcomes.",
+    text: "tbspec model import <local-file|dep:id|dep:id/file-key> <path> --type <name> [--iri <new-iri>]. Explicitly choose the receiving type; do not reuse an upstream type name implicitly. Preserve compatible source classification, terms, unknown statements and schema IRIs. The resulting copy can be semantically invalid: import still succeeds and reports VOCABULARY_UNKNOWN or broken schema associations with validity invalid. No silent dependency copy, term renaming or vocabulary rebinding occurs. Run validate on the resulting graph or whole project to obtain full constraint diagnostics. The browser previews the copy and applies staged bytes once with revision checks; inspect after uncertain outcomes.",
     topics: [],
   },
   views: {
@@ -187,12 +211,25 @@ export function guidance(topics: string[]): { found: boolean; data: Guidance } {
   };
 }
 export function help(command: string): Guidance {
+  if (command === "validate" || command === "shapes")
+    return {
+      text:
+        command === "validate"
+          ? "Usage: tbspec validate [<graph-selector>]\nOptions: --project <dir>, --json, --help\nValidate offline; errors or required skipped checks exit 1, warnings alone exit 0."
+          : "Usage: tbspec shapes list [--source <path>]\n       tbspec shapes create <source-path>\nOptions: --project <dir>, --json, --help\nCreate empty associated shapes without overwriting occupied files.",
+      topics: [
+        {
+          invocation: `tbspec llms modeling ${command === "validate" ? "validation" : "shapes"}`,
+          description: "Focused validation/support contract.",
+        },
+      ],
+    };
   if (command === "ontology" || command === "model")
     return {
       text:
         command === "ontology"
           ? "Usage: tbspec ontology list\n       tbspec ontology show <path>\n       tbspec ontology create <path> [--iri <iri>]\n       tbspec ontology import <source-selector> <path> [--iri <new-iri>]\nOptions: --project <dir>, --json, --help\nAuthoring: --accepted-preview <digest> verifies a reviewed plan before publication."
-          : "Usage: tbspec model list\n       tbspec model show <path>\n       tbspec model create <path> --type <name> [--profile conceptual|concrete] [--schema <selector> ...] [--iri <iri>]\n       tbspec model import <source-selector> <path> --type <name> [--iri <new-iri>]\nOptions: --project <dir>, --json, --help\nAuthoring: --accepted-preview <digest> verifies a reviewed plan before publication.",
+          : "Usage: tbspec model list\n       tbspec model show <path>\n       tbspec model create <path> --type <name> [--profile conceptual|concrete] [--schema <selector> ...] [--iri <iri>]\n       tbspec model import <source-selector> <path> --type <name> [--iri <new-iri>]\n       tbspec model schema list <concrete-model-path>\n       tbspec model schema add <concrete-model-path> <conceptual-model-selector>\n       tbspec model schema remove <concrete-model-path> <conceptual-model-selector> [--confirm]\nOptions: --project <dir>, --json, --help\nAuthoring: --accepted-preview <digest> verifies a reviewed plan before publication.",
       topics: [
         {
           invocation: `tbspec llms modeling ${command === "ontology" ? "ontologies" : "models"}`,
@@ -202,7 +239,7 @@ export function help(command: string): Guidance {
     };
   if (["status", "graph", "config"].includes(command))
     return {
-      text: "Usage: tbspec status\n       tbspec graph list\n       tbspec graph show <path|dep:id|dep:id/file-key>\n       tbspec config show\n       tbspec config model-type list\nOptions: --project <dir>, --json, --help\nRead-only local inspection. Status discloses incomplete validation and exits 1 until complete checks are implemented.",
+      text: "Usage: tbspec status\n       tbspec graph list\n       tbspec graph show <path|dep:id|dep:id/file-key>\n       tbspec config show\n       tbspec config model-type list\nOptions: --project <dir>, --json, --help\nRead-only local inspection. Status reports offline validity and coverage; errors or required skipped checks exit 1.",
       topics: [
         {
           invocation: "tbspec llms project inspect",
@@ -233,7 +270,7 @@ export function help(command: string): Guidance {
       topics: guidance([]).data.topics,
     };
   return {
-    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, graph list/show, ontology list/show/create/import, model list/show/create/import, config show/model-type list, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec ontology import dep:tbspec-state-machine ontologies/state.ttl --iri urn:example:state --json\nCLI and authenticated browser share authoring and inspection. Dependency administration and complete validation arrive in later feature tickets.",
+    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, shapes list/create, graph list/show, ontology list/show/create/import, model list/show/create/import/schema list/add/remove, config show/model-type list, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec ontology import dep:tbspec-state-machine ontologies/state.ttl --iri urn:example:state --json\nCLI and authenticated browser share authoring, inspection and offline validation. Dependency administration arrives in later feature tickets.",
     topics: [
       { invocation: "tbspec init --help", description: "Initialize an offline project." },
       { invocation: "tbspec llms --help", description: "Recursive agent guidance." },

@@ -26,10 +26,14 @@ import {
   selector,
 } from "./schemas.ts";
 import { loadStarters } from "./starters.ts";
+import { listSupport } from "./support.ts";
 import type { Snapshot } from "./transactions.ts";
 
 export type InspectionCommand =
   | "status"
+  | "validate"
+  | "shapes.list"
+  | "model.schema.list"
   | "graph.list"
   | "graph.show"
   | "ontology.list"
@@ -55,17 +59,19 @@ export interface Resource {
   provenance?: { sourceGraphIri: string; sourceSelector?: string }[];
   schemaIris?: string[];
 }
-interface Check {
+export interface Check {
   kind: string;
   state: "passed" | "failed" | "skipped";
   blockedBy: string[];
+  shapesSelector?: string;
 }
-interface Validation {
+export interface Validation extends Record<string, unknown> {
   validity: "valid" | "invalid";
   validationComplete: boolean;
   resources: { selector: string; state: "passed" | "failed" | "partial"; checks: Check[] }[];
 }
 export interface InspectionData extends Record<string, unknown> {
+  resources?: Validation["resources"];
   items?: Resource[];
   resource?: Resource;
   sourceText?: string;
@@ -104,7 +110,13 @@ export async function captureInspection(
     async function read(path: string) {
       const bytes = await fileBytes(root, path);
       snapshot.reads.push({ kind: "file", path, revision: revision(bytes) });
-      if (!visitGraph || !formats[extname(path).toLowerCase()] || bytes === null)
+      if (
+        (!visitGraph && !["validate", "status", "graph.list"].includes(command)) ||
+        !formats[extname(path).toLowerCase()] ||
+        path === target ||
+        extraPaths.includes(path) ||
+        bytes === null
+      )
         snapshot.files[path] = bytes;
     }
     await read("tbspec.toml");
@@ -131,7 +143,7 @@ export async function captureInspection(
         }
       }
     }
-    if (command === "status" || command === "graph.list") {
+    if (command === "status" || command === "graph.list" || command === "validate") {
       snapshot.reads.push({
         kind: "inventory",
         path: "",
@@ -141,7 +153,7 @@ export async function captureInspection(
       await walk("");
     }
     // Only project-wide status reads every retained dependency, including inactive support.
-    if (lock && command === "status")
+    if (lock && (command === "status" || (command === "validate" && !target)))
       for (const dep of Object.values(lock.dependencies))
         for (const file of dep.files) paths.push(`${dep.snapshot_path}/${file.key}`);
     async function ownedFile(path: string): Promise<boolean> {
@@ -239,7 +251,8 @@ function effectiveConfig(manifest: Row, lock: Lock): Row {
 }
 export function rdfTerm(term: Term, scope: string): Row {
   if (term.termType === "NamedNode") return { kind: "iri", value: term.value };
-  if (term.termType === "BlankNode") return { kind: "blank", value: term.value, scope };
+  if (term.termType === "BlankNode")
+    return { kind: "blank", value: term.value.replace(/^tb_[a-f0-9]{16}_/, ""), scope };
   if (term.termType === "Literal")
     return {
       kind: "literal",
@@ -255,6 +268,8 @@ export async function inspectProject(options: {
   command: InspectionCommand;
   selector?: string;
 }): Promise<Result<InspectionData>> {
+  if (options.command === "shapes.list" || options.command === "model.schema.list")
+    return listSupport(options);
   if (options.command.startsWith("ontology.") || options.command.startsWith("model.")) {
     const family = options.command.split(".")[0];
     const show = options.command.endsWith(".show");
@@ -287,7 +302,7 @@ async function inspectProjectData(
   try {
     const root = await discoverProject(options);
     let target = options.selector;
-    if (options.command === "graph.show") {
+    if (options.command === "graph.show" || (options.command === "validate" && target)) {
       if (!target)
         throw new ProjectError(
           "invalid_arguments",
@@ -303,7 +318,22 @@ async function inspectProjectData(
       }
     }
     const snapshot = await captureInspection(root, options.command, target);
-    target = snapshot.target;
+    return await inspectSnapshot(root, snapshot, options);
+  } catch (error) {
+    return failure(error);
+  }
+}
+export async function inspectSnapshot(
+  root: string,
+  snapshot: Snapshot & { ownedPaths: string[]; target?: string },
+  options: Parameters<typeof inspectProject>[0],
+  scope: {
+    targets?: string[];
+    onVocabulary?: (resource: Resource, available: Store, blockers: string[]) => void;
+  } = {},
+): Promise<Result<InspectionData>> {
+  try {
+    const target = snapshot.target ?? options.selector;
     const diagnostics: Diagnostic[] = [];
     let manifest: Row | undefined;
     let lock: Lock | undefined;
@@ -317,7 +347,7 @@ async function inspectProjectData(
     } catch (error) {
       diagnostics.push(...failure(error).diagnostics);
     }
-    if (options.command === "graph.show" && target?.startsWith("dep:") && !lock)
+    if (["graph.show", "validate"].includes(options.command) && target?.startsWith("dep:") && !lock)
       return { ...ok<InspectionData>({}, diagnostics), status: "invalid" };
     if (options.command.startsWith("config.")) {
       if (!manifest || !lock) return { ...ok<InspectionData>({}, diagnostics), status: "invalid" };
@@ -328,6 +358,7 @@ async function inspectProjectData(
       ) as Result<InspectionData>;
     }
     const resources: Resource[] = [];
+    const stores = new Map<string, Store>();
     let selectedStore: Store | undefined;
     const validation: Validation = {
       validity: "invalid",
@@ -343,9 +374,26 @@ async function inspectProjectData(
       for (const [id, dep] of Object.entries(lock.dependencies))
         for (const file of dep.files)
           lockedPaths.set(`${dep.snapshot_path}/${file.key}`, { id, file });
-    for (const [file, bytes] of Object.entries(snapshot.files)) {
+    const capturedPaths = new Set([
+      ...Object.keys(snapshot.files),
+      ...snapshot.reads.flatMap((read) => (read.kind === "file" ? [read.path] : [])),
+    ]);
+    for (const file of capturedPaths) {
       if (!formats[extname(file).toLowerCase()]) continue;
+      let bytes = snapshot.files[file];
+      if (bytes === undefined) {
+        bytes = await fileBytes(root, file);
+        const captured = snapshot.reads.find((read) => read.kind === "file" && read.path === file);
+        if (!captured || !equalRevision(captured.revision, revision(bytes)))
+          throw new ProjectError(
+            "conflict",
+            "REVISION_CONFLICT",
+            "Graph changed after inspection capture.",
+            file,
+          );
+      }
       const locked = lockedPaths.get(file);
+      if (!bytes && !locked && !snapshot.ownedPaths.includes(file)) continue;
       const expanded = locked ? `dep:${locked.id}/${locked.file.key}` : file;
       const resource: Resource = {
         selector: expanded,
@@ -375,13 +423,18 @@ async function inspectProjectData(
             file,
           );
         const store = locked
-          ? await parseGraph(bytes, locked.file, bundle.vettedDigest)
+          ? await parseGraph(bytes, locked.file, bundle.vettedDigest, expanded)
           : await parseRdf(
               bytes,
               formats[extname(file).toLowerCase()] ?? "text/turtle",
               pathToFileURL(await safePath(root, file)).href,
+              false,
+              expanded,
             );
-        if (expanded === target) selectedStore = store;
+        if (options.command === "graph.show" && expanded === target) {
+          stores.set(expanded, store);
+          selectedStore = store;
+        }
         checks.push({ kind: "syntax", state: "passed", blockedBy: [] });
         const classification = classifyGraph(store, expanded);
         Object.assign(
@@ -438,7 +491,30 @@ async function inspectProjectData(
                 "Cannot parse RDF. Repair the source before graph-based operations.",
                 file,
               );
-        diagnostics.push(...problem.diagnostics.map((d) => ({ ...d, file, selector: expanded })));
+        const context =
+          error instanceof Error && "context" in error
+            ? (error.context as { line?: number; token?: { start?: number } })
+            : undefined;
+        diagnostics.push(
+          ...problem.diagnostics.map((d) => ({
+            ...d,
+            file,
+            selector: expanded,
+            ...(Number.isInteger(context?.line) && (context?.line ?? 0) > 0
+              ? { line: context?.line }
+              : {}),
+            ...(Number.isInteger(context?.token?.start) && (context?.token?.start ?? -1) >= 0
+              ? { column: (context?.token?.start ?? 0) + 1 }
+              : {}),
+            check: {
+              kind:
+                problem.diagnostic.code === "GRAPH_CLASSIFICATION" ? "classification" : "syntax",
+              state: "failed" as const,
+              blockedBy: [],
+            },
+            details: { ...d.details, identity: { kind: "file" } },
+          })),
+        );
         checks.push({
           kind: problem.diagnostic.code === "GRAPH_CLASSIFICATION" ? "classification" : "syntax",
           state: "failed",
@@ -557,29 +633,21 @@ async function inspectProjectData(
         ...ok({ items: resources.filter((r) => r.ownership === "project") }, diagnostics),
         status: diagnostics.some((d) => d.severity === "error") ? "invalid" : "ok",
       };
-    for (const row of validation.resources) {
-      row.checks.push({
-        kind: "shacl",
-        state: "skipped",
-        blockedBy: ["validation-not-implemented"],
-      });
-      diagnostics.push({
-        code: "CHECK_SKIPPED",
-        severity: "error",
-        message:
-          "Complete vocabulary, association and constraint validation is delivered by ticket 04; project validity is not established.",
-        file: resources.find((r) => r.selector === row.selector)?.file ?? null,
-        selector: row.selector,
-        check: { kind: "shacl", state: "skipped", blockedBy: ["validation-not-implemented"] },
-      });
-    }
-    if (!validation.resources.length)
-      diagnostics.push({
-        code: "CHECK_SKIPPED",
-        severity: "error",
-        message: "Full project validation is not yet implemented.",
-        file: null,
-      });
+    const { validateInspection } = await import("./validation.ts");
+    const checked = await validateInspection({
+      root,
+      snapshot,
+      manifest,
+      lock,
+      resources,
+      stores,
+      validation,
+      diagnostics,
+      target: options.command === "validate" ? target : undefined,
+      ...scope,
+    });
+    if (options.command === "validate") return checked as Result<InspectionData>;
+    diagnostics.splice(0, diagnostics.length, ...checked.diagnostics);
     const counts = {
       resources: resources.filter((r) => r.ownership === "project").length,
       dependencies: Object.keys(lock?.dependencies ?? {}).length,
@@ -600,7 +668,7 @@ async function inspectProjectData(
         },
         diagnostics,
       ),
-      status: "invalid",
+      status: checked.status,
     };
   } catch (error) {
     return failure(error);

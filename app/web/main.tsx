@@ -10,6 +10,15 @@ interface Diagnostic {
   severity: string;
   message: string;
   file: string | null;
+  shacl?: {
+    selector: string;
+    graphIri: string;
+    focusNode?: Term;
+    sourceShape?: Term;
+    path?: Term;
+    value?: Term;
+  };
+  check?: { kind: string; state: string; blockedBy: string[] };
 }
 interface Envelope {
   schemaVersion: number;
@@ -45,6 +54,31 @@ interface Triple {
   subject: Term;
   predicate: Term;
   object: Term;
+}
+interface Preview {
+  changes: { file: string; action: string }[];
+  arguments: {
+    removedVocabulary?: Term[];
+    removedVocabularyRoles?: { term: Term; roles: string[] }[];
+    affectedReferences?: Triple[];
+    deactivatedChecks?: { target: string; kind: string; shapesSelector: string }[];
+  };
+  impact: {
+    affectedFiles: string[];
+    acceptance: string[];
+    baselineErrors: Diagnostic[];
+    introducedErrors: Diagnostic[];
+    worsenedErrors: Diagnostic[];
+    skippedChecks: Diagnostic[];
+  };
+}
+interface Validation {
+  validity: string;
+  validationComplete: boolean;
+  resources: {
+    selector: string;
+    checks: { kind: string; state: string; shapesSelector?: string; blockedBy: string[] }[];
+  }[];
 }
 
 async function request(
@@ -115,6 +149,15 @@ function Diagnostics({ items }: { items: Diagnostic[] }) {
           </strong>
           {d.file && <code>{d.file}</code>}
           <span>{d.message}</span>
+          {d.shacl && (
+            <code>
+              Shapes: {d.shacl.selector} · {d.shacl.graphIri}
+            </code>
+          )}
+          {d.shacl?.focusNode && <code>Focus: {termText(d.shacl.focusNode)}</code>}
+          {d.check?.blockedBy.length ? (
+            <span>Blocked by: {d.check.blockedBy.join(", ")}</span>
+          ) : null}
         </li>
       ))}
     </ul>
@@ -135,6 +178,9 @@ function App() {
   const [receivingType, setReceivingType] = useState("data");
   const [profile, setProfile] = useState("conceptual");
   const [authored, setAuthored] = useState<Envelope | null>(null);
+  const [validation, setValidation] = useState<Envelope | null>(null);
+  const [validationTarget, setValidationTarget] = useState<string | undefined>();
+  const [supportList, setSupportList] = useState<Envelope | null>(null);
   const [pendingPreview, setPendingPreview] = useState<{
     schemaVersion: 1;
     handle: string;
@@ -151,6 +197,8 @@ function App() {
       setResources((inventory.data?.items as Resource[]) ?? []);
       const currentStatus = await request("status", token);
       setStatus(currentStatus);
+      setValidation(null);
+      setValidationTarget(undefined);
       setGraph(null);
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : "Workspace is unavailable.");
@@ -178,6 +226,7 @@ function App() {
       const endpoint =
         resourceKind === "model" || resourceKind?.endsWith("-model") ? "model" : "graph";
       setGraph(await request(`${endpoint}?selector=${encodeURIComponent(selector)}`, session));
+      setSupportList(null);
       setTab("resources");
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : "Graph is unavailable.");
@@ -185,16 +234,16 @@ function App() {
       setBusy(false);
     }
   }
-  async function author(body: Record<string, unknown>, apply = false) {
+  async function author(
+    body: Record<string, unknown>,
+    apply = false,
+    route = operation.replaceAll(".", "/"),
+  ) {
     setBusy(true);
     setError("");
     if (!apply) setPendingPreview(null);
     try {
-      const result = await request(
-        apply ? "resource/apply" : operation.replace(".", "/"),
-        session,
-        body,
-      );
+      const result = await request(apply ? "resource/apply" : route, session, body);
       setAuthored(result);
       if (
         apply &&
@@ -207,7 +256,9 @@ function App() {
           schemaVersion: 1,
           handle: String(result.data.handle),
           fingerprint: (result.data.preview as { fingerprint: string }).fingerprint,
-          accept: [],
+          accept:
+            (result.data.preview as { impact?: { acceptance?: string[] } }).impact?.acceptance ??
+            [],
         });
       else if (result.status === "ok") {
         await refresh(session);
@@ -218,6 +269,40 @@ function App() {
       setError(
         `${problem instanceof Error ? problem.message : "Resource operation failed."} Inspect the project before trying another write.`,
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function validate(selector?: string) {
+    setBusy(true);
+    setError("");
+    try {
+      setValidation(
+        await request(
+          `validate${selector ? `?selector=${encodeURIComponent(selector)}` : ""}`,
+          session,
+        ),
+      );
+      setValidationTarget(selector);
+      setTab("diagnostics");
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Validation failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function listSupport(endpoint: string, selector?: string) {
+    setBusy(true);
+    setError("");
+    try {
+      setSupportList(
+        await request(
+          `${endpoint}${selector ? `?selector=${encodeURIComponent(selector)}` : ""}`,
+          session,
+        ),
+      );
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Support listing failed.");
     } finally {
       setBusy(false);
     }
@@ -270,6 +355,7 @@ function App() {
         : resource.kind === "model" || resource.kind.endsWith("-model")),
   );
   const triples = (graph?.data?.triples as Triple[]) ?? [];
+  const coverage = (validation?.data ?? status?.data?.validation) as Validation | undefined;
   return (
     <div className="workspace">
       <header>
@@ -299,16 +385,13 @@ function App() {
           {busy
             ? "Reading project…"
             : project
-              ? `${counts?.resources ?? 0} owned graphs · ${counts?.dependencies ?? 0} locked dependencies`
+              ? `${project.validity} · ${counts?.resources ?? 0} owned graphs · ${counts?.dependencies ?? 0} locked dependencies`
               : "Authentication required"}
         </div>
         {project && !project.validationComplete && (
           <div className="notice">
             <strong>Validation incomplete</strong>
-            <p>
-              Syntax and classification are inspected. Full vocabulary, association and SHACL
-              validation is pending; a clean project has not been established.
-            </p>
+            <p>Some required checks could not run. Review the diagnostics and blocking files.</p>
           </div>
         )}
         {session && (
@@ -378,6 +461,28 @@ function App() {
                   <p>
                     Inspect any owned path or retained dependency file using its exact selector.
                   </p>
+                  <button type="button" disabled={busy} onClick={() => void listSupport("shapes")}>
+                    List all shapes
+                  </button>
+                  {supportList && (
+                    <section aria-label="Support resources">
+                      <h3>Support resources</h3>
+                      <ul>
+                        {((supportList.data?.items as Resource[]) ?? []).map((r) => (
+                          <li key={r.selector}>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void show(r.selector)}
+                            >
+                              {r.selector}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                      <Diagnostics items={supportList.diagnostics} />
+                    </section>
+                  )}
                   <h2>Model-type resources</h2>
                   <p>Locked resources are read-only snapshots.</p>
                   {modelTypes.map((type) => (
@@ -531,7 +636,9 @@ function App() {
                           disabled={busy}
                           onClick={() => void author(pendingPreview, true)}
                         >
-                          Apply reviewed resource
+                          {pendingPreview.accept.includes("confirm")
+                            ? "Confirm schema removal"
+                            : "Apply reviewed resource"}
                         </button>
                       )}
                       {pendingPreview && (
@@ -540,9 +647,96 @@ function App() {
                         </button>
                       )}
                       <p>
-                        Full constraint validation is pending. Missing vocabulary is reported
-                        without changing term IRIs.
+                        Review the impact and diagnostics before applying. Term IRIs are preserved.
                       </p>
+                      {authored.data?.preview
+                        ? (() => {
+                            const preview = authored.data.preview as Preview;
+                            return (
+                              <section aria-label="Preview impact">
+                                <h4>Files to change</h4>
+                                <ul>
+                                  {preview.changes.map((change) => (
+                                    <li key={change.file}>
+                                      {change.action}: {change.file}
+                                    </li>
+                                  ))}
+                                </ul>
+                                {preview.arguments.removedVocabulary && (
+                                  <>
+                                    <h4>Lost vocabulary roles</h4>
+                                    <ul>
+                                      {preview.arguments.removedVocabulary.map((term) => {
+                                        const roles =
+                                          preview.arguments.removedVocabularyRoles?.find(
+                                            (entry) => entry.term.value === term.value,
+                                          )?.roles;
+                                        return (
+                                          <li key={termText(term)}>
+                                            <code>{termText(term)}</code>
+                                            {roles?.length ? ` (${roles.join(", ")})` : ""}
+                                          </li>
+                                        );
+                                      })}
+                                    </ul>
+                                    {!preview.arguments.removedVocabulary.length && <p>None</p>}
+                                  </>
+                                )}
+                                {preview.arguments.affectedReferences && (
+                                  <>
+                                    <h4>Affected references</h4>
+                                    <pre>
+                                      {preview.arguments.affectedReferences
+                                        .map(
+                                          (q) =>
+                                            `${termText(q.subject)} ${termText(q.predicate)} ${termText(q.object)}`,
+                                        )
+                                        .join("\n") || "None"}
+                                    </pre>
+                                  </>
+                                )}
+                                {preview.arguments.deactivatedChecks && (
+                                  <>
+                                    <h4>Affected resources</h4>
+                                    <ul>
+                                      {preview.impact.affectedFiles.map((file) => (
+                                        <li key={file}>{file}</li>
+                                      ))}
+                                    </ul>
+                                    <h4>Deactivated checks</h4>
+                                    {preview.arguments.deactivatedChecks.length ? (
+                                      <ul>
+                                        {preview.arguments.deactivatedChecks.map((check) => (
+                                          <li
+                                            key={`${check.target}:${check.kind}:${check.shapesSelector}`}
+                                          >
+                                            {check.target}: {check.kind} from {check.shapesSelector}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p>None</p>
+                                    )}
+                                  </>
+                                )}
+                                <h4>Existing errors</h4>
+                                <Diagnostics items={preview.impact.baselineErrors} />
+                                <h4>Introduced or worsened errors</h4>
+                                <Diagnostics
+                                  items={[
+                                    ...preview.impact.introducedErrors,
+                                    ...preview.impact.worsenedErrors,
+                                  ]}
+                                />
+                                <h4>Skipped or unassessable checks</h4>
+                                <Diagnostics items={preview.impact.skippedChecks} />
+                                {preview.impact.acceptance.includes("confirm") && (
+                                  <p>Confirm removal even if the resulting model is invalid.</p>
+                                )}
+                              </section>
+                            );
+                          })()
+                        : null}
                     </section>
                   )}
                 </section>
@@ -555,6 +749,79 @@ function App() {
                           : "PROJECT OWNED"}
                       </p>
                       <h2>{selected.selector}</h2>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void validate(selected.selector)}
+                      >
+                        Validate selected resource
+                      </button>
+                      {selected.ownership === "project" &&
+                        (selected.kind === "ontology" || selected.kind.endsWith("model")) && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void listSupport("shapes", selected.selector)}
+                          >
+                            List associated shapes
+                          </button>
+                        )}
+                      {selected.ownership === "project" &&
+                        selected.kind === "concrete-data-model" && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void listSupport("model-schemas", selected.selector)}
+                          >
+                            List conceptual schemas
+                          </button>
+                        )}
+                      {selected.ownership === "project" &&
+                        (selected.kind === "ontology" || selected.kind.endsWith("model")) && (
+                          <button
+                            type="button"
+                            disabled={busy || !!pendingPreview}
+                            onClick={() =>
+                              void author({ path: selected.selector }, false, "shapes/create")
+                            }
+                          >
+                            Preview associated shapes
+                          </button>
+                        )}
+                      {selected.ownership === "project" &&
+                        selected.kind === "concrete-data-model" && (
+                          <form
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              const values = new FormData(event.currentTarget);
+                              void author(
+                                { path: selected.selector, source: String(values.get("schema")) },
+                                false,
+                                `model/schema/${values.get("action")}`,
+                              );
+                            }}
+                          >
+                            <label htmlFor="schema-selector">Conceptual schema selector</label>
+                            <input
+                              id="schema-selector"
+                              name="schema"
+                              required
+                              disabled={busy || !!pendingPreview}
+                            />
+                            <label htmlFor="schema-action">Association operation</label>
+                            <select
+                              id="schema-action"
+                              name="action"
+                              disabled={busy || !!pendingPreview}
+                            >
+                              <option value="add">Add schema</option>
+                              <option value="remove">Remove schema</option>
+                            </select>
+                            <button type="submit" disabled={busy || !!pendingPreview}>
+                              Preview schema association
+                            </button>
+                          </form>
+                        )}
                       <dl>
                         <dt>Graph IRI</dt>
                         <dd>
@@ -686,9 +953,51 @@ function App() {
             )}
             {tab === "diagnostics" && (
               <section>
-                <h2>Project diagnostics</h2>
+                <h2>
+                  {validationTarget ? `Validation: ${validationTarget}` : "Project diagnostics"}
+                </h2>
+                <button type="button" disabled={busy} onClick={() => void validate()}>
+                  Validate whole project
+                </button>
                 <p>Skipped checks are explicit and prevent a complete clean validation claim.</p>
-                <Diagnostics items={status?.diagnostics ?? []} />
+                <Diagnostics items={(validation ?? status)?.diagnostics ?? []} />
+                {coverage && (
+                  <>
+                    <p>
+                      {coverage.validity} ·{" "}
+                      {coverage.validationComplete
+                        ? "All required checks completed"
+                        : "Required checks were skipped"}
+                    </p>
+                    <div className="table-scroll">
+                      <table>
+                        <caption>Validation coverage</caption>
+                        <thead>
+                          <tr>
+                            <th scope="col">Resource</th>
+                            <th scope="col">Check</th>
+                            <th scope="col">Source shapes</th>
+                            <th scope="col">Result</th>
+                            <th scope="col">Blocked by</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {coverage.resources.flatMap((r) =>
+                            r.checks.map((c) => (
+                              <tr key={`${r.selector}-${c.kind}-${c.shapesSelector ?? ""}`}>
+                                <td>{r.selector}</td>
+                                <td>{c.kind}</td>
+                                <td>{c.shapesSelector ?? "—"}</td>
+                                <td>{c.state}</td>
+                                <td>{c.blockedBy.join(", ") || "—"}</td>
+                              </tr>
+                            )),
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
               </section>
             )}
           </>
