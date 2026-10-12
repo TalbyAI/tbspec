@@ -7,7 +7,7 @@ import type { AuthoringOptions } from "./authoring.ts";
 import { canonical } from "./canonical.ts";
 import type { ModelTypeConfigurationOptions } from "./configuration.ts";
 import type { DependencyWorkerRequest } from "./dependency-worker.ts";
-import type { EditingOptions } from "./editing.ts";
+import type { EditingOptions, ElementDeletionOptions } from "./editing.ts";
 import type { InspectionCommand } from "./inspection.ts";
 import type { AuthoringRequest, InspectionResponse } from "./inspection-worker.ts";
 import { withLock } from "./lock.ts";
@@ -1335,6 +1335,29 @@ export async function startWebServer(
                 mode: "preview",
                 session: credential ?? "",
                 editing: body as unknown as EditingOptions,
+              }),
+            );
+            return;
+          }
+          if (url.pathname === "/api/project/v1/editor/delete") {
+            const body = await jsonBody(request);
+            if (
+              Object.keys(body).some((key) => !["selector", "revision", "element"].includes(key)) ||
+              typeof body.selector !== "string" ||
+              body.revision === undefined ||
+              body.element === undefined
+            )
+              throw new ProjectError(
+                "invalid_arguments",
+                "ARGUMENT_INVALID",
+                "Element deletion requires a selector, source revision and exact RDF resource term.",
+              );
+            respond(
+              response,
+              await inspect("status", undefined, {
+                mode: "preview",
+                session: credential ?? "",
+                deletion: body as unknown as ElementDeletionOptions,
               }),
             );
             return;
