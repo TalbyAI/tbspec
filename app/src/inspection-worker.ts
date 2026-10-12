@@ -19,6 +19,14 @@ import { token } from "./ownership.ts";
 import { safePath } from "./paths.ts";
 import { discardPreview, retainedPreview } from "./previews.ts";
 import { type QueryOperation, queryOperation } from "./query.ts";
+import {
+  inspectImpact,
+  type LifecycleOptions,
+  type LifecycleResourceKind,
+  type PreparedResourceLifecycle,
+  prepareResourceLifecycle,
+  publishResourceLifecycle,
+} from "./resource-lifecycle.ts";
 import { secureRuntimeDirectory } from "./runtime.ts";
 
 export interface InspectionResponse {
@@ -31,6 +39,8 @@ export interface AuthoringRequest {
   options?: AuthoringOptions;
   configuration?: ModelTypeConfigurationOptions;
   editing?: EditingOptions;
+  lifecycle?: LifecycleOptions & { action: "remove" | "move" };
+  impact?: { kind: LifecycleResourceKind; selector: string };
   session: string;
   mode: "preview" | "apply" | "cancel";
   fingerprint?: string;
@@ -39,7 +49,7 @@ export interface AuthoringRequest {
   accept?: string[];
 }
 interface StoredPreview {
-  prepared: PreparedResource | PreparedModelTypeConfiguration;
+  prepared: PreparedResource | PreparedModelTypeConfiguration | PreparedResourceLifecycle;
   expires: number;
   session: string;
   instanceId: string;
@@ -73,9 +83,14 @@ async function handle(request: WorkerRequest) {
     if ("query" in request)
       result = await queryOperation({ project: request.project, operation: request.query });
     else if (!authoring) result = await inspectProject(request);
-    else if (
+    else if (authoring.impact) {
+      result = await inspectImpact({
+        project: request.project,
+        ...authoring.impact,
+      });
+    } else if (
       authoring.mode === "preview" &&
-      (authoring.options || authoring.editing || authoring.configuration)
+      (authoring.options || authoring.editing || authoring.configuration || authoring.lifecycle)
     ) {
       for (const [key, preview] of previews)
         if (preview.expires <= Date.now()) {
@@ -95,10 +110,15 @@ async function handle(request: WorkerRequest) {
               ...authoring.configuration,
               project: request.project,
             })
-          : await prepareResource({
-              ...(authoring.options as AuthoringOptions),
-              project: request.project,
-            });
+          : authoring.lifecycle
+            ? await prepareResourceLifecycle({
+                ...authoring.lifecycle,
+                project: request.project,
+              })
+            : await prepareResource({
+                ...(authoring.options as AuthoringOptions),
+                project: request.project,
+              });
       if (!authoring.instanceId) throw new Error("Missing server instance.");
       const handle = token();
       const expires = Date.now() + 900000;
@@ -154,19 +174,27 @@ async function handle(request: WorkerRequest) {
       result = {
         ...ok(
           {
-            ...("modelType" in prepared
+            ...("lifecycle" in prepared
               ? {
+                  resource: prepared.resource,
                   modelType: prepared.modelType,
                   affectedModels: prepared.affectedModels,
                   projectValidity: prepared.projectValidity,
                   validationComplete: prepared.validationComplete,
                 }
-              : {
-                  resource: prepared.resource,
-                  projectValidity: prepared.validation?.validity ?? "unchecked",
-                  validationComplete: prepared.validation?.validationComplete ?? false,
-                  ...(prepared.validation ? { validation: prepared.validation } : {}),
-                }),
+              : "modelType" in prepared
+                ? {
+                    modelType: prepared.modelType,
+                    affectedModels: prepared.affectedModels,
+                    projectValidity: prepared.projectValidity,
+                    validationComplete: prepared.validationComplete,
+                  }
+                : {
+                    resource: prepared.resource,
+                    projectValidity: prepared.validation?.validity ?? "unchecked",
+                    validationComplete: prepared.validation?.validationComplete ?? false,
+                    ...(prepared.validation ? { validation: prepared.validation } : {}),
+                  }),
             applied: false,
             preview: prepared.plan.preview,
             handle,
@@ -208,18 +236,26 @@ async function handle(request: WorkerRequest) {
             "Accept the required preview flags before application.",
           );
         const writes = await Promise.all(
-          preview.prepared.plan.writes.map(async (write, index) => ({
-            ...write,
-            bytes: await readFile(
-              await safePath(preview.prepared.root, `${preview.workspace}/staged-${index}`),
-            ),
-          })),
+          preview.prepared.plan.writes.map(async (write, index) => {
+            const change = preview.prepared.plan.preview.changes[index];
+            return {
+              ...write,
+              bytes:
+                change?.action === "delete"
+                  ? null
+                  : await readFile(
+                      await safePath(preview.prepared.root, `${preview.workspace}/staged-${index}`),
+                    ),
+            };
+          }),
         );
         const publication = { ...preview.prepared, plan: { ...preview.prepared.plan, writes } };
         result =
-          "modelType" in publication
-            ? await publishModelTypeConfiguration(publication)
-            : await publishResource(publication);
+          "lifecycle" in publication
+            ? await publishResourceLifecycle(publication)
+            : "modelType" in publication
+              ? await publishModelTypeConfiguration(publication)
+              : await publishResource(publication);
         if (result.status === "ok") {
           await discard(key);
         } else if (
