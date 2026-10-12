@@ -17,6 +17,7 @@ import {
 } from "../src/resource-lifecycle.ts";
 import { interpretationSignature, parseLock, writeToml } from "../src/schemas.ts";
 import { capture, publishPlan } from "../src/transactions.ts";
+import { showView, viewOperation } from "../src/views.ts";
 
 const owl = "http://www.w3.org/2002/07/owl#";
 
@@ -180,6 +181,103 @@ test("moving a declared graph also moves convention-linked shapes and rewrites s
   assert.ok(
     (applied.data.changes as { action: string }[]).some((change) => change.action === "move"),
   );
+});
+
+test("moving and removing an owned view source updates selectors and discloses dependent files", async () => {
+  const root = await project();
+  await authorResource({
+    project: root,
+    command: "ontology.create",
+    path: "vocabulary.ttl",
+    iri: "urn:owned:vocabulary",
+  });
+  const created = await viewOperation({
+    project: root,
+    action: "create",
+    path: "views/vocabulary.ttl",
+    source: "vocabulary.ttl",
+  });
+  assert.equal(created.status, "ok", JSON.stringify(created));
+  const manifestPath = join(root, "tbspec.toml");
+  const originalManifest = await readFile(manifestPath, "utf8");
+  assert.match(originalManifest, /source = "vocabulary\.ttl"/);
+  await writeFile(
+    manifestPath,
+    originalManifest.replace(
+      'source = "vocabulary.ttl"',
+      'source = "vocabulary.ttl" # preserve this note',
+    ),
+  );
+  const viewPath = join(root, "views", "vocabulary.ttl");
+  const presentationPath = join(root, "views", "vocabulary.presentation.ttl");
+  const viewBytes = await readFile(viewPath);
+  const presentationBytes = await readFile(presentationPath);
+  assert.match(viewBytes.toString("utf8"), /#sourceGraph> <urn:owned:vocabulary>/);
+
+  const movePreview = await moveResource({
+    project: root,
+    selector: "vocabulary.ttl",
+    destination: "vocabularies/core.ttl",
+  });
+  assert.equal(movePreview.status, "preview", JSON.stringify(movePreview));
+  assert.ok(movePreview.data);
+  const moveArguments = (
+    movePreview.data.preview as {
+      arguments: { identityChanges?: { selector: string; before: string; after: string }[] };
+    }
+  ).arguments;
+  assert.deepEqual(moveArguments.identityChanges ?? [], []);
+  const moved = await moveResource({
+    project: root,
+    selector: "vocabulary.ttl",
+    destination: "vocabularies/core.ttl",
+    apply: true,
+    acceptedPreview: (movePreview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(moved.status, "ok", JSON.stringify(moved));
+  const movedManifest = await readFile(manifestPath, "utf8");
+  assert.match(movedManifest, /source = "vocabularies\/core\.ttl" # preserve this note/);
+  assert.deepEqual(await readFile(viewPath), viewBytes);
+  assert.deepEqual(await readFile(presentationPath), presentationBytes);
+  const shown = await showView({ project: root, selector: "views/vocabulary.ttl" });
+  assert.equal(shown.status, "ok", JSON.stringify(shown));
+  assert.equal(shown.data?.source, "vocabularies/core.ttl");
+
+  const impact = await inspectImpact({
+    project: root,
+    kind: "ontology",
+    selector: "vocabularies/core.ttl",
+  });
+  assert.equal(impact.status, "ok", JSON.stringify(impact));
+  assert.ok(impact.data?.affectedFiles.includes("views/vocabulary.ttl"));
+  assert.ok(impact.data?.affectedFiles.includes("views/vocabulary.presentation.ttl"));
+  const removal = await removeResource({
+    project: root,
+    kind: "ontology",
+    selector: "vocabularies/core.ttl",
+  });
+  assert.equal(removal.status, "preview", JSON.stringify(removal));
+  assert.ok(removal.data);
+  const removalPreview = removal.data?.preview as
+    | { impact: { affectedFiles: string[] } }
+    | undefined;
+  assert.ok(removalPreview?.impact.affectedFiles.includes("views/vocabulary.ttl"));
+  assert.ok(removalPreview?.impact.affectedFiles.includes("views/vocabulary.presentation.ttl"));
+  const removalFingerprint = (removal.data.preview as { fingerprint: string }).fingerprint;
+  const confirmedRemoval = await removeResource({
+    project: root,
+    kind: "ontology",
+    selector: "vocabularies/core.ttl",
+    confirm: true,
+    acceptedPreview: removalFingerprint,
+  });
+  assert.equal(confirmedRemoval.status, "ok", JSON.stringify(confirmedRemoval));
+  assert.deepEqual(await readFile(viewPath), viewBytes);
+  assert.deepEqual(await readFile(presentationPath), presentationBytes);
+  await assert.rejects(readFile(join(root, "vocabularies", "core.ttl")), { code: "ENOENT" });
+  const brokenView = await showView({ project: root, selector: "views/vocabulary.ttl" });
+  assert.notEqual(brokenView.status, "ok", JSON.stringify(brokenView));
+  assert.equal(brokenView.diagnostics[0]?.code, "RESOURCE_MISSING");
 });
 
 test("moving an unrooted graph discloses its generated identity change", async () => {

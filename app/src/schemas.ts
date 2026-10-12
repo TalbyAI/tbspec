@@ -171,6 +171,7 @@ export function parseManifest(text: string): Row {
     if (row.views !== undefined)
       for (const value of array(row.views)) {
         const view = object(value);
+        fields(view, ["view", "presentation", "source"], ["protocol"]);
         path(view.view);
         path(view.presentation);
         selector(view.source);
@@ -972,12 +973,13 @@ export function editManifestSelectors(text: string, replacements: Record<string,
   const expected = structuredClone(before) as Row;
   const fieldsByTable: Record<string, string[]> = {
     associations: ["resource", "support"],
+    views: ["view", "presentation", "source", "protocol"],
   };
   for (const value of Object.values((expected.model_types ?? {}) as Record<string, Row>))
     for (const field of ["ontology", "design"])
       if (typeof value[field] === "string" && replacements[value[field] as string])
         value[field] = replacements[value[field] as string];
-  for (const table of ["associations"])
+  for (const table of ["associations", "views"])
     for (const row of (expected[table] ?? []) as Row[])
       for (const field of fieldsByTable[table] ?? [])
         if (typeof row[field] === "string" && replacements[row[field] as string])
@@ -1042,6 +1044,94 @@ export function editManifestSelectors(text: string, replacements: Record<string,
       "tbspec.toml",
     );
   return result;
+}
+
+export function editManifestView(text: string, view: Row, remove = false): string {
+  const before = parseManifest(text);
+  const existing = (before.views ?? []) as Row[];
+  const path = view.view;
+  if (typeof path !== "string")
+    throw new ProjectError("invalid_arguments", "ARGUMENT_INVALID", "Select a view path.");
+  let changed: string;
+  if (remove) {
+    const lines = (text.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? []).filter(Boolean);
+    const content = (line: string) => line.replace(/(?:\r\n|\n|\r)$/, "");
+    const sections: { start: number; end: number; view: string }[] = [];
+    for (let start = 0; start < lines.length; start++) {
+      if (!/^\s*\[\[\s*views\s*\]\]\s*(?:#.*)?$/.test(content(lines[start] ?? ""))) continue;
+      let end = start + 1;
+      while (end < lines.length && !/^\s*\[/.test(content(lines[end] ?? ""))) end++;
+      let parsed: Row;
+      try {
+        parsed = object(parse(lines.slice(start, end).join("")));
+      } catch {
+        throw new ProjectError(
+          "invalid",
+          "MANIFEST_INVALID",
+          "Cannot safely locate the selected view association.",
+          "tbspec.toml",
+        );
+      }
+      const row = ((parsed.views ?? []) as Row[])[0];
+      if (typeof row?.view === "string") sections.push({ start, end, view: row.view });
+      start = end - 1;
+    }
+    const matches = sections.filter((section) => section.view === path);
+    if (matches.length !== 1)
+      throw new ProjectError(
+        "invalid",
+        "MANIFEST_INVALID",
+        "Cannot identify exactly one selected view association.",
+        "tbspec.toml",
+      );
+    const match = matches[0];
+    if (!match) throw new Error("Missing selected view association.");
+    changed = [...lines.slice(0, match.start), ...lines.slice(match.end)].join("");
+    const after = parseManifest(changed);
+    const expectedViews = existing.filter((entry) => entry.view !== path);
+    const expected = { ...before };
+    if (expectedViews.length) expected.views = expectedViews;
+    else delete expected.views;
+    if (canonical(after) !== canonical(expected))
+      throw new ProjectError(
+        "invalid",
+        "MANIFEST_INVALID",
+        "Removing the selected view changed unrelated configuration.",
+        "tbspec.toml",
+      );
+    return changed;
+  }
+
+  if (existing.some((entry) => entry.view === path || entry.presentation === view.presentation))
+    throw new ProjectError(
+      "conflict",
+      "REVISION_CONFLICT",
+      "View or presentation path is already associated.",
+      path,
+    );
+  const row = {
+    view: path,
+    presentation: view.presentation,
+    source: view.source,
+    ...(view.protocol === undefined ? {} : { protocol: view.protocol }),
+  };
+  const expected = { ...before, views: [...existing, row] };
+  const newline = text.includes("\r\n") ? "\r\n" : text.includes("\r") ? "\r" : "\n";
+  const separator = text.length && !/(?:\r\n|\r|\n)$/.test(text) ? newline : "";
+  changed =
+    `${text}${separator}[[views]]${newline}` +
+    `view = ${JSON.stringify(row.view)}${newline}` +
+    `presentation = ${JSON.stringify(row.presentation)}${newline}` +
+    `source = ${JSON.stringify(row.source)}${newline}` +
+    (row.protocol === undefined ? "" : `protocol = ${JSON.stringify(row.protocol)}${newline}`);
+  if (canonical(parseManifest(changed)) !== canonical(expected))
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Adding the view changed unrelated configuration.",
+      "tbspec.toml",
+    );
+  return changed;
 }
 
 function tomlModelTypeValue(field: string, value: unknown): string {

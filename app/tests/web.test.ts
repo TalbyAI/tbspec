@@ -401,7 +401,7 @@ test("authenticated HTTP stages, applies, lists and shows an acquired directory 
   );
   assert.equal(
     await readFile(join(root, ".tbspec/dependencies/web-source/source/ontology.ttl"), "utf8"),
-    original,
+    updated,
   );
   const invalid = await request("dependencies/inspect", { source, unknown: true });
   assert.equal(invalid.envelope.status, "invalid_arguments");

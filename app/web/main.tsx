@@ -4,6 +4,7 @@ import type { Result } from "../src/output.ts";
 import { DependenciesPanel } from "./dependencies-ui.tsx";
 import type { EditorDraft } from "./drafts.ts";
 import { GraphEditor } from "./editor.tsx";
+import { ViewsPanel } from "./views-ui.tsx";
 import "./style.css";
 
 declare global {
@@ -670,23 +671,28 @@ function App() {
         {session && (
           <>
             <nav aria-label="Workspace sections">
-              {["resources", "queries", "dependencies", "configuration", "diagnostics"].map(
-                (name) => (
-                  <button
-                    type="button"
-                    key={name}
-                    aria-current={tab === name ? "page" : undefined}
-                    disabled={busy}
-                    onClick={() => {
-                      setTab(name);
-                      if (name === "queries") void refreshQueries();
-                    }}
-                  >
-                    {name[0]?.toUpperCase()}
-                    {name.slice(1)}
-                  </button>
-                ),
-              )}
+              {[
+                "resources",
+                "views",
+                "queries",
+                "dependencies",
+                "configuration",
+                "diagnostics",
+              ].map((name) => (
+                <button
+                  type="button"
+                  key={name}
+                  aria-current={tab === name ? "page" : undefined}
+                  disabled={busy}
+                  onClick={() => {
+                    setTab(name);
+                    if (name === "queries") void refreshQueries();
+                  }}
+                >
+                  {name[0]?.toUpperCase()}
+                  {name.slice(1)}
+                </button>
+              ))}
             </nav>
             {tab === "resources" && (
               <div className="resource-layout">
@@ -1429,6 +1435,9 @@ function App() {
             )}
             {tab === "dependencies" && (
               <DependenciesPanel session={session} onApplied={() => void refresh(session, true)} />
+            )}
+            {tab === "views" && (
+              <ViewsPanel session={session} onApplied={() => void refresh(session, true)} />
             )}
             {tab === "configuration" && (
               <section>
