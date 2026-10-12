@@ -239,6 +239,18 @@ export function preparePlan(
   };
   return { preview: { fingerprint: previewFingerprint(body), ...body }, writes };
 }
+export function withPlanImpact(
+  plan: Plan,
+  update: { arguments?: Record<string, unknown>; impact?: Partial<Preview["impact"]> },
+): Plan {
+  const preview = {
+    ...plan.preview,
+    arguments: { ...plan.preview.arguments, ...update.arguments },
+    impact: { ...plan.preview.impact, ...update.impact },
+  };
+  const { fingerprint: _fingerprint, ...body } = preview;
+  return { ...plan, preview: { ...preview, fingerprint: previewFingerprint(body) } };
+}
 async function matches(root: string, path: string, expected: Revision, fs: FileSystem) {
   if (!equalRevision(revision(await fileBytes(root, path, fs)), expected))
     throw new ProjectError(

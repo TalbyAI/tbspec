@@ -2,7 +2,7 @@
 
 Type: task
 Status: ready-for-agent
-State: open
+State: resolved
 Blocked by: 04, 05
 User stories covered: 6, 13, 14, 15, 16, 17, 18, 19, 115
 
@@ -45,3 +45,11 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
+
+## Answer
+
+Implemented project-scoped model-type configuration through the shared operation, CLI, and browser configuration flow. Set/list/show, enable/disable, locked-default reset, and independent design set/clear use exact owned or locked graph selectors. Surgical TOML edits retain unrelated values, comments, and line endings; setting a semantically identical locked selector is a no-op that preserves the existing row and design.
+
+Replacing a used ontology stages a revision-bound preview with affected models, before/after validity, and required `accept-impact`. Applying changes only configuration, disconnects the prior design, and reports resulting validity; existing RDF remains byte-identical and generic/source editing remains available with vocabulary diagnostics. Browser application uses staged server bytes and shared owner, instance, expiry, fingerprint, and revision checks. Reset reads the project's locked defaults.
+
+Evidence includes 72 passing focused configuration, diagnostic-impact, authenticated HTTP preview/apply/cancel/stale/reset, schema-impact, authoring, validation, retention, and RDF/process-editor tests, plus passing CLI query and model-type workflows. The browser configuration was exercised against a live preview instance. After merging integration commit `02faa26`, root `npm run format`/`npm run check`, app typecheck, and app build passed; the build reported the existing `@xyflow/react` `use client` bundler warning. No full `npm test` or cross-platform CI run was performed for this ticket.

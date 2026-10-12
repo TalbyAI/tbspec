@@ -700,3 +700,146 @@ export function editBaseIri(text: string, baseIri: string): string {
     );
   return changed;
 }
+
+export function editModelType(text: string, name: string, row?: Row): string {
+  id(name);
+  const before = parseManifest(text);
+  const modelTypes = (before.model_types ?? {}) as Record<string, Row>;
+  const existing = Object.hasOwn(modelTypes, name);
+  const lines = (text.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? []).filter(Boolean);
+  const content = (line: string) => line.replace(/(?:\r\n|\n|\r)$/, "");
+  const ending = (line: string) => line.slice(content(line).length);
+  const header = new RegExp(
+    `^[\\t ]*\\[\\s*model_types\\s*\\.\\s*(?:${name}|"${name}")\\s*\\][\\t ]*(?:#.*)?$`,
+  );
+  const start = lines.findIndex((line) => header.test(content(line)));
+  const end =
+    start < 0
+      ? -1
+      : lines.findIndex((line, index) => index > start && /^\s*\[/.test(content(line)));
+  const stop = end < 0 ? lines.length : end;
+  let changed = text;
+  if (existing && start < 0)
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Cannot locate the model-type table for a safe surgical edit.",
+      "tbspec.toml",
+    );
+  if (row === undefined) {
+    if (existing) {
+      const retained = lines.slice(0, start);
+      for (const line of lines.slice(start + 1, stop)) {
+        const body = content(line);
+        if (!/^\s*(?:ontology|enabled|design)\s*=/.test(body)) retained.push(line);
+        else {
+          const marker = trailingTomlComment(body);
+          if (marker >= 0)
+            retained.push(
+              `${body.slice(0, body.search(/\S|$/))}${body.slice(marker)}${ending(line)}`,
+            );
+        }
+      }
+      retained.push(...lines.slice(stop));
+      changed = retained.join("");
+    }
+  } else {
+    const startLine = start < 0 ? -1 : start;
+    const endLine = start < 0 ? -1 : stop;
+    const bodyLines = start < 0 ? [] : lines.slice(startLine + 1, endLine);
+    const additions: string[] = [];
+    for (const field of ["ontology", "enabled", "design"]) {
+      const assignment = new RegExp(`^([\\t ]*${field}[\\t ]*=[\\t ]*)(.*)$`);
+      const lineIndex = bodyLines.findIndex((line) => assignment.test(content(line)));
+      const present = Object.hasOwn(row, field);
+      if (lineIndex < 0) {
+        if (present)
+          additions.push(
+            `${field} = ${tomlModelTypeValue(field, row[field])}${lines[startLine]?.endsWith("\r\n") ? "\r\n" : lines[startLine]?.endsWith("\r") ? "\r" : "\n"}`,
+          );
+        continue;
+      }
+      const line = bodyLines[lineIndex] ?? "";
+      const body = content(line);
+      if (!present) {
+        const marker = trailingTomlComment(body);
+        bodyLines.splice(
+          lineIndex,
+          1,
+          ...(marker >= 0
+            ? [`${body.slice(0, body.search(/\S|$/))}${body.slice(marker)}${ending(line)}`]
+            : []),
+        );
+        continue;
+      }
+      const match = assignment.exec(body);
+      if (!match) throw new Error(`Cannot locate ${field} in model type ${name}.`);
+      const marker = trailingTomlComment(body);
+      const suffix = marker >= 0 ? body.slice(marker) : (/[\\t ]*$/.exec(body)?.[0] ?? "");
+      bodyLines[lineIndex] =
+        `${match[1]}${tomlModelTypeValue(field, row[field])}${suffix}${ending(line)}`;
+    }
+    if (start < 0) {
+      const newline = text.includes("\r\n") ? "\r\n" : text.includes("\r") ? "\r" : "\n";
+      const separator = text.length === 0 || /(?:\r\n|\r|\n)$/.test(text) ? "" : newline;
+      changed = `${text}${separator}${text.length ? newline : ""}[model_types.${name}]${newline}${additions.join("")}`;
+    } else {
+      const lineEnding = ending(lines[start] ?? "") || "\n";
+      if (bodyLines.length && ending(bodyLines.at(-1) ?? "") === "")
+        bodyLines[bodyLines.length - 1] = `${bodyLines.at(-1)}${lineEnding}`;
+      const normalizedAdditions = additions.map((line) =>
+        line.endsWith("\r\n") || line.endsWith("\r") || line.endsWith("\n")
+          ? line
+          : `${line}${lineEnding}`,
+      );
+      changed = [
+        ...lines.slice(0, start + 1),
+        ...bodyLines,
+        ...normalizedAdditions,
+        ...lines.slice(stop),
+      ].join("");
+    }
+  }
+  const after = parseManifest(changed);
+  const expectedTypes = { ...modelTypes };
+  if (row === undefined) delete expectedTypes[name];
+  else expectedTypes[name] = row;
+  const expected = { ...before };
+  if (Object.keys(expectedTypes).length) expected.model_types = expectedTypes;
+  else delete expected.model_types;
+  if (canonical(after) !== canonical(expected))
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Model-type edit changed unrelated configuration; no write is permitted.",
+      "tbspec.toml",
+    );
+  return changed;
+}
+
+function tomlModelTypeValue(field: string, value: unknown): string {
+  if (field === "enabled") {
+    if (typeof value !== "boolean") throw new Error("Invalid model type enablement.");
+    return String(value);
+  }
+  if (typeof value !== "string") throw new Error(`Invalid model type ${field}.`);
+  return JSON.stringify(value);
+}
+
+function trailingTomlComment(line: string): number {
+  let quote: string | undefined;
+  let escaped = false;
+  for (let index = 0; index < line.length; index++) {
+    const character = line[index];
+    if (escaped) escaped = false;
+    else if (quote === '"' && character === "\\") escaped = true;
+    else if (quote && character === quote) quote = undefined;
+    else if (!quote && (character === '"' || character === "'")) quote = character;
+    else if (!quote && character === "#") {
+      let start = index;
+      while (start > 0 && /[\\t ]/.test(line[start - 1] ?? "")) start--;
+      return start;
+    }
+  }
+  return -1;
+}

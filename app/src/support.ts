@@ -4,6 +4,7 @@ import type { Quad } from "@rdfjs/types";
 import { DataFactory, Store, Writer } from "n3";
 import type { AuthoringOptions, PreparedResource } from "./authoring.ts";
 import { canonical, digest, utf8Compare } from "./canonical.ts";
+import { compareDiagnosticImpact, isDiagnosticIdentityUnassessable } from "./diagnostic-impact.ts";
 import { equalRevision, fileBytes, revision, verifyReads } from "./filesystem.ts";
 import {
   captureInspection,
@@ -13,7 +14,7 @@ import {
   type Resource,
   rdfTerm,
 } from "./inspection.ts";
-import { type Diagnostic, failure, ok, ProjectError, type Result } from "./output.ts";
+import { failure, ok, ProjectError, type Result } from "./output.ts";
 import { portablePath, safePath } from "./paths.ts";
 import { discoverProject, projectDiscoveryScope } from "./project.ts";
 import { classifyGraph, parseGraph, parseRdf, rdfFormats } from "./rdf.ts";
@@ -453,58 +454,13 @@ export async function prepareSupport(options: AuthoringOptions): Promise<Prepare
       );
     plan.preview.impact.acceptance = ["confirm"];
     plan.preview.impact.affectedFiles = [...affected].sort(utf8Compare);
-    plan.preview.impact.baselineErrors =
-      baseline?.diagnostics.filter((d) => d.severity === "error") ?? [];
-    function anonymous(value: unknown): boolean {
-      if (!value || typeof value !== "object") return false;
-      const term = value as Row;
-      if (term.kind === "blank") return term.scope === path || !/^b\d+$/.test(String(term.value));
-      return Object.values(term).some(anonymous);
-    }
-    const unassessable = (d: Diagnostic) =>
-      (!d.selector && !d.file) ||
-      (!d.shacl && !d.details?.identity) ||
-      anonymous(d.shacl) ||
-      anonymous(d.details?.identity);
-    const identity = (d: Diagnostic) =>
-      canonical([
-        d.selector ?? d.file,
-        d.code,
-        d.check?.kind ?? null,
-        d.shacl
-          ? [
-              d.shacl.selector,
-              d.shacl.focusNode ?? null,
-              d.shacl.sourceShape ?? null,
-              d.shacl.constraintComponent ?? null,
-              d.shacl.path ?? null,
-              d.shacl.value ?? null,
-            ]
-          : (d.details?.identity ?? null),
-      ]);
-    const comparableBaseline = baseline?.diagnostics.filter((d) => !unassessable(d)) ?? [];
-    const remaining = [...comparableBaseline];
-    const baselineKeys = new Set(comparableBaseline.map(identity));
-    for (const diagnostic of validated.diagnostics.filter((d) => d.severity === "error")) {
-      if (unassessable(diagnostic)) continue;
-      const same = remaining.findIndex(
-        (d) => identity(d) === identity(diagnostic) && d.severity === "error",
-      );
-      if (same >= 0) {
-        remaining.splice(same, 1);
-        continue;
-      }
-      const previous = remaining.findIndex((d) => identity(d) === identity(diagnostic));
-      if (previous >= 0) {
-        remaining.splice(previous, 1);
-        plan.preview.impact.worsenedErrors.push(diagnostic);
-      } else if (baselineKeys.has(identity(diagnostic)))
-        plan.preview.impact.worsenedErrors.push(diagnostic);
-      else plan.preview.impact.introducedErrors.push(diagnostic);
-    }
-    plan.preview.impact.skippedChecks = validated.diagnostics.filter(
-      (d) => d.code === "CHECK_SKIPPED",
-    );
+    const comparison = compareDiagnosticImpact(baseline?.diagnostics ?? [], validated.diagnostics, [
+      path,
+    ]);
+    plan.preview.impact.baselineErrors = comparison.baselineErrors;
+    plan.preview.impact.introducedErrors = comparison.introducedErrors;
+    plan.preview.impact.worsenedErrors = comparison.worsenedErrors;
+    plan.preview.impact.skippedChecks = comparison.skippedChecks;
     const lost: Roles = new Map();
     if (beforeVocabulary && afterVocabulary)
       for (const [term, roles] of beforeVocabulary) {
@@ -556,7 +512,10 @@ export async function prepareSupport(options: AuthoringOptions): Promise<Prepare
       if (check.state === "skipped" && afterKeys.has(checkKey(check)))
         unassessableChecks.set(checkKey(check), check);
     for (const diagnostic of [...(baseline?.diagnostics ?? []), ...validated.diagnostics])
-      if (unassessable(diagnostic) && diagnostic.code !== "CHECK_SKIPPED") {
+      if (
+        isDiagnosticIdentityUnassessable(diagnostic, [path]) &&
+        diagnostic.code !== "CHECK_SKIPPED"
+      ) {
         const check = {
           target: diagnostic.selector ?? path,
           kind: diagnostic.check?.kind ?? "shacl",

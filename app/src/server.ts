@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import type { AuthoringOptions } from "./authoring.ts";
 import { canonical } from "./canonical.ts";
+import type { ModelTypeConfigurationOptions } from "./configuration.ts";
 import type { EditingOptions } from "./editing.ts";
 import type { InspectionCommand } from "./inspection.ts";
 import type { AuthoringRequest, InspectionResponse } from "./inspection-worker.ts";
@@ -704,6 +705,47 @@ export async function startWebServer(
           return;
         }
         if (request.method === "POST") {
+          if (url.pathname === "/api/project/v1/model-types/configure") {
+            const body = await jsonBody(request);
+            const commands = [
+              "config.model-type.set",
+              "config.model-type.disable",
+              "config.model-type.enable",
+              "config.model-type.reset",
+              "config.model-type.design.set",
+              "config.model-type.design.clear",
+            ];
+            const expectedFields =
+              body.command === "config.model-type.set"
+                ? ["command", "name", "ontology"]
+                : body.command === "config.model-type.design.set"
+                  ? ["command", "name", "design"]
+                  : ["command", "name"];
+            if (
+              Object.keys(body).some((key) => !expectedFields.includes(key)) ||
+              expectedFields.some((key) => body[key] === undefined) ||
+              typeof body.command !== "string" ||
+              !commands.includes(body.command) ||
+              typeof body.name !== "string" ||
+              ["ontology", "design"].some(
+                (key) => body[key] !== undefined && typeof body[key] !== "string",
+              )
+            )
+              throw new ProjectError(
+                "invalid_arguments",
+                "ARGUMENT_INVALID",
+                "Invalid model-type configuration fields.",
+              );
+            respond(
+              response,
+              await inspect("status", undefined, {
+                mode: "preview",
+                session: credential ?? "",
+                configuration: body as unknown as ModelTypeConfigurationOptions,
+              }),
+            );
+            return;
+          }
           if (url.pathname === "/api/project/v1/editor/save") {
             const body = await jsonBody(request, 67108864);
             if (
