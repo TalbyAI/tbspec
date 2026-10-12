@@ -1,8 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { parentPort } from "node:worker_threads";
 import {
+  dependencyCheck,
+  dependencyClear,
   dependencyInspect,
   dependencyList,
+  dependencySelect,
   dependencyShow,
   type PreparedDependency,
   prepareDependencyAdd,
@@ -18,6 +21,9 @@ export type DependencyWorkerOperation =
   | "inspect"
   | "list"
   | "show"
+  | "check"
+  | "select"
+  | "clear"
   | "preview"
   | "apply"
   | "cancel";
@@ -32,6 +38,7 @@ export interface DependencyWorkerRequest {
   ref?: string;
   resource?: string;
   id?: string;
+  ontologyIri?: string;
   kind?: "ontology" | "model" | "design";
   handle?: string;
   fingerprint?: string;
@@ -268,6 +275,48 @@ async function handle(request: DependencyWorkerRequest): Promise<Result> {
             "Dependency show requires an ID.",
           );
         return await dependencyShow({ project: request.project, id: request.id });
+      case "check": {
+        if (request.operationId && takeAbort(request.operationId))
+          throw new ProjectError(
+            "conflict",
+            "ACQUISITION_CANCELLED",
+            "Dependency check was cancelled.",
+          );
+        const controller = new AbortController();
+        if (request.operationId) controllers.set(request.operationId, controller);
+        try {
+          return await dependencyCheck({
+            project: request.project,
+            ...(request.id ? { id: request.id } : {}),
+            signal: controller.signal,
+          });
+        } finally {
+          if (request.operationId) controllers.delete(request.operationId);
+        }
+      }
+      case "select":
+        if (!request.id || !request.ontologyIri)
+          throw new ProjectError(
+            "invalid_arguments",
+            "ARGUMENT_INVALID",
+            "Dependency select requires an ontology IRI and ID.",
+          );
+        return await dependencySelect({
+          project: request.project,
+          id: request.id,
+          ontologyIri: request.ontologyIri,
+        });
+      case "clear":
+        if (!request.ontologyIri)
+          throw new ProjectError(
+            "invalid_arguments",
+            "ARGUMENT_INVALID",
+            "Dependency clear requires an ontology IRI.",
+          );
+        return await dependencyClear({
+          project: request.project,
+          ontologyIri: request.ontologyIri,
+        });
       case "preview":
         return await preview(request);
       case "apply":

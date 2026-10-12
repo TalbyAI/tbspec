@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rename, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { digest } from "../src/canonical.ts";
-import { dependencyAdd, dependencyInspect } from "../src/dependencies.ts";
+import { dependencyAdd, dependencyCheck, dependencyInspect } from "../src/dependencies.ts";
 import { initializeProject } from "../src/project.ts";
+import { parseLock, writeToml } from "../src/schemas.ts";
 
 const gitAvailable = spawnSync("git", ["--version"], { windowsHide: true }).status === 0;
 
@@ -57,6 +58,25 @@ test("Git provenance advances while unchanged source graphs keep stable parser s
   assert.match(firstSource.resolvedCommit, /^[0-9a-f]{40,64}$/);
   assert.ok(firstGraph?.graphSignature);
 
+  const preview = await dependencyAdd({
+    project,
+    source,
+    id: "shop-source",
+    kind: "ontology",
+    resource: "shop.ttl",
+  });
+  assert.equal(preview.status, "conflict", JSON.stringify(preview));
+  assert.ok(preview.data);
+  const added = await dependencyAdd({
+    project,
+    source,
+    id: "shop-source",
+    kind: "ontology",
+    resource: "shop.ttl",
+    acceptedPreview: (preview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(added.status, "ok", JSON.stringify(added));
+
   await writeFile(join(source, "unrelated.txt"), "This commit does not change the RDF graph.\n");
   git(source, ["add", "unrelated.txt"]);
   git(source, [
@@ -77,6 +97,84 @@ test("Git provenance advances while unchanged source graphs keep stable parser s
   );
   assert.notEqual(secondSource.resolvedCommit, firstSource.resolvedCommit);
   assert.equal(secondGraph?.graphSignature, firstGraph?.graphSignature);
+
+  const manifestPath = join(project, "tbspec.toml");
+  await writeFile(
+    manifestPath,
+    `${await readFile(manifestPath, "utf8")}\n[acquisition]\nmax_files = 17\n`,
+  );
+
+  const unrelatedCheck = await dependencyCheck({ project, id: "shop-source" });
+  assert.equal(unrelatedCheck.status, "ok", JSON.stringify(unrelatedCheck));
+  assert.ok(unrelatedCheck.data);
+  assert.equal(
+    (unrelatedCheck.data.items as { state: string }[])[0]?.state,
+    "unchanged",
+    JSON.stringify(unrelatedCheck),
+  );
+
+  const lockPath = join(project, "tbspec.lock");
+  const lock = parseLock(await readFile(lockPath, "utf8"));
+  const dependency = lock.dependencies["shop-source"];
+  assert.ok(dependency);
+  const oldSnapshot = join(project, dependency.snapshot_path);
+  dependency.snapshot_path = ".tbspec/dependencies/renamed-shop";
+  lock.dependencies["renamed-shop"] = dependency;
+  delete lock.dependencies["shop-source"];
+  const relocatedLock = writeToml(lock);
+  assert.doesNotThrow(() => parseLock(relocatedLock));
+  await rename(oldSnapshot, join(project, dependency.snapshot_path));
+  await writeFile(lockPath, relocatedLock);
+  const renamedCheck = await dependencyCheck({ project, id: "renamed-shop" });
+  assert.equal(renamedCheck.status, "ok", JSON.stringify(renamedCheck));
+  assert.ok(renamedCheck.data);
+  assert.equal(
+    (renamedCheck.data.items as { state: string }[])[0]?.state,
+    "unchanged",
+    JSON.stringify(renamedCheck),
+  );
+
+  await writeFile(
+    join(source, "shop.ttl"),
+    `# A byte-only formatting change.\n${await readFile(join(source, "shop.ttl"), "utf8")}`,
+  );
+  git(source, ["add", "shop.ttl"]);
+  git(source, [
+    "-c",
+    "user.name=tbspec",
+    "-c",
+    "user.email=tbspec@example.invalid",
+    "commit",
+    "-m",
+    "formatting",
+  ]);
+  const formattingCheck = await dependencyCheck({ project, id: "renamed-shop" });
+  assert.equal(formattingCheck.status, "invalid", JSON.stringify(formattingCheck));
+  assert.ok(formattingCheck.data);
+  assert.equal(
+    (formattingCheck.data.items as { state: string }[])[0]?.state,
+    "changed",
+    JSON.stringify(formattingCheck),
+  );
+  const movedSource = join(parent, "source-unavailable");
+  await rename(source, movedSource);
+  try {
+    const unavailableCheck = await dependencyCheck({ project, id: "renamed-shop" });
+    assert.equal(unavailableCheck.status, "unavailable", JSON.stringify(unavailableCheck));
+    assert.ok(unavailableCheck.data);
+    const unavailable = (
+      unavailableCheck.data.items as {
+        state: string;
+        comparison: string;
+      }[]
+    )[0];
+    assert.deepEqual(
+      { state: unavailable?.state, comparison: unavailable?.comparison },
+      { state: "unavailable", comparison: "unavailable" },
+    );
+  } finally {
+    await rename(movedSource, source);
+  }
 });
 
 test("Git reads raw blobs without running configured hooks or smudge filters and rejects LFS pointers", {

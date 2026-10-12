@@ -709,6 +709,76 @@ export async function startWebServer(
           );
           return;
         }
+        if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/check") {
+          const body = await jsonBody(request);
+          if (
+            Object.keys(body).some((key) => !["id", "operationId"].includes(key)) ||
+            (body.id !== undefined && typeof body.id !== "string") ||
+            (body.operationId !== undefined &&
+              (typeof body.operationId !== "string" ||
+                !/^[A-Za-z0-9_-]{16,64}$/.test(body.operationId)))
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Invalid dependency check fields.",
+            );
+          const operationId = typeof body.operationId === "string" ? body.operationId : token();
+          if (activeDependencyOperations.has(operationId))
+            throw new ProjectError(
+              "conflict",
+              "OPERATION_OWNERSHIP",
+              "Dependency operation ID is already active.",
+            );
+          activeDependencyOperations.set(operationId, credential ?? "");
+          respond(
+            response,
+            await acquire(
+              {
+                operation: "check",
+                ...(typeof body.id === "string" ? { id: body.id } : {}),
+                operationId,
+              },
+              credential ?? "",
+            ),
+          );
+          return;
+        }
+        if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/select") {
+          const body = await jsonBody(request);
+          if (
+            Object.keys(body).some((key) => !["ontologyIri", "id"].includes(key)) ||
+            typeof body.ontologyIri !== "string" ||
+            typeof body.id !== "string"
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Dependency select requires an ontology IRI and ID.",
+            );
+          respond(
+            response,
+            await acquire(
+              { operation: "select", ontologyIri: body.ontologyIri, id: body.id },
+              credential ?? "",
+            ),
+          );
+          return;
+        }
+        if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/clear") {
+          const body = await jsonBody(request);
+          if (Object.keys(body).length !== 1 || typeof body.ontologyIri !== "string")
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Dependency clear requires an ontology IRI.",
+            );
+          respond(
+            response,
+            await acquire({ operation: "clear", ontologyIri: body.ontologyIri }, credential ?? ""),
+          );
+          return;
+        }
         if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/inspect") {
           const body = await jsonBody(request);
           if (
