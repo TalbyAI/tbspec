@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import type { AuthoringOptions } from "./authoring.ts";
 import { canonical } from "./canonical.ts";
+import type { EditingOptions } from "./editing.ts";
 import type { InspectionCommand } from "./inspection.ts";
 import type { AuthoringRequest, InspectionResponse } from "./inspection-worker.ts";
 import { withLock } from "./lock.ts";
@@ -47,7 +48,7 @@ function respond(
   });
   response.end("json" in result ? result.json : JSON.stringify(result));
 }
-async function jsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+async function jsonBody(request: IncomingMessage, limit = 16384): Promise<Record<string, unknown>> {
   if (request.headers["content-type"] !== "application/json")
     throw new ProjectError("invalid_arguments", "ARGUMENT_INVALID", "Expected application/json.");
   let size = 0;
@@ -55,7 +56,7 @@ async function jsonBody(request: IncomingMessage): Promise<Record<string, unknow
   for await (const chunk of request) {
     const bytes = Buffer.from(chunk);
     size += bytes.length;
-    if (size > 16384)
+    if (size > limit)
       throw new ProjectError(
         "invalid_arguments",
         "ARGUMENT_INVALID",
@@ -544,6 +545,7 @@ export async function startWebServer(
           return;
         }
         const routes: Record<string, InspectionCommand> = {
+          "/api/project/v1/editor": "editor.show",
           "/api/project/v1/status": "status",
           "/api/project/v1/validate": "validate",
           "/api/project/v1/shapes": "shapes.list",
@@ -565,6 +567,29 @@ export async function startWebServer(
           return;
         }
         if (request.method === "POST") {
+          if (url.pathname === "/api/project/v1/editor/save") {
+            const body = await jsonBody(request, 67108864);
+            if (
+              Object.keys(body).some(
+                (k) => !["selector", "revision", "sourceText", "edits", "creation"].includes(k),
+              ) ||
+              typeof body.selector !== "string"
+            )
+              throw new ProjectError(
+                "invalid_arguments",
+                "ARGUMENT_INVALID",
+                "Invalid editor save fields.",
+              );
+            respond(
+              response,
+              await inspect("status", undefined, {
+                mode: "preview",
+                session: credential ?? "",
+                editing: body as unknown as EditingOptions,
+              }),
+            );
+            return;
+          }
           const action = url.pathname.match(
             /^\/api\/project\/v1\/(ontology|model|shapes|model\/schema)\/(create|import|add|remove)$/,
           );

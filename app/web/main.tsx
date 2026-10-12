@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import type { EditorData } from "../src/editing.ts";
+import type { Result } from "../src/output.ts";
+import { GraphEditor } from "./editor.tsx";
 import "./style.css";
 
 declare global {
@@ -330,6 +333,15 @@ function App() {
     | undefined;
   const counts = status?.data?.counts as { resources: number; dependencies: number } | undefined;
   const modelTypes = (config?.modelTypes as ModelType[]) ?? [];
+  const editorRequest = useCallback(
+    async (path: string, body?: Record<string, unknown>) =>
+      (await request(path, session, body)) as Result,
+    [session],
+  );
+  const editorSaved = useCallback(
+    (result: Result<EditorData>) => setGraph(result as unknown as Envelope),
+    [],
+  );
   const selected = graph?.data?.resource as Resource | undefined;
   const associations = selected
     ? [
@@ -872,8 +884,12 @@ function App() {
                       ) : (
                         <p>No recorded associations.</p>
                       )}
-                      <h3>Source</h3>
-                      <pre>{String(graph?.data?.sourceText ?? "")}</pre>
+                      <GraphEditor
+                        key={selected.selector}
+                        selector={selected.selector}
+                        call={editorRequest}
+                        onSaved={editorSaved}
+                      />
                       <details>
                         <summary>Exact RDF terms ({triples.length} statements)</summary>
                         <div className="table-scroll">

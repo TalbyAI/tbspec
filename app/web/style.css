@@ -226,6 +226,29 @@ form {
   gap: 0.6rem;
   margin: 1.5rem 0 0.6rem;
 }
+.rdf-canvas {
+  height: 480px;
+  width: 100%;
+  border: 1px solid #9aac9f;
+  margin: 1rem 0;
+}
+.rdf-editor {
+  min-width: 0;
+}
+.rdf-editor label {
+  display: grid;
+  gap: 0.4rem;
+}
+.rdf-editor li {
+  margin: 0.7rem 0;
+  overflow-wrap: anywhere;
+}
+.term-input {
+  min-width: 0;
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid #9aac9f;
+}
 input,
 select,
 textarea {
