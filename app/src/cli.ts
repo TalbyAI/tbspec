@@ -9,6 +9,7 @@ import { type InspectionCommand, inspectProject } from "./inspection.ts";
 import { exits, failure, ok, ProjectError, type Result } from "./output.ts";
 import { initializeProject } from "./project.ts";
 import { listQueries, queryRemove, queryRun, querySave, showQuery } from "./query.ts";
+import { inspectImpact, moveResource, removeResource } from "./resource-lifecycle.ts";
 import { applicationVersion } from "./runtime.ts";
 import { webProject } from "./web.ts";
 
@@ -42,6 +43,7 @@ async function dispatch(): Promise<Result> {
         "--schema",
         "--accepted-preview",
         "--confirm",
+        "--apply",
         "--source",
         "--file",
         "--parameters",
@@ -108,6 +110,8 @@ async function dispatch(): Promise<Result> {
       "ontology",
       "model",
       "query",
+      "impact",
+      "resource",
     ].includes(command)
   )
     throw new ProjectError(
@@ -194,9 +198,12 @@ async function dispatch(): Promise<Result> {
       ((command === "ontology" || command === "model") &&
         ["create", "import"].includes(positional[0] ?? "")) ||
       (schemaOperation && ["add", "remove"].includes(positional[1] ?? "")) ||
+      ((command === "ontology" || command === "model" || command === "shapes") &&
+        positional[0] === "remove") ||
+      (command === "resource" && positional[0] === "move") ||
       (command === "config" &&
         positional[0] === "model-type" &&
-        ["set", "disable", "enable", "reset", "design"].includes(positional[1] ?? ""))
+        ["set", "disable", "enable", "reset", "design", "remove"].includes(positional[1] ?? ""))
     )
   )
     throw new ProjectError(
@@ -208,6 +215,9 @@ async function dispatch(): Promise<Result> {
     options.has("--confirm") &&
     !(
       (command === "model" && positional[0] === "schema" && positional[1] === "remove") ||
+      ((command === "ontology" || command === "model" || command === "shapes") &&
+        positional[0] === "remove") ||
+      (command === "config" && positional[0] === "model-type" && positional[1] === "remove") ||
       (command === "query" && positional[0] === "remove")
     )
   )
@@ -215,6 +225,12 @@ async function dispatch(): Promise<Result> {
       "invalid_arguments",
       "ARGUMENT_INVALID",
       "--confirm applies only to confirmed removal operations.",
+    );
+  if (options.has("--apply") && !(command === "resource" && positional[0] === "move"))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--apply applies only to resource move.",
     );
   if (options.has("--source") && !(command === "shapes" && positional[0] === "list"))
     throw new ProjectError(
@@ -336,6 +352,38 @@ async function dispatch(): Promise<Result> {
       selector: positional[0],
     });
   }
+  if (command === "impact") {
+    const kind = positional[0];
+    if (
+      positional.length !== 2 ||
+      !["ontology", "model", "shapes", "model-type"].includes(kind ?? "")
+    )
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "Use impact <ontology|model|shapes|model-type> <exact-selector-or-name>.",
+      );
+    return inspectImpact({
+      project: selectedProject,
+      kind: kind as "ontology" | "model" | "shapes" | "model-type",
+      selector: positional[1] ?? "",
+    });
+  }
+  if (command === "resource") {
+    if (positional[0] === "move" && positional.length === 3)
+      return moveResource({
+        project: selectedProject,
+        selector: positional[1] ?? "",
+        destination: positional[2] ?? "",
+        apply: options.has("--apply"),
+        acceptedPreview: value("--accepted-preview"),
+      });
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Use resource move <owned-selector> <destination> [--apply --accepted-preview <digest>].",
+    );
+  }
   if (command === "shapes") {
     if (positional[0] === "list" && positional.length === 1)
       return inspectProject({
@@ -348,6 +396,14 @@ async function dispatch(): Promise<Result> {
         project: selectedProject,
         command: "shapes.create",
         path: positional[1] ?? "",
+        acceptedPreview: value("--accepted-preview"),
+      });
+    if (positional[0] === "remove" && positional.length === 2)
+      return removeResource({
+        project: selectedProject,
+        kind: "shapes",
+        selector: positional[1] ?? "",
+        confirm: options.has("--confirm"),
         acceptedPreview: value("--accepted-preview"),
       });
     throw new ProjectError(
@@ -367,6 +423,14 @@ async function dispatch(): Promise<Result> {
       );
     }
     const action = positional[1];
+    if (action === "remove" && positional.length === 3)
+      return removeResource({
+        project: selectedProject,
+        kind: "model-type",
+        selector: positional[2] ?? "",
+        confirm: options.has("--confirm"),
+        acceptedPreview: value("--accepted-preview"),
+      });
     if (action === "list" && positional.length === 2)
       return inspectProject({ project: selectedProject, command: "config.model-type.list" });
     if (action === "show" && positional.length === 3) {
@@ -438,6 +502,14 @@ async function dispatch(): Promise<Result> {
     });
   }
   if (command === "ontology" || command === "model") {
+    if (positional[0] === "remove" && positional.length === 2)
+      return removeResource({
+        project: selectedProject,
+        kind: command,
+        selector: positional[1] ?? "",
+        confirm: options.has("--confirm"),
+        acceptedPreview: value("--accepted-preview"),
+      });
     if (command === "model" && positional[0] === "schema") {
       const action = positional[1];
       if (action === "list" && positional.length === 3)

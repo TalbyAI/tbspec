@@ -15,6 +15,7 @@ import { token } from "./ownership.ts";
 import { cleanupPreviews } from "./previews.ts";
 import type { QueryOperation, QueryRevisions } from "./query.ts";
 import { opaqueToken } from "./recovery.ts";
+import type { LifecycleOptions, LifecycleResourceKind } from "./resource-lifecycle.ts";
 import {
   claimRuntime,
   type RuntimeRecord,
@@ -698,6 +699,33 @@ export async function startWebServer(
           "/api/project/v1/model": "model.show",
         };
         const command = routes[url.pathname];
+        if (url.pathname === "/api/project/v1/impact" && request.method === "GET") {
+          const kinds = url.searchParams.getAll("kind");
+          const selectors = url.searchParams.getAll("selector");
+          if (
+            url.searchParams.size !== 2 ||
+            kinds.length !== 1 ||
+            selectors.length !== 1 ||
+            !["ontology", "model", "shapes", "model-type"].includes(kinds[0] ?? "")
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Impact requires one kind and one exact selector.",
+            );
+          respond(
+            response,
+            await inspect("status", undefined, {
+              mode: "preview",
+              session: credential ?? "",
+              impact: {
+                kind: kinds[0] as LifecycleResourceKind,
+                selector: selectors[0] ?? "",
+              },
+            }),
+          );
+          return;
+        }
         if (command && request.method === "GET") {
           const result = await inspect(command, url.searchParams.get("selector") ?? undefined);
           respond(response, result);
@@ -705,6 +733,46 @@ export async function startWebServer(
           return;
         }
         if (request.method === "POST") {
+          const lifecycleRoute = url.pathname.match(
+            /^\/api\/project\/v1\/resources\/(remove|move)$/,
+          );
+          if (lifecycleRoute) {
+            const action = lifecycleRoute[1] as "remove" | "move";
+            const body = await jsonBody(request);
+            const required =
+              action === "remove" ? ["kind", "selector"] : ["selector", "destination"];
+            if (
+              Object.keys(body).some((key) => !required.includes(key)) ||
+              required.some((key) => body[key] === undefined) ||
+              typeof body.selector !== "string" ||
+              (action === "remove" &&
+                (typeof body.kind !== "string" ||
+                  !["ontology", "model", "shapes", "model-type"].includes(body.kind))) ||
+              (action === "move" && typeof body.destination !== "string")
+            )
+              throw new ProjectError(
+                "invalid_arguments",
+                "ARGUMENT_INVALID",
+                `Invalid resource ${action} fields.`,
+              );
+            const lifecycle = {
+              action,
+              selector: body.selector,
+              ...(typeof body.kind === "string"
+                ? { kind: body.kind as LifecycleResourceKind }
+                : {}),
+              ...(typeof body.destination === "string" ? { destination: body.destination } : {}),
+            } as LifecycleOptions & { action: "remove" | "move" };
+            respond(
+              response,
+              await inspect("status", undefined, {
+                mode: "preview",
+                session: credential ?? "",
+                lifecycle,
+              }),
+            );
+            return;
+          }
           if (url.pathname === "/api/project/v1/model-types/configure") {
             const body = await jsonBody(request);
             const commands = [

@@ -25,7 +25,7 @@ const tree: Record<string, Guidance> = {
       { invocation: "tbspec llms queries", description: "Use for dataset and parameter guidance." },
       {
         invocation: "tbspec llms repair",
-        description: "Use for conflicts, recovery and later impact/repair workflows.",
+        description: "Use for conflict, recovery, impact, removal and move workflows.",
       },
       {
         invocation: "tbspec llms projects",
@@ -98,11 +98,11 @@ const tree: Record<string, Guidance> = {
     topics: [],
   },
   "modeling shapes": {
-    text: "tbspec shapes list [--source <path>]; tbspec shapes create <source-path>. Create an empty declared shapes graph next to an owned ontology/model as <stem>.shacl.ttl, with source graph IRI followed by /shapes. Non-Turtle sources also receive an explicit manifest association, preserving existing manifest bytes. Occupied destinations and identity collisions refuse publication. Existing valid unrooted SHACL graphs can also be associated. Browser creation reviews protected staged bytes before apply. Shapes deletion is delivered in ticket 12.",
+    text: "tbspec shapes list [--source <path>]; tbspec shapes create <source-path>; tbspec shapes remove <owned-shapes-path> [--confirm]. Create an empty declared shapes graph next to an owned ontology/model as <stem>.shacl.ttl, with source graph IRI followed by /shapes. Non-Turtle sources also receive an explicit manifest association, preserving existing manifest bytes. Removal previews the affected graph and managed IRI references, then requires --confirm; it removes only the shapes file and leaves incoming triples intact, so resulting invalidity is deliberate. Browser operations use a session-owned preview.",
     topics: [],
   },
   "modeling ontologies": {
-    text: "tbspec ontology list; tbspec ontology show <path>; tbspec ontology create <path> [--iri <iri>]; tbspec ontology import <source-selector> <path> [--iri <new-iri>]. Paths are project-relative .ttl destinations outside runtime/dependency directories. Creation declares owl:Ontology. Show includes exact identity, selectors, support associations and provenance.",
+    text: "tbspec ontology list; tbspec ontology show <path>; tbspec ontology create <path> [--iri <iri>]; tbspec ontology import <source-selector> <path> [--iri <new-iri>]; tbspec ontology remove <owned-path> [--confirm]. Use impact ontology <owned-path> to inspect exact known managed IRI occurrences in all known RDF and configuration inputs before removal. Removal leaves incoming triples and associated support files in place; confirm accepts resulting semantic invalidity. Move a graph with resource move <owned-path> <destination>; preview first, then apply with its exact --accepted-preview fingerprint.",
     topics: [
       {
         invocation: "tbspec llms modeling ontologies create",
@@ -123,7 +123,7 @@ const tree: Record<string, Guidance> = {
     topics: [],
   },
   "modeling models": {
-    text: "tbspec model list; tbspec model show <path>; tbspec model create <path> --type <name> [--profile conceptual|concrete] [--schema <selector> ...] [--iri <iri>]; tbspec model import <source-selector> <path> --type <name> [--iri <new-iri>]. Select an enabled effective type; disabled/missing/unusable types are diagnosed. Graph roots determine classification, never filenames or business types. Show reads only the selected graph and configuration: schema IRIs remain visible even when no owned-file selector is resolved. Browser schema links use its separately refreshed resource inventory. Authoring checks every owned graph identity sequentially; malformed/unreadable owned graphs block publication, while unused dependency bytes are not read.",
+    text: "tbspec model list; tbspec model show <path>; tbspec model create <path> --type <name> [--profile conceptual|concrete] [--schema <selector> ...] [--iri <iri>]; tbspec model import <source-selector> <path> --type <name> [--iri <new-iri>]; tbspec model remove <owned-path> [--confirm]. Select an enabled effective type; disabled/missing/unusable types are diagnosed. Graph roots determine classification, never filenames or business types. Show reads only the selected graph and configuration: schema IRIs remain visible even when no owned-file selector is resolved. Use impact model <owned-path> to inspect known managed IRI references before removing a model. Removal preserves incoming triples and linked support resources and may deliberately leave invalid references. Move a graph with resource move <owned-path> <destination>, review the preview and apply using the exact fingerprint.",
     topics: [
       {
         invocation: "tbspec llms modeling models create",
@@ -177,8 +177,16 @@ const tree: Record<string, Guidance> = {
     text: "Without --graph, every effective resource is registered under its exact declared or generated graph IRI. Only effective ontology and model triples enter the default union; support and unclassified graphs remain named-only. Use GRAPH <iri> to query a named resource. --graph <selector> loads only that graph as both default and named graph, so unrelated malformed files and ontology-choice conflicts do not block isolated queries. Update, SERVICE at any depth, FROM and FROM NAMED are rejected by parsed-AST validation before engine execution. Query execution uses local project files and locked snapshots and makes no acquisition or dereferencing requests. ASK false is successful; SELECT omits unbound cells; returned blank nodes have scope=result.",
     topics: [],
   },
+  impact: {
+    text: "tbspec impact <ontology|model|shapes|model-type> <exact-owned-selector-or-name>. The read-only report lists each known occurrence of managed IRIs in owned and retained locked RDF, and exact configuration values in tbspec.toml/tbspec.lock, plus affected files and model bindings. It does not scan arbitrary files or infer references from prefixes, substrings or external resources. Impact is informational; remove and move each use their own captured preview and revision guards.",
+    topics: [],
+  },
+  resource: {
+    text: "tbspec resource move <owned-selector> <destination> previews a same-format move. Review changed paths, manifest selector rewrites, linked .shacl.ttl moves and any generated graph-identity change. Apply only by rerunning with --apply --accepted-preview <fingerprint>. The move carries source bytes and revisions through the shared transaction boundary; occupied destinations, unsupported formats, identity collisions and stale plans refuse publication.",
+    topics: [],
+  },
   repair: {
-    text: "Stale revisions require a fresh plan; unknown ownership and pending recovery require exclusive manual inspection. Impact, removal, refactoring and orphan-repair commands arrive in later tickets.",
+    text: "Use impact <kind> <selector> for a read-only inventory of known managed references. Owned graph and custom model-type removals return previews and require --confirm; they do not cascade or rewrite incoming RDF. resource move previews path and manifest selector changes, then requires --apply with the exact --accepted-preview fingerprint. Stale revisions require a fresh plan; unknown ownership and pending recovery require exclusive manual inspection.",
     topics: [
       {
         invocation: "tbspec llms safety recovery",
@@ -243,7 +251,7 @@ export function help(command: string): Guidance {
       text:
         command === "validate"
           ? "Usage: tbspec validate [<graph-selector>]\nOptions: --project <dir>, --json, --help\nValidate offline; errors or required skipped checks exit 1, warnings alone exit 0."
-          : "Usage: tbspec shapes list [--source <path>]\n       tbspec shapes create <source-path>\nOptions: --project <dir>, --json, --help\nCreate empty associated shapes without overwriting occupied files.",
+          : "Usage: tbspec shapes list [--source <path>]\n       tbspec shapes create <source-path>\n       tbspec shapes remove <owned-path> [--confirm] [--accepted-preview <digest>]\nOptions: --project <dir>, --json, --help\nCreate empty associated shapes without overwriting occupied files. Removal previews and preserves incoming RDF references.",
       topics: [
         {
           invocation: `tbspec llms modeling ${command === "validate" ? "validation" : "shapes"}`,
@@ -251,11 +259,21 @@ export function help(command: string): Guidance {
         },
       ],
     };
+  if (command === "model")
+    return {
+      text: "Usage: tbspec model list\n       tbspec model show <path>\n       tbspec model create <path> --type <name> [--profile conceptual|concrete] [--schema <selector> ...] [--iri <iri>]\n       tbspec model import <source-selector> <path> --type <name> [--iri <new-iri>]\n       tbspec model remove <owned-path> [--confirm] [--accepted-preview <digest>]\n       tbspec model schema list <concrete-model-path>\n       tbspec model schema add <concrete-model-path> <conceptual-model-selector>\n       tbspec model schema remove <concrete-model-path> <conceptual-model-selector> [--confirm]\nOptions: --project <dir>, --json, --help\nAuthoring: --accepted-preview <digest> verifies a reviewed plan before publication.",
+      topics: [
+        {
+          invocation: "tbspec llms modeling models",
+          description: "Focused authoring and lifecycle contracts.",
+        },
+      ],
+    };
   if (command === "ontology" || command === "model")
     return {
       text:
         command === "ontology"
-          ? "Usage: tbspec ontology list\n       tbspec ontology show <path>\n       tbspec ontology create <path> [--iri <iri>]\n       tbspec ontology import <source-selector> <path> [--iri <new-iri>]\nOptions: --project <dir>, --json, --help\nAuthoring: --accepted-preview <digest> verifies a reviewed plan before publication."
+          ? "Usage: tbspec ontology list\n       tbspec ontology show <path>\n       tbspec ontology create <path> [--iri <iri>]\n       tbspec ontology import <source-selector> <path> [--iri <new-iri>]\n       tbspec ontology remove <owned-path> [--confirm] [--accepted-preview <digest>]\nOptions: --project <dir>, --json, --help\nAuthoring: --accepted-preview <digest> verifies a reviewed plan before publication."
           : "Usage: tbspec model list\n       tbspec model show <path>\n       tbspec model create <path> --type <name> [--profile conceptual|concrete] [--schema <selector> ...] [--iri <iri>]\n       tbspec model import <source-selector> <path> --type <name> [--iri <new-iri>]\n       tbspec model schema list <concrete-model-path>\n       tbspec model schema add <concrete-model-path> <conceptual-model-selector>\n       tbspec model schema remove <concrete-model-path> <conceptual-model-selector> [--confirm]\nOptions: --project <dir>, --json, --help\nAuthoring: --accepted-preview <digest> verifies a reviewed plan before publication.",
       topics: [
         {
@@ -264,7 +282,30 @@ export function help(command: string): Guidance {
         },
       ],
     };
-  if (["status", "graph", "config"].includes(command))
+  if (command === "impact" || command === "resource")
+    return {
+      text:
+        command === "impact"
+          ? "Usage: tbspec impact <ontology|model|shapes|model-type> <exact-selector-or-name>\nOptions: --project <dir>, --json, --help\nRead-only known-reference inventory across managed RDF and project configuration."
+          : "Usage: tbspec resource move <owned-selector> <destination> [--apply --accepted-preview <fingerprint>]\nOptions: --project <dir>, --json, --help\nPreview first; apply only the exact reviewed fingerprint.",
+      topics: [
+        {
+          invocation: `tbspec llms ${command}`,
+          description: "Resource impact and lifecycle rules.",
+        },
+      ],
+    };
+  if (command === "config")
+    return {
+      text: "Usage: tbspec config show\n       tbspec config model-type list|show <name>\n       tbspec config model-type set <name> --ontology <selector> [--accept-impact]\n       tbspec config model-type disable|enable|reset <name>\n       tbspec config model-type design set <name> <selector>\n       tbspec config model-type design clear <name>\n       tbspec config model-type remove <custom-name> [--confirm] [--accepted-preview <digest>]\nOptions: --project <dir>, --json, --help, --accepted-preview <digest>\nConfiguration edits preserve unknown TOML content. Used vocabulary changes preview impact and require explicit --accept-impact. Custom type removal preserves models and may leave them invalid; built-in types cannot be removed.",
+      topics: [
+        {
+          invocation: "tbspec llms project inspect",
+          description: "Configuration origins and lifecycle behavior.",
+        },
+      ],
+    };
+  if (["status", "graph"].includes(command))
     return {
       text: "Usage: tbspec status\n       tbspec graph list\n       tbspec graph show <path|dep:id|dep:id/file-key>\n       tbspec config show\n       tbspec config model-type list|show <name>\n       tbspec config model-type set <name> --ontology <selector> [--accept-impact]\n       tbspec config model-type disable|enable|reset <name>\n       tbspec config model-type design set <name> <selector>\n       tbspec config model-type design clear <name>\nOptions: --project <dir>, --json, --help, --accepted-preview <digest>\nConfiguration edits preserve unknown TOML content. Used vocabulary changes preview impact and require explicit --accept-impact. Status reports offline validity and coverage; errors or required skipped checks exit 1.",
       topics: [
@@ -297,7 +338,7 @@ export function help(command: string): Guidance {
       topics: guidance([]).data.topics,
     };
   return {
-    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, shapes list/create, graph list/show, ontology list/show/create/import, model list/show/create/import/schema list/add/remove, query list/show/save/run/remove, config show/model-type list/show/set/disable/enable/reset/design, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec query run --file explore.rq --graph models/orders.ttl --json\nCLI and authenticated browser share queries, configuration, authoring and project operations. Use tbspec llms queries and tbspec llms project for guidance.",
+    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, impact, resource move, shapes list/create/remove, graph list/show, ontology list/show/create/import/remove, model list/show/create/import/remove/schema list/add/remove, query list/show/save/run/remove, config show/model-type list/show/set/disable/enable/reset/design/remove, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec impact ontology vocabularies/core.ttl --json\nCLI and authenticated browser share queries, configuration, authoring and project operations. Use tbspec llms queries, llms impact, llms resource and llms project for guidance.",
     topics: [
       { invocation: "tbspec init --help", description: "Initialize an offline project." },
       { invocation: "tbspec llms --help", description: "Recursive agent guidance." },

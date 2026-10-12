@@ -817,6 +817,126 @@ export function editModelType(text: string, name: string, row?: Row): string {
   return changed;
 }
 
+export function removeModelType(text: string, name: string): string {
+  id(name);
+  const before = parseManifest(text);
+  const modelTypes = (before.model_types ?? {}) as Record<string, Row>;
+  if (!Object.hasOwn(modelTypes, name))
+    throw new ProjectError(
+      "invalid_arguments",
+      "MODEL_TYPE_UNUSABLE",
+      "Custom model type does not exist.",
+    );
+  const lines = (text.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? []).filter(Boolean);
+  const content = (line: string) => line.replace(/(?:\r\n|\n|\r)$/, "");
+  const header = new RegExp(
+    `^[\\t ]*\\[\\s*model_types\\s*\\.\\s*(?:${name}|"${name}")\\s*\\][\\t ]*(?:#.*)?$`,
+  );
+  const start = lines.findIndex((line) => header.test(content(line)));
+  if (start < 0)
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Cannot locate the custom model-type table for safe removal.",
+      "tbspec.toml",
+    );
+  const end = lines.findIndex((line, index) => index > start && /^\s*\[/.test(content(line)));
+  const stop = end < 0 ? lines.length : end;
+  const changed = [...lines.slice(0, start), ...lines.slice(stop)].join("");
+  const after = parseManifest(changed);
+  const expected = structuredClone(before) as Row;
+  const expectedTypes = { ...modelTypes };
+  delete expectedTypes[name];
+  if (Object.keys(expectedTypes).length) expected.model_types = expectedTypes;
+  else Reflect.deleteProperty(expected, "model_types");
+  if (canonical(after) !== canonical(expected))
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Removing the custom model type changed unrelated configuration.",
+      "tbspec.toml",
+    );
+  return changed;
+}
+
+/** Rewrite known manifest selectors while preserving comments, unknown keys and line endings. */
+export function editManifestSelectors(text: string, replacements: Record<string, string>): string {
+  const before = parseManifest(text);
+  const expected = structuredClone(before) as Row;
+  const fieldsByTable: Record<string, string[]> = {
+    associations: ["resource", "support"],
+  };
+  for (const value of Object.values((expected.model_types ?? {}) as Record<string, Row>))
+    for (const field of ["ontology", "design"])
+      if (typeof value[field] === "string" && replacements[value[field] as string])
+        value[field] = replacements[value[field] as string];
+  for (const table of ["associations"])
+    for (const row of (expected[table] ?? []) as Row[])
+      for (const field of fieldsByTable[table] ?? [])
+        if (typeof row[field] === "string" && replacements[row[field] as string])
+          row[field] = replacements[row[field] as string];
+  // Design choices are keyed by IRI, so update them without relying on path-shaped keys.
+  if (expected.design_choices && before.design_choices) {
+    const choices = { ...(before.design_choices as Row) };
+    for (const [key, value] of Object.entries(choices))
+      if (typeof value === "string" && replacements[value]) choices[key] = replacements[value];
+    expected.design_choices = choices;
+  }
+
+  const lines = (text.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? []).filter(Boolean);
+  const content = (line: string) => line.replace(/(?:\r\n|\n|\r)$/, "");
+  const ending = (line: string) => line.slice(content(line).length);
+  let table = "";
+  let changed = false;
+  const rewritten = lines.map((line) => {
+    const body = content(line);
+    const header = /^\s*(\[\[|\[)\s*([^\]]+?)\s*(\]\]|\])\s*(?:#.*)?$/.exec(body);
+    if (header) {
+      table = header[2]?.replaceAll('"', "").trim() ?? "";
+      return line;
+    }
+    const assignment = /^([\t ]*(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*")[\t ]*=[\t ]*)(.*)$/.exec(body);
+    if (!assignment) return line;
+    const key = assignment[1]?.slice(0, assignment[1].indexOf("=")).trim().replaceAll('"', "");
+    const allowed = table.startsWith("model_types.")
+      ? ["ontology", "design"]
+      : (fieldsByTable[table] ?? (table === "design_choices" ? [key ?? ""] : []));
+    if (!key || !allowed.includes(key)) return line;
+    const raw = assignment[2] ?? "";
+    const comment = trailingTomlComment(raw);
+    const valueText = (comment < 0 ? raw : raw.slice(0, comment)).trim();
+    let value: unknown;
+    try {
+      value = (parse(`value = ${valueText}`) as Row).value;
+    } catch {
+      return line;
+    }
+    if (typeof value !== "string" || !replacements[value]) return line;
+    const beforeValue = raw.match(/^\s*/)?.[0] ?? "";
+    const afterValue = comment < 0 ? (/[\t ]*$/.exec(raw)?.[0] ?? "") : raw.slice(comment);
+    changed = true;
+    return `${assignment[1]}${beforeValue}${JSON.stringify(replacements[value])}${afterValue}${ending(line)}`;
+  });
+  const result = rewritten.join("");
+  const after = parseManifest(result);
+  // Verify exactly the known selector fields changed. Unknown keys and other settings stay intact.
+  if (canonical(after) !== canonical(expected))
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Cannot surgically update every manifest path reference; edit the affected references manually.",
+      "tbspec.toml",
+    );
+  if (Object.keys(replacements).length && !changed && canonical(before) !== canonical(expected))
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Manifest path references could not be located safely.",
+      "tbspec.toml",
+    );
+  return result;
+}
+
 function tomlModelTypeValue(field: string, value: unknown): string {
   if (field === "enabled") {
     if (typeof value !== "boolean") throw new Error("Invalid model type enablement.");
