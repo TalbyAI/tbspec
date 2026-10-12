@@ -321,3 +321,80 @@ test("inspection CLI routes exact signatures, portable selectors and complete of
   ])
     assert.equal(invoke(args, tmpdir()).status, 0);
 });
+
+test("CLI configures model types and requires explicit acceptance for incompatible used vocabulary", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-cli-model-type-"));
+  await initializeProject({ directory: root, baseIri: "urn:cli-model-type:/" });
+  const local = "<urn:cli-model-type:vocabulary> a <http://www.w3.org/2002/07/owl#Ontology> .\n";
+  await writeFile(join(root, "replacement.ttl"), local);
+  const added = invoke(
+    ["config", "model-type", "set", "custom", "--ontology", "replacement.ttl"],
+    root,
+  );
+  assert.equal(added.envelope.status, "ok", added.stderr);
+  assert.deepEqual(
+    invoke(["config", "model-type", "show", "custom"], root).envelope.data.modelType,
+    {
+      name: "custom",
+      enabled: true,
+      ontology: "replacement.ttl",
+      design: null,
+      origin: "manifest",
+    },
+  );
+  assert.equal(invoke(["config", "model-type", "disable", "custom"], root).status, 0);
+  assert.equal(
+    invoke(["config", "model-type", "show", "custom"], root).envelope.data.modelType.enabled,
+    false,
+  );
+  assert.equal(invoke(["config", "model-type", "enable", "custom"], root).status, 0);
+  assert.equal(invoke(["config", "model-type", "reset", "custom"], root).status, 2);
+  assert.equal(
+    invoke(["config", "model-type", "set", "custom", "--ontology", "missing.ttl"], root).status,
+    1,
+  );
+
+  assert.equal(invoke(["model", "create", "models/plan.ttl", "--type", "process"], root).status, 0);
+  const modelBytes = await readFile(join(root, "models/plan.ttl"));
+  const preview = invoke(
+    ["config", "model-type", "set", "process", "--ontology", "replacement.ttl"],
+    root,
+  );
+  assert.equal(preview.envelope.status, "preview", preview.stderr);
+  assert.deepEqual(await readFile(join(root, "models/plan.ttl")), modelBytes);
+  assert.deepEqual(preview.envelope.data.preview.impact.acceptance, ["accept-impact"]);
+  assert.equal(
+    invoke(
+      [
+        "config",
+        "model-type",
+        "set",
+        "process",
+        "--ontology",
+        "replacement.ttl",
+        "--accept-impact",
+        "--accepted-preview",
+        preview.envelope.data.preview.fingerprint,
+      ],
+      root,
+    ).status,
+    0,
+  );
+  assert.deepEqual(await readFile(join(root, "models/plan.ttl")), modelBytes);
+  assert.equal(
+    invoke(["config", "model-type", "show", "process"], root).envelope.data.modelType.design,
+    null,
+  );
+  assert.equal(
+    invoke(["config", "model-type", "design", "set", "process", "dep:tbspec-process-design"], root)
+      .status,
+    0,
+  );
+  assert.equal(invoke(["config", "model-type", "design", "clear", "process"], root).status, 0);
+  for (const args of [
+    ["config", "model-type", "set", "process", "--ontology", "replacement.ttl", "--confirm"],
+    ["config", "model-type", "disable", "process", "--accept-impact"],
+    ["config", "model-type", "design", "set", "process"],
+  ])
+    assert.equal(invoke(args, root).status, 2);
+});

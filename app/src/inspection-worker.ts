@@ -6,6 +6,12 @@ import {
   prepareResource,
   publishResource,
 } from "./authoring.ts";
+import {
+  type ModelTypeConfigurationOptions,
+  type PreparedModelTypeConfiguration,
+  prepareModelTypeConfiguration,
+  publishModelTypeConfiguration,
+} from "./configuration.ts";
 import { type EditingOptions, prepareEdit } from "./editing.ts";
 import { inspectProject } from "./inspection.ts";
 import { type Diagnostic, failure, ok, ProjectError, type Result } from "./output.ts";
@@ -23,6 +29,7 @@ export interface InspectionResponse {
 parentPort?.postMessage({ ready: true });
 export interface AuthoringRequest {
   options?: AuthoringOptions;
+  configuration?: ModelTypeConfigurationOptions;
   editing?: EditingOptions;
   session: string;
   mode: "preview" | "apply" | "cancel";
@@ -32,7 +39,7 @@ export interface AuthoringRequest {
   accept?: string[];
 }
 interface StoredPreview {
-  prepared: PreparedResource;
+  prepared: PreparedResource | PreparedModelTypeConfiguration;
   expires: number;
   session: string;
   instanceId: string;
@@ -66,7 +73,10 @@ async function handle(request: WorkerRequest) {
     if ("query" in request)
       result = await queryOperation({ project: request.project, operation: request.query });
     else if (!authoring) result = await inspectProject(request);
-    else if (authoring.mode === "preview" && (authoring.options || authoring.editing)) {
+    else if (
+      authoring.mode === "preview" &&
+      (authoring.options || authoring.editing || authoring.configuration)
+    ) {
       for (const [key, preview] of previews)
         if (preview.expires <= Date.now()) {
           await discard(key);
@@ -80,10 +90,15 @@ async function handle(request: WorkerRequest) {
         );
       const prepared = authoring.editing
         ? await prepareEdit({ ...authoring.editing, project: request.project })
-        : await prepareResource({
-            ...(authoring.options as AuthoringOptions),
-            project: request.project,
-          });
+        : authoring.configuration
+          ? await prepareModelTypeConfiguration({
+              ...authoring.configuration,
+              project: request.project,
+            })
+          : await prepareResource({
+              ...(authoring.options as AuthoringOptions),
+              project: request.project,
+            });
       if (!authoring.instanceId) throw new Error("Missing server instance.");
       const handle = token();
       const expires = Date.now() + 900000;
@@ -139,17 +154,24 @@ async function handle(request: WorkerRequest) {
       result = {
         ...ok(
           {
-            resource: prepared.resource,
+            ...("modelType" in prepared
+              ? {
+                  modelType: prepared.modelType,
+                  affectedModels: prepared.affectedModels,
+                  projectValidity: prepared.projectValidity,
+                  validationComplete: prepared.validationComplete,
+                }
+              : {
+                  resource: prepared.resource,
+                  projectValidity: prepared.validation?.validity ?? "unchecked",
+                  validationComplete: prepared.validation?.validationComplete ?? false,
+                  ...(prepared.validation ? { validation: prepared.validation } : {}),
+                }),
             applied: false,
             preview: prepared.plan.preview,
             handle,
             instanceId: authoring.instanceId,
             expiresAt: new Date(expires).toISOString(),
-            projectValidity: prepared.diagnostics.some((d) => d.severity === "error")
-              ? "invalid"
-              : "unchecked",
-            validationComplete: false,
-            ...(prepared.validation ? { validation: prepared.validation } : {}),
           },
           prepared.diagnostics,
         ),
@@ -193,10 +215,11 @@ async function handle(request: WorkerRequest) {
             ),
           })),
         );
-        result = await publishResource({
-          ...preview.prepared,
-          plan: { ...preview.prepared.plan, writes },
-        });
+        const publication = { ...preview.prepared, plan: { ...preview.prepared.plan, writes } };
+        result =
+          "modelType" in publication
+            ? await publishModelTypeConfiguration(publication)
+            : await publishResource(publication);
         if (result.status === "ok") {
           await discard(key);
         } else if (

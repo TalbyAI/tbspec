@@ -2,6 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type AuthoringOptions, authorResource } from "./authoring.ts";
+import { configureModelType } from "./configuration.ts";
 import { attachConsole } from "./console.ts";
 import { guidance, help } from "./guidance.ts";
 import { type InspectionCommand, inspectProject } from "./inspection.ts";
@@ -47,6 +48,8 @@ async function dispatch(): Promise<Result> {
         "--saved",
         "--graph",
         "--bindings",
+        "--ontology",
+        "--accept-impact",
       ].includes(argument)
     )
       throw new ProjectError(
@@ -76,6 +79,7 @@ async function dispatch(): Promise<Result> {
         "--saved",
         "--graph",
         "--bindings",
+        "--ontology",
       ].includes(argument)
     ) {
       const value = argv[++index];
@@ -189,7 +193,10 @@ async function dispatch(): Promise<Result> {
       (command === "shapes" && positional[0] === "create") ||
       ((command === "ontology" || command === "model") &&
         ["create", "import"].includes(positional[0] ?? "")) ||
-      (schemaOperation && ["add", "remove"].includes(positional[1] ?? ""))
+      (schemaOperation && ["add", "remove"].includes(positional[1] ?? "")) ||
+      (command === "config" &&
+        positional[0] === "model-type" &&
+        ["set", "disable", "enable", "reset", "design"].includes(positional[1] ?? ""))
     )
   )
     throw new ProjectError(
@@ -237,6 +244,28 @@ async function dispatch(): Promise<Result> {
       "invalid_arguments",
       "ARGUMENT_INVALID",
       "Query option is not valid for this action.",
+    );
+  if (
+    options.has("--ontology") &&
+    !(command === "config" && positional[0] === "model-type" && positional[1] === "set")
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--ontology applies only to config model-type set.",
+    );
+  if (
+    options.has("--accept-impact") &&
+    !(
+      command === "config" &&
+      positional[0] === "model-type" &&
+      ["set", "reset"].includes(positional[1] ?? "")
+    )
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--accept-impact applies only to config model-type set or reset.",
     );
   if (command === "query") {
     const action = positional[0];
@@ -326,6 +355,87 @@ async function dispatch(): Promise<Result> {
       "ARGUMENT_INVALID",
       "Use shapes list [--source <path>] or shapes create <source-path>.",
     );
+  }
+  if (command === "config") {
+    if (positional[0] !== "model-type") {
+      if (positional.join(" ") === "show" && positional.length === 1)
+        return inspectProject({ project: selectedProject, command: "config.show" });
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "Use config show or config model-type --help.",
+      );
+    }
+    const action = positional[1];
+    if (action === "list" && positional.length === 2)
+      return inspectProject({ project: selectedProject, command: "config.model-type.list" });
+    if (action === "show" && positional.length === 3) {
+      const result = await inspectProject({
+        project: selectedProject,
+        command: "config.model-type.list",
+      });
+      if (result.status !== "ok" || !result.data) return result;
+      const row = (result.data.items as unknown as { name: string }[] | undefined)?.find(
+        (item) => item.name === positional[2],
+      );
+      if (!row)
+        return failure(
+          new ProjectError(
+            "invalid_arguments",
+            "MODEL_TYPE_UNUSABLE",
+            "Model type does not exist.",
+          ),
+        );
+      return ok({ modelType: row }, result.diagnostics);
+    }
+    let configuration:
+      | { command: "config.model-type.set"; name: string; ontology: string }
+      | {
+          command:
+            | "config.model-type.disable"
+            | "config.model-type.enable"
+            | "config.model-type.reset";
+          name: string;
+        }
+      | { command: "config.model-type.design.set"; name: string; design: string }
+      | { command: "config.model-type.design.clear"; name: string };
+    if (action === "set" && positional.length === 3 && value("--ontology"))
+      configuration = {
+        command: "config.model-type.set",
+        name: positional[2] ?? "",
+        ontology: value("--ontology") ?? "",
+      };
+    else if (["disable", "enable", "reset"].includes(action ?? "") && positional.length === 3)
+      configuration = {
+        command: `config.model-type.${action}` as
+          | "config.model-type.disable"
+          | "config.model-type.enable"
+          | "config.model-type.reset",
+        name: positional[2] ?? "",
+      };
+    else if (action === "design" && positional[2] === "set" && positional.length === 5)
+      configuration = {
+        command: "config.model-type.design.set",
+        name: positional[3] ?? "",
+        design: positional[4] ?? "",
+      };
+    else if (action === "design" && positional[2] === "clear" && positional.length === 4)
+      configuration = {
+        command: "config.model-type.design.clear",
+        name: positional[3] ?? "",
+      };
+    else
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "Invalid config model-type signature. Use config model-type --help.",
+      );
+    return configureModelType({
+      project: selectedProject,
+      ...configuration,
+      acceptImpact: options.has("--accept-impact"),
+      acceptedPreview: value("--accepted-preview"),
+    });
   }
   if (command === "ontology" || command === "model") {
     if (command === "model" && positional[0] === "schema") {
@@ -428,7 +538,7 @@ async function dispatch(): Promise<Result> {
       port,
     });
   }
-  if (["status", "graph", "config"].includes(command)) {
+  if (["status", "graph"].includes(command)) {
     let operation: InspectionCommand;
     let selector: string | undefined;
     if (command === "status" && !positional.length) operation = "status";
@@ -437,10 +547,7 @@ async function dispatch(): Promise<Result> {
     else if (command === "graph" && positional[0] === "show" && positional.length === 2) {
       operation = "graph.show";
       selector = positional[1];
-    } else if (command === "config" && positional.join(" ") === "show") operation = "config.show";
-    else if (command === "config" && positional.join(" ") === "model-type list")
-      operation = "config.model-type.list";
-    else
+    } else
       throw new ProjectError(
         "invalid_arguments",
         "ARGUMENT_INVALID",

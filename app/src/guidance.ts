@@ -35,7 +35,7 @@ const tree: Record<string, Guidance> = {
     ],
   },
   project: {
-    text: "Initialize with tbspec init [directory] [--base-iri <iri>]. Explicit --project <dir> takes precedence over upward tbspec.toml discovery. Inspect effective settings with tbspec config show or tbspec config model-type list. Status validates offline with explicit coverage. Configuration mutations arrive in later tickets.",
+    text: "Initialize with tbspec init [directory] [--base-iri <iri>]. Explicit --project <dir> takes precedence over upward tbspec.toml discovery. Inspect effective settings with tbspec config show or tbspec config model-type list/show. Configure model-type ontology/design selectors and creation enablement with tbspec config model-type set, design set/clear, enable/disable or reset. Used vocabulary changes preview affected model validity and require --accept-impact. Status validates offline with explicit coverage.",
     topics: [
       {
         invocation: "tbspec llms projects init",
@@ -52,7 +52,7 @@ const tree: Record<string, Guidance> = {
     ],
   },
   "project inspect": {
-    text: "tbspec status; tbspec graph list; tbspec graph show <selector>; tbspec config show; tbspec config model-type list. Use --project <dir> and --json as needed. Graph list contains owned RDF only. Show accepts an owned path, dep:<id>, or an exact retained dep:<id>/<file-key>; it returns the expanded selector, physical file, declared/generated graph IRI, source text and scoped RDF terms. Unclassified graphs remain visible; ambiguous roots and malformed RDF are diagnosed. Configuration identifies manifest replacements and locked defaults; absent override design means disconnected. Status establishes validity from syntax, classification, vocabulary, associations and SHACL; errors or required skipped checks produce invalid/1, and coverage reports what ran. No reads fetch remote content.",
+    text: "tbspec status; tbspec graph list; tbspec graph show <selector>; tbspec config show; tbspec config model-type list/show. Use --project <dir> and --json as needed. Graph list contains owned RDF only. Show accepts an owned path, dep:<id>, or an exact retained dep:<id>/<file-key>; it returns the expanded selector, physical file, declared/generated graph IRI, source text and scoped RDF terms. Unclassified graphs remain visible; ambiguous roots and malformed RDF are diagnosed. Configuration identifies manifest replacements and locked defaults; absent override design means disconnected. Status establishes validity from syntax, classification, vocabulary, associations and SHACL; errors or required skipped checks produce invalid/1, and coverage reports what ran. No reads fetch remote content.",
     topics: [],
   },
   "project web": {
@@ -266,7 +266,7 @@ export function help(command: string): Guidance {
     };
   if (["status", "graph", "config"].includes(command))
     return {
-      text: "Usage: tbspec status\n       tbspec graph list\n       tbspec graph show <path|dep:id|dep:id/file-key>\n       tbspec config show\n       tbspec config model-type list\nOptions: --project <dir>, --json, --help\nRead-only local inspection. Status reports offline validity and coverage; errors or required skipped checks exit 1.",
+      text: "Usage: tbspec status\n       tbspec graph list\n       tbspec graph show <path|dep:id|dep:id/file-key>\n       tbspec config show\n       tbspec config model-type list|show <name>\n       tbspec config model-type set <name> --ontology <selector> [--accept-impact]\n       tbspec config model-type disable|enable|reset <name>\n       tbspec config model-type design set <name> <selector>\n       tbspec config model-type design clear <name>\nOptions: --project <dir>, --json, --help, --accepted-preview <digest>\nConfiguration edits preserve unknown TOML content. Used vocabulary changes preview impact and require explicit --accept-impact. Status reports offline validity and coverage; errors or required skipped checks exit 1.",
       topics: [
         {
           invocation: "tbspec llms project inspect",
@@ -297,7 +297,7 @@ export function help(command: string): Guidance {
       topics: guidance([]).data.topics,
     };
   return {
-    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, shapes list/create, graph list/show, ontology list/show/create/import, model list/show/create/import/schema list/add/remove, query list/show/save/run/remove, config show/model-type list, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec query run --file explore.rq --graph models/orders.ttl --json\nCLI and authenticated browser share project operations. Use tbspec llms queries for query-specific guidance.",
+    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, shapes list/create, graph list/show, ontology list/show/create/import, model list/show/create/import/schema list/add/remove, query list/show/save/run/remove, config show/model-type list/show/set/disable/enable/reset/design, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExample: tbspec query run --file explore.rq --graph models/orders.ttl --json\nCLI and authenticated browser share queries, configuration, authoring and project operations. Use tbspec llms queries and tbspec llms project for guidance.",
     topics: [
       { invocation: "tbspec init --help", description: "Initialize an offline project." },
       { invocation: "tbspec llms --help", description: "Recursive agent guidance." },

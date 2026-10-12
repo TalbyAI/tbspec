@@ -74,6 +74,13 @@ interface Triple {
 interface Preview {
   changes: { file: string; action: string }[];
   arguments: {
+    affectedModels?: {
+      selector: string;
+      ontologyBefore: string | null;
+      ontologyAfter: string | null;
+      validityBefore: string;
+      validityAfter: string;
+    }[];
     removedVocabulary?: Term[];
     removedVocabularyRoles?: { term: Term; roles: string[] }[];
     affectedReferences?: Triple[];
@@ -212,6 +219,10 @@ function App() {
   const [operation, setOperation] = useState("model.create");
   const [receivingType, setReceivingType] = useState("data");
   const [profile, setProfile] = useState("conceptual");
+  const [modelTypeName, setModelTypeName] = useState("");
+  const [modelTypeOntology, setModelTypeOntology] = useState("");
+  const [designSelectors, setDesignSelectors] = useState<Record<string, string>>({});
+  const [acceptedImpact, setAcceptedImpact] = useState(false);
   const [authored, setAuthored] = useState<Envelope | null>(null);
   const [validation, setValidation] = useState<Envelope | null>(null);
   const [validationTarget, setValidationTarget] = useState<string | undefined>();
@@ -320,18 +331,32 @@ function App() {
             (result.data.preview as { impact?: { acceptance?: string[] } }).impact?.acceptance ??
             [],
         });
+      if (result.status === "preview") setAcceptedImpact(false);
       else if (result.status === "ok") {
         await refresh(session);
-        const resource = result.data?.resource as Resource;
-        await show(resource.selector, resource.kind);
+        const resource = result.data?.resource as Resource | undefined;
+        if (resource) await show(resource.selector, resource.kind);
       }
     } catch (problem) {
+      if (apply) {
+        setPendingPreview(null);
+        setAuthored(null);
+        setAcceptedImpact(false);
+      }
       setError(
         `${problem instanceof Error ? problem.message : "Resource operation failed."} Inspect the project before trying another write.`,
       );
     } finally {
       setBusy(false);
     }
+  }
+  function configureModelType(command: string, name: string, fields: Record<string, string> = {}) {
+    setTab("resources");
+    void author(
+      { command: `config.model-type.${command}`, name, ...fields },
+      false,
+      "model-types/configure",
+    );
   }
   async function validate(selector?: string) {
     setBusy(true);
@@ -485,6 +510,7 @@ function App() {
     const handle = pendingPreview.handle;
     setPendingPreview(null);
     setAuthored(null);
+    setAcceptedImpact(false);
     setBusy(true);
     try {
       const result = await request("resource/cancel", session, { schemaVersion: 1, handle });
@@ -810,23 +836,65 @@ function App() {
                   {authored && (
                     <section aria-label="Authoring result">
                       <h3>
-                        {authored.status === "preview" ? "Resource preview" : "Resource result"}
+                        {"modelType" in (authored.data ?? {})
+                          ? authored.status === "preview"
+                            ? "Model-type configuration preview"
+                            : "Model-type configuration result"
+                          : authored.status === "preview"
+                            ? "Resource preview"
+                            : "Resource result"}
                       </h3>
-                      <pre>{JSON.stringify(authored.data?.resource, null, 2)}</pre>
+                      <pre>
+                        {JSON.stringify(
+                          "modelType" in (authored.data ?? {})
+                            ? {
+                                modelType: authored.data?.modelType,
+                                affectedModels: authored.data?.affectedModels,
+                                projectValidity: authored.data?.projectValidity,
+                                validationComplete: authored.data?.validationComplete,
+                              }
+                            : authored.data?.resource,
+                          null,
+                          2,
+                        )}
+                      </pre>
                       <Diagnostics items={authored.diagnostics} />
                       {pendingPreview && (
-                        <p>Preview expires at {String(authored.data?.expiresAt)}.</p>
+                        <p>
+                          This server-held preview expires after 15 minutes, at{" "}
+                          {String(authored.data?.expiresAt)}.
+                        </p>
                       )}
                       {pendingPreview && (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void author(pendingPreview, true)}
-                        >
-                          {pendingPreview.accept.includes("confirm")
-                            ? "Confirm schema removal"
-                            : "Apply reviewed resource"}
-                        </button>
+                        <>
+                          {pendingPreview.accept.includes("accept-impact") && (
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={acceptedImpact}
+                                disabled={busy}
+                                onChange={(event) => setAcceptedImpact(event.target.checked)}
+                              />
+                              I accept the disclosed model validity impact.
+                            </label>
+                          )}
+                          <button
+                            type="button"
+                            disabled={
+                              busy ||
+                              (pendingPreview.accept.includes("accept-impact") && !acceptedImpact)
+                            }
+                            onClick={() => void author(pendingPreview, true)}
+                          >
+                            {pendingPreview.accept.includes("confirm")
+                              ? "Confirm schema removal"
+                              : pendingPreview.accept.includes("accept-impact")
+                                ? "Apply reviewed configuration"
+                                : "modelType" in (authored.data ?? {})
+                                  ? "Apply reviewed configuration"
+                                  : "Apply reviewed resource"}
+                          </button>
+                        </>
                       )}
                       {pendingPreview && (
                         <button type="button" disabled={busy} onClick={() => void cancelPreview()}>
@@ -898,6 +966,24 @@ function App() {
                                             key={`${check.target}:${check.kind}:${check.shapesSelector}`}
                                           >
                                             {check.target}: {check.kind} from {check.shapesSelector}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p>None</p>
+                                    )}
+                                  </>
+                                )}
+                                {preview.arguments.affectedModels && (
+                                  <>
+                                    <h4>Affected model bindings</h4>
+                                    {preview.arguments.affectedModels.length ? (
+                                      <ul>
+                                        {preview.arguments.affectedModels.map((model) => (
+                                          <li key={model.selector}>
+                                            {model.selector}: {model.ontologyBefore ?? "unbound"} →{" "}
+                                            {model.ontologyAfter ?? "unbound"}; validity{" "}
+                                            {model.validityBefore} → {model.validityAfter}
                                           </li>
                                         ))}
                                       </ul>
@@ -1128,7 +1214,12 @@ function App() {
                     <tbody>
                       {modelTypes.map((type) => (
                         <tr key={type.name}>
-                          <td>{type.name}</td>
+                          <td>
+                            <details>
+                              <summary>{type.name}</summary>
+                              <pre>{JSON.stringify(type, null, 2)}</pre>
+                            </details>
+                          </td>
                           <td>{type.enabled ? "Enabled" : "Disabled"}</td>
                           <td>
                             <code>{type.ontology}</code>
@@ -1142,6 +1233,103 @@ function App() {
                     </tbody>
                   </table>
                 </div>
+                <h3>Add or replace a model-type ontology</h3>
+                <p>Choose an owned path or an exact retained selector such as dep:id/file-key.</p>
+                <form
+                  onChange={() => void cancelPreview()}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    configureModelType("set", modelTypeName, { ontology: modelTypeOntology });
+                  }}
+                >
+                  <label htmlFor="model-type-name">Model-type name</label>
+                  <input
+                    id="model-type-name"
+                    value={modelTypeName}
+                    onChange={(event) => setModelTypeName(event.target.value)}
+                    required
+                    disabled={busy}
+                  />
+                  <label htmlFor="model-type-ontology">Ontology graph selector</label>
+                  <input
+                    id="model-type-ontology"
+                    value={modelTypeOntology}
+                    onChange={(event) => setModelTypeOntology(event.target.value)}
+                    placeholder="ontologies/custom.ttl or dep:id/source/file.ttl"
+                    required
+                    disabled={busy}
+                  />
+                  <button type="submit" disabled={busy || !!pendingPreview}>
+                    Preview model-type change
+                  </button>
+                </form>
+                <h3>Model-type actions</h3>
+                <ul className="resource-list">
+                  {modelTypes.map((type) => (
+                    <li key={`${type.name}:configuration`}>
+                      <strong>{type.name}</strong>
+                      <span>
+                        {type.origin === "locked-default" ? "Locked default" : "Manifest row"}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={busy || !!pendingPreview}
+                        onClick={() =>
+                          configureModelType(type.enabled ? "disable" : "enable", type.name)
+                        }
+                      >
+                        {type.enabled ? "Disable creation" : "Enable creation"}
+                      </button>
+                      {["data", "process", "state-machine"].includes(type.name) && (
+                        <button
+                          type="button"
+                          disabled={busy || !!pendingPreview}
+                          onClick={() => configureModelType("reset", type.name)}
+                        >
+                          Reset to project-locked default
+                        </button>
+                      )}
+                      <form
+                        onChange={() => void cancelPreview()}
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          const design = designSelectors[type.name] ?? "";
+                          if (design) configureModelType("design.set", type.name, { design });
+                        }}
+                      >
+                        <label htmlFor={`design-${type.name}`}>Design graph selector</label>
+                        <input
+                          id={`design-${type.name}`}
+                          value={designSelectors[type.name] ?? ""}
+                          onChange={(event) =>
+                            setDesignSelectors((values) => ({
+                              ...values,
+                              [type.name]: event.target.value,
+                            }))
+                          }
+                          placeholder="dep:id/file-key or owned/path.ttl"
+                          disabled={busy}
+                        />
+                        <button
+                          type="submit"
+                          disabled={busy || !!pendingPreview || !designSelectors[type.name]}
+                        >
+                          Set design independently
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy || !!pendingPreview}
+                          onClick={() => {
+                            setDesignSelectors((values) => ({ ...values, [type.name]: "" }));
+                            configureModelType("design.clear", type.name);
+                          }}
+                        >
+                          Clear design
+                        </button>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
                 <h3>All settings</h3>
                 <pre>{JSON.stringify(config, null, 2)}</pre>
               </section>
