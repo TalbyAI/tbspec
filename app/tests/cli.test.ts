@@ -83,6 +83,59 @@ test("CLI validates, lists shapes and confirms schema removal offline with exact
   ])
     assert.equal(invoke(args, root).status, 2);
 });
+
+test("CLI query commands save, inspect, bind, run and confirm removal", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-cli-query-"));
+  await initializeProject({ directory: root, baseIri: "urn:query-cli:/" });
+  await writeFile(
+    join(root, "data.ttl"),
+    `@prefix owl: <http://www.w3.org/2002/07/owl#> . <urn:cli:data> a owl:Ontology; <urn:cli:value> "7" .`,
+  );
+  await writeFile(
+    join(root, "source.rq"),
+    "\uFEFFSELECT ?subject WHERE { ?subject <urn:cli:value> ?value }",
+  );
+  await writeFile(
+    join(root, "parameters.toml"),
+    `\uFEFFschema_version = 1\n\n[[parameters]]\nname = "value"\nkind = "literal"\nrequired = true\n`,
+  );
+  await writeFile(join(root, "bindings.json"), '{"value":{"kind":"literal","value":"7"}}');
+
+  const help = invoke(["query", "--help"], root);
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.envelope.data.text, /query run/);
+  assert.equal(invoke(["query", "list"], root).status, 0);
+  const saved = invoke(
+    ["query", "save", "cli-example", "--file", "source.rq", "--parameters", "parameters.toml"],
+    root,
+  );
+  assert.equal(saved.status, 0, saved.stderr);
+  assert.equal(saved.envelope.data.applied, true);
+  const shown = invoke(["query", "show", "cli-example"], root);
+  assert.equal(shown.status, 0, shown.stderr);
+  assert.equal(shown.envelope.data.parameters[0].name, "value");
+  assert.equal(
+    shown.envelope.data.queryText,
+    "\uFEFFSELECT ?subject WHERE { ?subject <urn:cli:value> ?value }",
+  );
+  assert.deepEqual(
+    await readFile(join(root, "queries/cli-example.rq")),
+    Buffer.from("\uFEFFSELECT ?subject WHERE { ?subject <urn:cli:value> ?value }"),
+  );
+  const run = invoke(
+    ["query", "run", "--saved", "cli-example", "--bindings", "bindings.json"],
+    root,
+  );
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(run.envelope.data.rows[0].subject, { kind: "iri", value: "urn:cli:data" });
+  assert.equal(invoke(["query", "run", "--saved", "cli-example"], root).status, 2);
+  const preview = invoke(["query", "remove", "cli-example"], root);
+  assert.equal(preview.status, 0);
+  assert.equal(preview.envelope.status, "preview");
+  const removed = invoke(["query", "remove", "cli-example", "--confirm"], root);
+  assert.equal(removed.status, 0, removed.stderr);
+  assert.equal(invoke(["query", "list"], root).envelope.data.items.length, 0);
+});
 test("CLI authors and inspects every model family and imports locked vocabulary offline", async () => {
   const root = await mkdtemp(join(tmpdir(), "tb-cli-author-"));
   await initializeProject({ directory: root, baseIri: "urn:cli:/" });

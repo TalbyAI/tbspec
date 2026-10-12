@@ -46,6 +46,19 @@ interface ModelType {
   design: string | null;
   origin: string;
 }
+interface QueryParameter {
+  name: string;
+  kind: "iri" | "literal";
+  required: boolean;
+  datatype?: string;
+  language?: string;
+}
+interface SavedQuery {
+  name: string;
+  queryFile: string;
+  parametersFile: string;
+  parameters: QueryParameter[];
+}
 interface Term {
   kind: string;
   value: string;
@@ -203,6 +216,14 @@ function App() {
   const [validation, setValidation] = useState<Envelope | null>(null);
   const [validationTarget, setValidationTarget] = useState<string | undefined>();
   const [supportList, setSupportList] = useState<Envelope | null>(null);
+  const [queries, setQueries] = useState<SavedQuery[]>([]);
+  const [queryName, setQueryName] = useState("");
+  const [queryText, setQueryText] = useState("SELECT * WHERE { ?subject ?predicate ?object }");
+  const [parametersText, setParametersText] = useState("");
+  const [bindingsText, setBindingsText] = useState("{}");
+  const [queryGraph, setQueryGraph] = useState("");
+  const [queryDetails, setQueryDetails] = useState<Record<string, unknown> | null>(null);
+  const [queryResult, setQueryResult] = useState<Envelope | null>(null);
   const [pendingPreview, setPendingPreview] = useState<{
     schemaVersion: 1;
     handle: string;
@@ -346,6 +367,119 @@ function App() {
       setBusy(false);
     }
   }
+  async function refreshQueries() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await request("queries", session);
+      const items = (result.data?.items as SavedQuery[]) ?? [];
+      setQueries(items);
+      if (!items.some((item) => item.name === queryName)) setQueryName(items[0]?.name ?? "");
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Saved queries are unavailable.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function inspectQuery(name = queryName, keepDraft = false) {
+    if (!name) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await request(`query?name=${encodeURIComponent(name)}`, session);
+      setQueryDetails(result.data);
+      setQueryName(name);
+      if (!keepDraft) {
+        setQueryText(String(result.data?.queryText ?? ""));
+        setParametersText("");
+      }
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Saved query is unavailable.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function refreshQueryReview() {
+    if (!queryName) return;
+    await inspectQuery(queryName, true);
+  }
+  function reviewedQueryRevisions(name: string) {
+    if (queryDetails?.name === name && queryDetails.revisions)
+      return queryDetails.revisions as {
+        query: { state: string; digest?: string };
+        parameters: { state: string; digest?: string };
+      };
+    return { query: { state: "absent" }, parameters: { state: "absent" } };
+  }
+  async function saveQuery() {
+    if (queries.some((query) => query.name === queryName) && queryDetails?.name !== queryName) {
+      await refreshQueryReview();
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await request("query/save", session, {
+        name: queryName,
+        queryText,
+        expectedRevisions: reviewedQueryRevisions(queryName),
+        ...(parametersText.trim() ? { parametersText } : {}),
+      });
+      setQueryResult(result);
+      if (result.status === "ok") {
+        setParametersText("");
+        await refreshQueries();
+        await inspectQuery(queryName);
+      }
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Saved query could not be written.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function runQuery(saved?: string) {
+    setBusy(true);
+    setError("");
+    try {
+      setQueryResult(
+        await request("query/run", session, {
+          ...(saved ? { saved } : { queryText }),
+          ...(queryGraph.trim() ? { graph: queryGraph.trim() } : {}),
+          ...(bindingsText.trim() ? { bindingsText } : {}),
+        }),
+      );
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Query execution failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function removeQuery() {
+    if (!queryName) return;
+    if (queryDetails?.name !== queryName) {
+      await refreshQueryReview();
+      return;
+    }
+    if (!window.confirm(`Remove saved query “${queryName}” and its declaration?`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await request("query/remove", session, {
+        name: queryName,
+        confirm: true,
+        expectedRevisions: reviewedQueryRevisions(queryName),
+      });
+      setQueryResult(result);
+      if (result.status === "ok") {
+        setQueryDetails(null);
+        await refreshQueries();
+      }
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Saved query could not be removed.");
+    } finally {
+      setBusy(false);
+    }
+  }
   async function cancelPreview() {
     if (!pendingPreview) return;
     const handle = pendingPreview.handle;
@@ -446,13 +580,16 @@ function App() {
         {session && (
           <>
             <nav aria-label="Workspace sections">
-              {["resources", "configuration", "diagnostics"].map((name) => (
+              {["resources", "queries", "configuration", "diagnostics"].map((name) => (
                 <button
                   type="button"
                   key={name}
                   aria-current={tab === name ? "page" : undefined}
                   disabled={busy}
-                  onClick={() => setTab(name)}
+                  onClick={() => {
+                    setTab(name);
+                    if (name === "queries") void refreshQueries();
+                  }}
                 >
                   {name[0]?.toUpperCase()}
                   {name.slice(1)}
@@ -1007,6 +1144,155 @@ function App() {
                 </div>
                 <h3>All settings</h3>
                 <pre>{JSON.stringify(config, null, 2)}</pre>
+              </section>
+            )}
+            {tab === "queries" && (
+              <section aria-label="Saved queries and SPARQL">
+                <h2>Saved queries</h2>
+                <p>
+                  Run SELECT, ASK, CONSTRUCT or DESCRIBE against the local project dataset or one
+                  exact graph. Bind RDF terms through JSON; query text is never substituted.
+                </p>
+                <div className="form-row">
+                  <label htmlFor="saved-query">Saved query</label>
+                  <select
+                    id="saved-query"
+                    value={queryName}
+                    onChange={(event) => setQueryName(event.target.value)}
+                    disabled={busy}
+                  >
+                    <option value="">Choose a saved query</option>
+                    {queries.map((item) => (
+                      <option key={item.name} value={item.name}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" disabled={busy} onClick={() => void refreshQueries()}>
+                    Refresh saved queries
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !queryName}
+                    onClick={() => void inspectQuery()}
+                  >
+                    Inspect saved query
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !queryName}
+                    onClick={() => void refreshQueryReview()}
+                  >
+                    Refresh revision review; keep current draft
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !queryName || queryDetails?.name !== queryName}
+                    onClick={() => void removeQuery()}
+                  >
+                    Remove saved query
+                  </button>
+                </div>
+                {queryDetails && (
+                  <details open>
+                    <summary>Saved declaration and file revisions</summary>
+                    <p>
+                      {String(queryDetails.queryFile)} · {String(queryDetails.parametersFile)}
+                    </p>
+                    <ul>
+                      {((queryDetails.parameters as QueryParameter[]) ?? []).map((parameter) => (
+                        <li key={parameter.name}>
+                          <code>{parameter.name}</code>: {parameter.kind},{" "}
+                          {parameter.required ? "required" : "optional"}
+                          {parameter.datatype ? `, datatype ${parameter.datatype}` : ""}
+                          {parameter.language ? `, language ${parameter.language}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                    {!((queryDetails.parameters as QueryParameter[]) ?? []).length && (
+                      <p>No parameters declared.</p>
+                    )}
+                    <pre>{JSON.stringify(queryDetails.revisions, null, 2)}</pre>
+                    <details>
+                      <summary>Server query text at this reviewed revision</summary>
+                      <pre>{String(queryDetails.queryText ?? "")}</pre>
+                    </details>
+                  </details>
+                )}
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void saveQuery();
+                  }}
+                >
+                  <h3>Query text</h3>
+                  <label htmlFor="query-name">Saved query name</label>
+                  <input
+                    id="query-name"
+                    value={queryName}
+                    onChange={(event) => setQueryName(event.target.value)}
+                    placeholder="orders-by-customer"
+                    required
+                    disabled={busy}
+                  />
+                  <label htmlFor="query-text">SPARQL query</label>
+                  <textarea
+                    id="query-text"
+                    value={queryText}
+                    onChange={(event) => setQueryText(event.target.value)}
+                    rows={10}
+                    required
+                    disabled={busy}
+                  />
+                  <label htmlFor="query-parameters">Parameter declaration TOML (optional)</label>
+                  <textarea
+                    id="query-parameters"
+                    value={parametersText}
+                    onChange={(event) => setParametersText(event.target.value)}
+                    rows={5}
+                    placeholder="Leave blank to keep existing declaration bytes or use an empty declaration for a new query."
+                    disabled={busy}
+                  />
+                  <button type="submit" disabled={busy}>
+                    Save query
+                  </button>
+                </form>
+                <h3>Run query</h3>
+                <label htmlFor="query-graph">Exact graph selector (optional)</label>
+                <input
+                  id="query-graph"
+                  value={queryGraph}
+                  onChange={(event) => setQueryGraph(event.target.value)}
+                  placeholder="models/orders.ttl or dep:id/file-key"
+                  disabled={busy}
+                />
+                <label htmlFor="query-bindings">Typed RDF-term bindings JSON</label>
+                <textarea
+                  id="query-bindings"
+                  value={bindingsText}
+                  onChange={(event) => setBindingsText(event.target.value)}
+                  rows={4}
+                  disabled={busy}
+                />
+                <div className="form-row">
+                  <button type="button" disabled={busy} onClick={() => void runQuery()}>
+                    Run ad hoc query
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !queryName}
+                    onClick={() => void runQuery(queryName)}
+                  >
+                    Run saved query
+                  </button>
+                </div>
+                {queryResult && (
+                  <section aria-label="Query result">
+                    <h3>Query result · {queryResult.status}</h3>
+                    <Diagnostics items={queryResult.diagnostics} />
+                    {queryResult.data && <pre>{JSON.stringify(queryResult.data, null, 2)}</pre>}
+                  </section>
+                )}
               </section>
             )}
             {tab === "diagnostics" && (

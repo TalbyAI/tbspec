@@ -38,6 +38,111 @@ test("an explicit HTTP default port reuses the successfully started server", {
   assert.equal(different.diagnostics[0]?.code, "WEB_PORT_CONFLICT");
 });
 
+test("authenticated HTTP exposes saved query lifecycle and execution", {
+  timeout: 30000,
+}, async (t) => {
+  const root = await privateDirectory(join(tmpdir(), "tbspec-web-query-"));
+  await initializeProject({ directory: root });
+  await writeFile(
+    join(root, "data.ttl"),
+    `@prefix owl: <http://www.w3.org/2002/07/owl#> . <urn:web:data> a owl:Ontology; <urn:web:value> "ok" .`,
+  );
+  const server = await startWebServer(await realpath(root), 0);
+  t.after(() => server.stop());
+  const baseUrl = server.record.baseUrl;
+  assert.ok(baseUrl);
+  const link = await controlRequest(server.record, "opening-link", {});
+  const opening = String(link.openingLink);
+  const bootstrap = new URL(opening).hash.slice("#tbspec-bootstrap=".length);
+  const exchanged = await fetch(new URL("api/auth/v1/bootstrap", baseUrl), {
+    method: "POST",
+    headers: { Origin: new URL(baseUrl).origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ protocolVersion: 1, bootstrap }),
+  });
+  assert.equal(exchanged.status, 200);
+  const session = String((await exchanged.json()).data.sessionToken);
+  const request = async (path: string, body?: Record<string, unknown>) => {
+    const response = await fetch(new URL(`api/project/v1/${path}`, baseUrl), {
+      method: body ? "POST" : "GET",
+      headers: {
+        Authorization: `Bearer ${session}`,
+        "X-Tbspec-Schema-Version": "1",
+        Origin: new URL(baseUrl).origin,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    return { status: response.status, envelope: await response.json() };
+  };
+  assert.equal((await request("queries")).envelope.status, "ok");
+  const saved = await request("query/save", {
+    name: "web-example",
+    queryText: "SELECT ?subject WHERE { ?subject <urn:web:value> ?value }",
+    parametersText: "schema_version = 1\nparameters = []\n",
+    expectedRevisions: {
+      query: { state: "absent" },
+      parameters: { state: "absent" },
+    },
+  });
+  assert.equal(saved.envelope.status, "ok", JSON.stringify(saved.envelope));
+  const shown = await request("query?name=web-example");
+  assert.equal(
+    shown.envelope.data.queryText,
+    "SELECT ?subject WHERE { ?subject <urn:web:value> ?value }",
+  );
+  const run = await request("query/run", { saved: "web-example" });
+  assert.equal(run.envelope.status, "ok");
+  assert.equal(run.envelope.data.rows[0].subject.value, "urn:web:data");
+
+  const queryPath = join(root, "queries/web-example.rq");
+  const independentQuery = "ASK { <urn:independent> ?p ?o }";
+  await writeFile(queryPath, independentQuery);
+  const staleSave = await request("query/save", {
+    name: "web-example",
+    queryText: "ASK { <urn:browser-draft> ?p ?o }",
+    expectedRevisions: shown.envelope.data.revisions,
+  });
+  assert.equal(staleSave.envelope.status, "conflict");
+  assert.equal(await readFile(queryPath, "utf8"), independentQuery);
+
+  const latest = await request("query?name=web-example");
+  const declarationPath = join(root, "queries/web-example.query.toml");
+  const independentDeclaration =
+    "# concurrent declaration edit\nschema_version = 1\nparameters = []\n";
+  await writeFile(declarationPath, independentDeclaration);
+  const staleRemove = await request("query/remove", {
+    name: "web-example",
+    confirm: true,
+    expectedRevisions: latest.envelope.data.revisions,
+  });
+  assert.equal(staleRemove.envelope.status, "conflict");
+  assert.equal(await readFile(queryPath, "utf8"), independentQuery);
+  assert.equal(await readFile(declarationPath, "utf8"), independentDeclaration);
+
+  const refreshed = await request("query?name=web-example");
+  assert.equal(
+    (
+      await request("query/remove", {
+        name: "web-example",
+        confirm: false,
+        expectedRevisions: refreshed.envelope.data.revisions,
+      })
+    ).envelope.status,
+    "preview",
+  );
+  assert.equal(
+    (
+      await request("query/remove", {
+        name: "web-example",
+        confirm: true,
+        expectedRevisions: refreshed.envelope.data.revisions,
+      })
+    ).envelope.status,
+    "ok",
+  );
+  assert.deepEqual((await request("queries")).envelope.data.items, []);
+});
+
 test("a failed stopping registration can be explicitly retried without disabling reads", {
   timeout: 30000,
 }, async () => {

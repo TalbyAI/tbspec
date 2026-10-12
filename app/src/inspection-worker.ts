@@ -12,6 +12,7 @@ import { type Diagnostic, failure, ok, ProjectError, type Result } from "./outpu
 import { token } from "./ownership.ts";
 import { safePath } from "./paths.ts";
 import { discardPreview, retainedPreview } from "./previews.ts";
+import { type QueryOperation, queryOperation } from "./query.ts";
 import { secureRuntimeDirectory } from "./runtime.ts";
 
 export interface InspectionResponse {
@@ -38,6 +39,12 @@ interface StoredPreview {
   workspace: string;
   timer: ReturnType<typeof setTimeout>;
 }
+type WorkerRequest =
+  | (Parameters<typeof inspectProject>[0] & {
+      authoring?: AuthoringRequest;
+      warnings?: Diagnostic[];
+    })
+  | { project: string; query: QueryOperation; warnings?: Diagnostic[] };
 const previews = new Map<string, StoredPreview>();
 const cleanupWarnings: Diagnostic[] = [];
 let pending = Promise.resolve();
@@ -52,16 +59,13 @@ async function discard(key: string) {
     cleanupWarnings.push(retainedPreview(preview.workspace));
   }
 }
-async function handle(
-  request: Parameters<typeof inspectProject>[0] & {
-    authoring?: AuthoringRequest;
-    warnings?: Diagnostic[];
-  },
-) {
+async function handle(request: WorkerRequest) {
   let result: Result;
   try {
-    const authoring = request.authoring;
-    if (!authoring) result = await inspectProject(request);
+    const authoring = "authoring" in request ? request.authoring : undefined;
+    if ("query" in request)
+      result = await queryOperation({ project: request.project, operation: request.query });
+    else if (!authoring) result = await inspectProject(request);
     else if (authoring.mode === "preview" && (authoring.options || authoring.editing)) {
       for (const [key, preview] of previews)
         if (preview.expires <= Date.now()) {
@@ -211,6 +215,6 @@ async function handle(
     json: JSON.stringify(result),
   } satisfies InspectionResponse);
 }
-parentPort?.on("message", (request: Parameters<typeof handle>[0]) => {
+parentPort?.on("message", (request: WorkerRequest) => {
   pending = pending.then(() => handle(request));
 });
