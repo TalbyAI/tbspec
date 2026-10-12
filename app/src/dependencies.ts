@@ -1,0 +1,2600 @@
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { createReadStream, statSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { extname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { DataFactory, type Store } from "n3";
+import { canonical, digest, graphSignature, hash, sortedSet, utf8Compare } from "./canonical.ts";
+import { compareDiagnosticImpact } from "./diagnostic-impact.ts";
+import { equalRevision, fileBytes, inventory, revision } from "./filesystem.ts";
+import { captureInspection, inspectSnapshot } from "./inspection.ts";
+import { withLock } from "./lock.ts";
+import { type Diagnostic, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
+import { id, portablePath, safePath } from "./paths.ts";
+import { projectDiscoveryScope, readProject } from "./project.ts";
+import { classifyGraph, parseGraph, parseRdf, rdfFormats } from "./rdf.ts";
+import {
+  type Dependency,
+  interpretationSignature,
+  type Lock,
+  type LockedFile,
+  parseLock,
+  parseManifest,
+  type Row,
+  selector,
+  writeToml,
+} from "./schemas.ts";
+import { loadStarters } from "./starters.ts";
+import {
+  capture,
+  type Plan,
+  preparePlan,
+  publishPlan,
+  type Snapshot,
+  withPlanImpact,
+} from "./transactions.ts";
+
+const owlImports = "http://www.w3.org/2002/07/owl#imports";
+const metadata = "https://talby.ai/ontology/tbspec#";
+const supportedSuffix = /\.(?:ttl|nt|rdf|owl)$/i;
+const ignoredDirectoryNames = new Set([
+  ".git",
+  ".tbspec",
+  ".scratch",
+  ".cache",
+  "node_modules",
+  "coverage",
+  "dist",
+  "target",
+  "tmp",
+  "temp",
+]);
+
+type AcquisitionKind = "directory" | "git" | "url";
+type ResourceKind = "ontology" | "model" | "design";
+interface Limits {
+  maxGraphBytes: number;
+  maxTotalBytes: number;
+  maxFiles: number;
+  maxRedirects: number;
+  deadlineMs: number;
+  maxGitWorkspaceBytes: number;
+}
+interface SourceOptions {
+  source: string;
+  cwd?: string;
+  ref?: string;
+  resource?: string;
+  limits: Limits;
+  signal?: AbortSignal;
+}
+interface SourceEntry {
+  address: string;
+  sourceResource: string;
+  source: string;
+  context: string;
+  bytes: Buffer | null;
+  mediaType?: string;
+  baseIri?: string;
+  profile?: string;
+  lockedFile?: LockedFile;
+  lockedDependency?: Dependency;
+  store?: Store;
+  byteDigest?: string;
+  byteLength?: number;
+  parseable?: boolean;
+  sourcePath?: string;
+  capturedDigest?: string;
+  readBytes?: () => Promise<Buffer | null>;
+  kind?: string;
+  classification?: string;
+  identity?: "declared" | "generated";
+  graphIri?: string;
+  parseError?: ProjectError;
+}
+interface SourceInventory {
+  kind: AcquisitionKind;
+  locator: string;
+  effectiveLocator?: string;
+  ref?: string;
+  resolvedCommit?: string;
+  revisionKind?: "default" | "ref" | "commit";
+  root?: string;
+  manifest?: Row;
+  lock?: Lock;
+  entries: Map<string, SourceEntry>;
+  files?: Map<string, { mode: string; oid: string }>;
+  submodules?: string[];
+  treeRevision?: string;
+  diagnostics: Diagnostic[];
+  cleanup?: () => Promise<void>;
+  verifyIncluded?: (entries: SourceEntry[]) => Promise<void>;
+  vettedDigest?: string;
+  signal?: AbortSignal;
+  deadline: number;
+}
+export interface PreparedDependency {
+  root: string;
+  id: string;
+  dependency: Dependency;
+  plan: Plan;
+  diagnostics: Diagnostic[];
+  projectValidity: "valid" | "invalid" | "unchecked";
+  validationComplete: boolean;
+}
+
+function checkCancelled(source: SourceInventory): void {
+  if (source.signal?.aborted)
+    throw new ProjectError(
+      "conflict",
+      "ACQUISITION_CANCELLED",
+      "Dependency acquisition was cancelled.",
+    );
+  if (Date.now() >= source.deadline)
+    throw new ProjectError(
+      "unavailable",
+      "ACQUISITION_TIMEOUT",
+      "Dependency acquisition exceeded its time limit.",
+    );
+}
+
+function readError(
+  message: string,
+  status: "invalid" | "unavailable" | "invalid_arguments" = "unavailable",
+  code = "SOURCE_UNAVAILABLE",
+) {
+  return new ProjectError(status, code, message);
+}
+
+function defaultLimits(manifest: Row): Limits {
+  const value = (manifest.acquisition ?? {}) as Record<string, unknown>;
+  return {
+    maxGraphBytes: Number(value.max_graph_bytes ?? 67108864),
+    maxTotalBytes: Number(value.max_total_bytes ?? 268435456),
+    maxFiles: Number(value.max_files ?? 1000),
+    maxRedirects: Number(value.max_redirects ?? 5),
+    deadlineMs: Number(value.deadline_ms ?? 300000),
+    maxGitWorkspaceBytes: Number(value.max_git_workspace_bytes ?? 1073741824),
+  };
+}
+
+function safeHttpUrl(value: string, purpose: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw readError(
+      `${purpose} must be a valid HTTP(S) URL.`,
+      "invalid_arguments",
+      "SOURCE_LOCATOR_INVALID",
+    );
+  }
+  if (!["http:", "https:"].includes(url.protocol))
+    throw readError(
+      `${purpose} must use HTTP or HTTPS.`,
+      "invalid_arguments",
+      "SOURCE_LOCATOR_INVALID",
+    );
+  if (
+    url.username ||
+    url.password ||
+    hasUrlUserInfo(value) ||
+    value.includes("?") ||
+    value.includes("#")
+  )
+    throw readError(
+      `${purpose} must be a credential-free URL without query strings or fragments. Use transient authentication or a stable locator.`,
+      "invalid_arguments",
+      "SOURCE_LOCATOR_UNSAFE",
+    );
+  return url;
+}
+
+function hasUrlUserInfo(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(value);
+}
+
+function gitLocator(raw: string, cwd?: string): { locator: string; localRoot?: string; url?: URL } {
+  const value = raw.startsWith("git+https://") || raw.startsWith("git+ssh://") ? raw.slice(4) : raw;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value)) {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw readError(
+        "Git source locator is invalid.",
+        "invalid_arguments",
+        "SOURCE_LOCATOR_INVALID",
+      );
+    }
+    if (
+      !["https:", "ssh:"].includes(url.protocol) ||
+      url.password ||
+      (hasUrlUserInfo(value) && url.protocol === "https:") ||
+      value.includes("?") ||
+      value.includes("#")
+    )
+      throw readError(
+        "Git sources require a credential-free HTTPS or SSH locator.",
+        "invalid_arguments",
+        "SOURCE_LOCATOR_UNSAFE",
+      );
+    if (url.protocol === "https:" && url.username)
+      throw readError(
+        "Git sources must not persist user information; use a configured credential provider.",
+        "invalid_arguments",
+        "SOURCE_LOCATOR_UNSAFE",
+      );
+    return { locator: url.href, url };
+  }
+  const localRoot = resolve(cwd ?? process.cwd(), raw);
+  return { locator: localRoot, localRoot };
+}
+
+function isGitCheckout(path: string): boolean {
+  try {
+    const marker = statSync(join(path, ".git"));
+    return marker.isFile() || marker.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function sourceMode(options: SourceOptions): {
+  kind: AcquisitionKind;
+  locator: string;
+  localRoot?: string;
+  url?: URL;
+} {
+  const source = options.source;
+  if (source.startsWith("git+https://") || source.startsWith("git+ssh://")) {
+    const git = gitLocator(source, options.cwd);
+    return { kind: "git", ...git };
+  }
+  if (URL.canParse(source) && !/^[A-Za-z]:[\\/]/.test(source)) {
+    let url: URL;
+    try {
+      url = new URL(source);
+    } catch {
+      throw readError("Source locator is invalid.", "invalid_arguments", "SOURCE_LOCATOR_INVALID");
+    }
+    if (url.protocol === "ssh:") {
+      const git = gitLocator(source, options.cwd);
+      return { kind: "git", ...git };
+    }
+    const gitUrl = options.ref !== undefined || url.pathname.toLowerCase().endsWith(".git");
+    if (gitUrl) {
+      const git = gitLocator(source, options.cwd);
+      return { kind: "git", ...git };
+    }
+    const safe = safeHttpUrl(source, "HTTP source");
+    return { kind: "url", locator: safe.href, url: safe };
+  }
+  const absolute = resolve(options.cwd ?? process.cwd(), source);
+  try {
+    if (requireDirectory(absolute) && options.ref === undefined && isGitCheckout(absolute))
+      return { kind: "git", locator: absolute, localRoot: absolute };
+    if (requireDirectory(absolute))
+      return options.ref === undefined
+        ? { kind: "directory", locator: absolute, localRoot: absolute }
+        : { kind: "git", locator: absolute, localRoot: absolute };
+  } catch {
+    // Remote locators are classified below; invalid local paths do not hide their source error.
+  }
+  if (options.ref !== undefined) {
+    const git = gitLocator(source, options.cwd);
+    return { kind: "git", ...git };
+  }
+  return { kind: "directory", locator: absolute, localRoot: absolute };
+}
+
+function requireDirectory(path: string): boolean {
+  // Source-mode probing remains synchronous and never follows a source file.
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function sourceExclusions(manifest?: Row): string[] {
+  const views = (manifest?.views as Row[] | undefined) ?? [];
+  return sortedSet([
+    ...new Set([
+      ...projectDiscoveryScope.excluded,
+      ...ignoredDirectoryNames,
+      ...views.flatMap((view) =>
+        [view.view, view.presentation].filter(
+          (value): value is string => typeof value === "string",
+        ),
+      ),
+    ]),
+  ]);
+}
+
+async function discoverRdfPaths(
+  root: string,
+  exclude: string[],
+  source: SourceInventory,
+): Promise<string[]> {
+  const found: string[] = [];
+  async function walk(directory: string) {
+    checkCancelled(source);
+    const target = directory ? await safePath(root, directory) : root;
+    for (const item of await readdir(target, { withFileTypes: true })) {
+      checkCancelled(source);
+      const path = directory ? `${directory}/${item.name}` : item.name;
+      portablePath(path);
+      if (exclude.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) continue;
+      await safePath(root, path);
+      if (item.isDirectory()) await walk(path);
+      else if (item.isFile() && supportedSuffix.test(path)) found.push(path);
+      else if (!item.isFile())
+        throw new ProjectError(
+          "conflict",
+          "PATH_UNSAFE",
+          "Links or special source files are not supported.",
+          path,
+        );
+    }
+  }
+  await walk("");
+  return found.sort(utf8Compare);
+}
+
+async function readSourceFile(
+  root: string,
+  path: string,
+  source: SourceInventory,
+  maxBytes: number,
+  retainBytes: boolean,
+): Promise<{ bytes: Buffer | null; byteLength: number; digest: string } | null> {
+  checkCancelled(source);
+  const target = await safePath(root, path);
+  const signal = nextSignal(source);
+  const stream = createReadStream(target, { highWaterMark: 64 * 1024, signal });
+  const chunks: Buffer[] = [];
+  const hasher = createHash("sha256");
+  let byteLength = 0;
+  try {
+    for await (const chunk of stream) {
+      checkCancelled(source);
+      const bytes = Buffer.from(chunk);
+      byteLength += bytes.byteLength;
+      if (byteLength > maxBytes)
+        throw new ProjectError(
+          "unavailable",
+          "ACQUISITION_LIMIT",
+          "Source graph exceeds maxGraphBytes.",
+          path,
+          { maxGraphBytes: maxBytes },
+        );
+      hasher.update(bytes);
+      if (retainBytes) chunks.push(bytes);
+    }
+    checkCancelled(source);
+    return {
+      bytes: retainBytes ? Buffer.concat(chunks, byteLength) : null,
+      byteLength,
+      digest: `sha256:${hasher.digest("hex")}`,
+    };
+  } catch (error) {
+    stream.destroy();
+    if (signal.aborted) throw acquisitionAbort(signal);
+    if (hasCode(error, "ENOENT")) return null;
+    throw error;
+  } finally {
+    stream.destroy();
+  }
+}
+
+async function verifyDirectoryReads(
+  root: string,
+  reads: Map<string, { kind: "file"; path: string; revision: ReturnType<typeof revision> }>,
+  scopeRead: {
+    kind: "inventory";
+    path: string;
+    revision: ReturnType<typeof revision>;
+    scope: { included: string[]; excluded: string[] };
+  },
+  source: SourceInventory,
+  maxGraphBytes: number,
+): Promise<void> {
+  for (const read of reads.values()) {
+    checkCancelled(source);
+    let actual: ReturnType<typeof revision>;
+    try {
+      const maxBytes =
+        read.path === "tbspec.toml" || read.path === "tbspec.lock"
+          ? Number.MAX_SAFE_INTEGER
+          : maxGraphBytes;
+      const captured = await readSourceFile(root, read.path, source, maxBytes, false);
+      actual = captured ? { state: "present", digest: captured.digest } : { state: "absent" };
+    } catch (error) {
+      if (hasCode(error, "ACQUISITION_LIMIT"))
+        throw new ProjectError(
+          "conflict",
+          "REVISION_CONFLICT",
+          `Source changed during dependency inventory capture: ${read.path}. Inspect the source again.`,
+          read.path,
+        );
+      throw error;
+    }
+    checkCancelled(source);
+    if (!equalRevision(read.revision, actual))
+      throw new ProjectError(
+        "conflict",
+        "REVISION_CONFLICT",
+        `Source changed during dependency inventory capture: ${read.path}. Inspect the source again.`,
+        read.path,
+      );
+  }
+  checkCancelled(source);
+  const actualInventory = await inventory(root, scopeRead.path, scopeRead.scope);
+  checkCancelled(source);
+  if (!equalRevision(scopeRead.revision, actualInventory))
+    throw new ProjectError(
+      "conflict",
+      "REVISION_CONFLICT",
+      "Source inventory changed during dependency capture. Inspect the source again.",
+    );
+}
+
+async function captureDirectorySource(
+  options: SourceOptions,
+  source: SourceInventory,
+): Promise<void> {
+  const root = await realpath(resolve(options.cwd ?? process.cwd(), options.source));
+  source.root = root;
+  source.locator = root;
+  checkCancelled(source);
+  const manifestExists = (await fileBytes(root, "tbspec.toml")) !== null;
+  const capture = async () => {
+    checkCancelled(source);
+    const manifestBytes = await fileBytes(root, "tbspec.toml");
+    const lockBytes = await fileBytes(root, "tbspec.lock");
+    checkCancelled(source);
+    const manifest = manifestBytes ? parseManifest(manifestBytes.toString("utf8")) : undefined;
+    const lock = manifestBytes ? parseLock(lockBytes?.toString("utf8") ?? "") : undefined;
+    const exclude = sourceExclusions(manifest);
+    const scope = { included: [""], excluded: exclude };
+    const discovery = await inventory(root, "", scope);
+    const paths = await discoverRdfPaths(root, exclude, source);
+    const capturedFiles = new Map<
+      string,
+      { byteLength: number; digest?: string; error?: ProjectError }
+    >();
+    const reads = new Map<
+      string,
+      { kind: "file"; path: string; revision: ReturnType<typeof revision> }
+    >();
+    reads.set("tbspec.toml", {
+      kind: "file",
+      path: "tbspec.toml",
+      revision: revision(manifestBytes),
+    });
+    reads.set("tbspec.lock", { kind: "file", path: "tbspec.lock", revision: revision(lockBytes) });
+    const scopeRead = {
+      kind: "inventory" as const,
+      path: "",
+      revision: discovery,
+      scope,
+    };
+    for (const path of paths) {
+      checkCancelled(source);
+      let value: Awaited<ReturnType<typeof readSourceFile>>;
+      try {
+        value = await readSourceFile(root, path, source, options.limits.maxGraphBytes, true);
+      } catch (error) {
+        if (!hasCode(error, "ACQUISITION_LIMIT")) throw error;
+        capturedFiles.set(path, {
+          byteLength: options.limits.maxGraphBytes + 1,
+          error: new ProjectError(
+            "unavailable",
+            "ACQUISITION_LIMIT",
+            "Source graph exceeds maxGraphBytes.",
+            path,
+            { maxGraphBytes: options.limits.maxGraphBytes },
+          ),
+        });
+        continue;
+      }
+      checkCancelled(source);
+      if (value) {
+        const fileRevision = { state: "present" as const, digest: value.digest };
+        reads.set(path, { kind: "file", path, revision: fileRevision });
+        capturedFiles.set(path, { byteLength: value.byteLength, digest: value.digest });
+      } else {
+        reads.set(path, { kind: "file", path, revision: revision(null) });
+        capturedFiles.set(path, {
+          byteLength: 0,
+          error: new ProjectError(
+            "invalid",
+            "RESOURCE_MISSING",
+            "Source file is unavailable.",
+            path,
+          ),
+        });
+      }
+    }
+    if (lock)
+      for (const dependency of Object.values(lock.dependencies))
+        for (const file of dependency.files) {
+          checkCancelled(source);
+          const path = `${dependency.snapshot_path}/${file.key}`;
+          if (file.byte_length > options.limits.maxGraphBytes) {
+            capturedFiles.set(path, {
+              byteLength: file.byte_length,
+              error: new ProjectError(
+                "unavailable",
+                "ACQUISITION_LIMIT",
+                "Locked source graph exceeds maxGraphBytes.",
+                file.key,
+                { maxGraphBytes: options.limits.maxGraphBytes },
+              ),
+            });
+            continue;
+          }
+          let value: Awaited<ReturnType<typeof readSourceFile>>;
+          try {
+            value = await readSourceFile(root, path, source, options.limits.maxGraphBytes, true);
+          } catch (error) {
+            if (!hasCode(error, "ACQUISITION_LIMIT")) throw error;
+            capturedFiles.set(path, {
+              byteLength: options.limits.maxGraphBytes + 1,
+              error: new ProjectError(
+                "unavailable",
+                "ACQUISITION_LIMIT",
+                "Locked source graph exceeds maxGraphBytes.",
+                file.key,
+                { maxGraphBytes: options.limits.maxGraphBytes },
+              ),
+            });
+            continue;
+          }
+          checkCancelled(source);
+          if (!value) {
+            reads.set(path, { kind: "file", path, revision: revision(null) });
+            capturedFiles.set(path, {
+              byteLength: 0,
+              error: new ProjectError(
+                "invalid",
+                "SNAPSHOT_INTEGRITY",
+                "A locked source snapshot file is missing.",
+                file.key,
+              ),
+            });
+          } else {
+            const fileRevision = { state: "present" as const, digest: value.digest };
+            reads.set(path, { kind: "file", path, revision: fileRevision });
+            capturedFiles.set(path, { byteLength: value.byteLength, digest: value.digest });
+          }
+        }
+    await verifyDirectoryReads(root, reads, scopeRead, source, options.limits.maxGraphBytes);
+    return {
+      manifest,
+      lock,
+      discovery,
+      paths,
+      capturedFiles,
+      manifestRevision: revision(manifestBytes),
+      lockRevision: revision(lockBytes),
+      manifestExists,
+      scope,
+    };
+  };
+  const captured = manifestExists ? await withLock(root, capture) : await capture();
+  const {
+    manifest,
+    lock,
+    discovery,
+    paths,
+    capturedFiles,
+    manifestRevision,
+    lockRevision,
+    manifestExists: capturedManifestExists,
+    scope,
+  } = captured;
+  source.manifest = manifest;
+  source.lock = lock;
+  source.treeRevision = discovery.state === "present" ? discovery.digest : "";
+  const readSourcePath = (path: string) => async () => {
+    const capture = await readSourceFile(root, path, source, options.limits.maxGraphBytes, true);
+    return capture?.bytes ?? null;
+  };
+  for (const path of paths) {
+    const indexed = capturedFiles.get(path);
+    source.entries.set(path, {
+      address: path,
+      sourceResource: path,
+      source: "source",
+      context: "source",
+      bytes: null,
+      sourcePath: path,
+      readBytes: readSourcePath(path),
+      ...(indexed?.digest ? { capturedDigest: indexed.digest } : {}),
+      ...(indexed ? { byteLength: indexed.byteLength } : {}),
+      ...(indexed?.error ? { parseError: indexed.error } : {}),
+      ...(indexed?.digest
+        ? {
+            mediaType: rdfFormats[extname(path).toLowerCase()],
+            baseIri: pathToFileURL(join(root, ...path.split("/"))).href,
+          }
+        : {}),
+    });
+  }
+  if (lock)
+    for (const [dependencyId, dependency] of Object.entries(lock.dependencies))
+      for (const file of dependency.files) {
+        const address = `dep:${dependencyId}/${file.key}`;
+        const path = `${dependency.snapshot_path}/${file.key}`;
+        const indexed = capturedFiles.get(path);
+        source.entries.set(address, {
+          address,
+          sourceResource: file.source_resource,
+          source: file.source,
+          context: file.context,
+          bytes: null,
+          sourcePath: path,
+          readBytes: readSourcePath(path),
+          ...(indexed?.digest ? { capturedDigest: indexed.digest } : {}),
+          ...(indexed ? { byteLength: indexed.byteLength } : {}),
+          ...(indexed?.error ? { parseError: indexed.error } : {}),
+          lockedFile: file,
+          lockedDependency: dependency,
+        });
+      }
+  source.verifyIncluded = async (entries) => {
+    const verify = async () => {
+      checkCancelled(source);
+      const currentManifest = revision(await fileBytes(root, "tbspec.toml"));
+      const currentLock = revision(await fileBytes(root, "tbspec.lock"));
+      checkCancelled(source);
+      if (
+        !equalRevision(manifestRevision, currentManifest) ||
+        !equalRevision(lockRevision, currentLock)
+      )
+        throw new ProjectError(
+          "conflict",
+          "REVISION_CONFLICT",
+          "Source project metadata changed during dependency acquisition. Inspect the source again.",
+        );
+      const currentInventory = await inventory(root, "", scope);
+      checkCancelled(source);
+      if (!equalRevision(discovery, currentInventory))
+        throw new ProjectError(
+          "conflict",
+          "REVISION_CONFLICT",
+          "Source inventory changed during dependency acquisition. Inspect the source again.",
+        );
+      for (const entry of entries) {
+        if (!entry.sourcePath || !entry.capturedDigest) continue;
+        checkCancelled(source);
+        let capturedBytes: Awaited<ReturnType<typeof readSourceFile>>;
+        try {
+          capturedBytes = await readSourceFile(
+            root,
+            entry.sourcePath,
+            source,
+            options.limits.maxGraphBytes,
+            false,
+          );
+        } catch (error) {
+          if (!hasCode(error, "ACQUISITION_LIMIT")) throw error;
+          throw new ProjectError(
+            "conflict",
+            "REVISION_CONFLICT",
+            "Included source bytes changed during dependency acquisition. Inspect the source again.",
+            entry.address,
+          );
+        }
+        checkCancelled(source);
+        if (!capturedBytes || capturedBytes.digest !== entry.capturedDigest)
+          throw new ProjectError(
+            "conflict",
+            "REVISION_CONFLICT",
+            "Included source bytes changed during dependency acquisition. Inspect the source again.",
+            entry.address,
+          );
+      }
+    };
+    if (capturedManifestExists) await withLock(root, verify);
+    else await verify();
+  };
+}
+
+function nextSignal(source: SourceInventory): AbortSignal {
+  checkCancelled(source);
+  return source.signal
+    ? AbortSignal.any([
+        source.signal,
+        AbortSignal.timeout(Math.max(1, source.deadline - Date.now())),
+      ])
+    : AbortSignal.timeout(Math.max(1, source.deadline - Date.now()));
+}
+
+function mediaTypeForSuffix(path: string): string | undefined {
+  return rdfFormats[extname(path).toLowerCase()];
+}
+
+function profileFor(mediaType: string, vetted = false): string {
+  if (mediaType === "text/turtle") return "turtle-strict-v1";
+  if (mediaType === "application/n-triples") return "ntriples-strict-v1";
+  if (mediaType === "application/rdf+xml")
+    return vetted ? "rdfxml-vetted-bundle-v1" : "rdfxml-no-dtd-v1";
+  throw new ProjectError(
+    "invalid",
+    "RDF_FORMAT_UNSUPPORTED",
+    "Only Turtle, N-Triples and conservative RDF/XML are supported.",
+  );
+}
+
+async function readIndexedEntry(
+  source: SourceInventory,
+  entry: SourceEntry,
+  limits: Limits,
+): Promise<Buffer> {
+  checkCancelled(source);
+  if ((entry.byteLength ?? 0) > limits.maxGraphBytes)
+    throw new ProjectError(
+      "unavailable",
+      "ACQUISITION_LIMIT",
+      "An included graph exceeds maxGraphBytes.",
+      entry.address,
+      { maxGraphBytes: limits.maxGraphBytes },
+    );
+  const bytes = entry.bytes ?? (await entry.readBytes?.()) ?? null;
+  checkCancelled(source);
+  if (!bytes)
+    throw new ProjectError(
+      "invalid",
+      entry.lockedFile ? "SNAPSHOT_INTEGRITY" : "RESOURCE_MISSING",
+      "A source file is unavailable.",
+      entry.address,
+    );
+  if (bytes.byteLength > limits.maxGraphBytes)
+    throw new ProjectError(
+      "unavailable",
+      "ACQUISITION_LIMIT",
+      "An included graph exceeds maxGraphBytes.",
+      entry.address,
+      { maxGraphBytes: limits.maxGraphBytes },
+    );
+  const actualDigest = digest(bytes);
+  if (
+    (entry.capturedDigest && entry.capturedDigest !== actualDigest) ||
+    (entry.byteDigest && entry.byteDigest !== actualDigest) ||
+    (entry.byteLength !== undefined && entry.byteLength !== bytes.byteLength)
+  )
+    throw new ProjectError(
+      "conflict",
+      "REVISION_CONFLICT",
+      "Source bytes changed during dependency acquisition; inspect the source again.",
+      entry.address,
+    );
+  entry.byteDigest = actualDigest;
+  entry.byteLength = bytes.byteLength;
+  return bytes;
+}
+
+async function parseSourceEntry(entry: SourceEntry, vettedDigest: string): Promise<void> {
+  if (!entry.bytes)
+    throw new ProjectError("invalid", "RESOURCE_MISSING", "Source RDF bytes are unavailable.");
+  const mediaType = entry.lockedFile?.media_type ?? entry.mediaType;
+  const baseIri = entry.lockedFile?.base_iri ?? entry.baseIri;
+  if (!mediaType || !baseIri)
+    throw new ProjectError(
+      "invalid",
+      "RDF_FORMAT_UNSUPPORTED",
+      "Source RDF format is unsupported.",
+      entry.address,
+    );
+  const vetted = digest(entry.bytes) === vettedDigest;
+  entry.store = entry.lockedFile
+    ? await parseGraph(entry.bytes, entry.lockedFile, vettedDigest, entry.address)
+    : await parseRdf(entry.bytes, mediaType, baseIri, vetted, entry.address);
+  const classification = entry.lockedFile
+    ? {
+        kind: entry.lockedFile.kind,
+        classification: entry.lockedFile.classification,
+        identity: entry.lockedFile.identity as "declared" | "generated",
+        graphIri: entry.lockedFile.graph_iri,
+      }
+    : classifyGraph(entry.store, entry.address);
+  Object.assign(entry, classification);
+  entry.mediaType = mediaType;
+  entry.baseIri = baseIri;
+  entry.profile = entry.lockedFile?.parser_profile ?? profileFor(mediaType, vetted);
+  entry.byteDigest = digest(entry.bytes);
+  entry.byteLength = entry.bytes.byteLength;
+  entry.parseable = true;
+}
+
+function gitBase(locator: string, path: string, localRoot?: string): string {
+  if (localRoot) return pathToFileURL(join(localRoot, ...path.split("/"))).href;
+  const value =
+    locator.startsWith("git+https://") || locator.startsWith("git+ssh://")
+      ? locator.slice(4)
+      : locator;
+  const url = new URL(value);
+  if (url.protocol === "ssh:") {
+    url.protocol = "https:";
+    url.username = "";
+  }
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/${path}`;
+  return url.href;
+}
+
+function runGit(
+  args: string[],
+  options: {
+    hooks: string;
+    cwd?: string;
+    signal: AbortSignal;
+    maxBytes?: number;
+    allowedProtocols?: string;
+    workspacePath?: string;
+    maxWorkspaceBytes?: number;
+  },
+): Promise<Buffer> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(
+      "git",
+      [
+        "-c",
+        `core.hooksPath=${options.hooks}`,
+        "-c",
+        "fetch.recurseSubmodules=false",
+        "-c",
+        "submodule.recurse=false",
+        ...(options.cwd ? ["-C", options.cwd] : []),
+        ...args,
+      ],
+      {
+        shell: false,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "ignore"],
+        env: {
+          ...Object.fromEntries(
+            Object.entries(process.env).filter(
+              ([key]) =>
+                !key.startsWith("GIT_") ||
+                ["GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_CONFIG_GLOBAL"].includes(key),
+            ),
+          ),
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_ALLOW_PROTOCOL: options.allowedProtocols ?? "https:ssh:file",
+          GIT_NO_REPLACE_OBJECTS: "1",
+        },
+      },
+    );
+    const chunks: Buffer[] = [];
+    let length = 0;
+    let settled = false;
+    let workspaceMonitor: NodeJS.Timeout | undefined;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      options.signal.removeEventListener("abort", abort);
+      if (workspaceMonitor) clearInterval(workspaceMonitor);
+      if (error) reject(error);
+      else resolvePromise(Buffer.concat(chunks));
+    };
+    const abort = () => {
+      child.kill();
+      finish(
+        options.signal.reason?.name === "TimeoutError"
+          ? new ProjectError(
+              "unavailable",
+              "ACQUISITION_TIMEOUT",
+              "Dependency acquisition exceeded its time limit.",
+            )
+          : new ProjectError(
+              "conflict",
+              "ACQUISITION_CANCELLED",
+              "Dependency acquisition was cancelled.",
+            ),
+      );
+    };
+    options.signal.addEventListener("abort", abort, { once: true });
+    if (options.signal.aborted) abort();
+    if (options.workspacePath && options.maxWorkspaceBytes) {
+      let checking = false;
+      workspaceMonitor = setInterval(() => {
+        if (checking || settled) return;
+        checking = true;
+        void workspaceSize(options.workspacePath as string)
+          .then((bytes) => {
+            if (bytes <= (options.maxWorkspaceBytes as number) || settled) return;
+            child.kill();
+            finish(
+              new ProjectError(
+                "unavailable",
+                "ACQUISITION_LIMIT",
+                "Git acquisition workspace exceeded maxGitWorkspaceBytes.",
+                null,
+                { maxGitWorkspaceBytes: options.maxWorkspaceBytes },
+              ),
+            );
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            checking = false;
+          });
+      }, 100);
+    }
+    child.stdout.on("data", (chunk: Buffer) => {
+      length += chunk.length;
+      if (length > (options.maxBytes ?? 134217728)) {
+        child.kill();
+        finish(
+          new ProjectError(
+            "unavailable",
+            "ACQUISITION_LIMIT",
+            "Git returned more data than the configured acquisition limit.",
+          ),
+        );
+        return;
+      }
+      chunks.push(Buffer.from(chunk));
+    });
+    child.once("error", (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+        finish(
+          new ProjectError(
+            "unavailable",
+            "GIT_UNAVAILABLE",
+            "Git is required only for this Git source action; install Git and retry.",
+          ),
+        );
+      else
+        finish(
+          new ProjectError(
+            "unavailable",
+            "GIT_SOURCE_UNAVAILABLE",
+            "Git source could not be read.",
+          ),
+        );
+    });
+    child.once("close", (code) => {
+      if (settled) return;
+      if (code !== 0)
+        finish(
+          new ProjectError(
+            "unavailable",
+            "GIT_SOURCE_UNAVAILABLE",
+            "Git source could not be read.",
+          ),
+        );
+      else finish();
+    });
+  });
+}
+
+async function workspaceSize(root: string): Promise<number> {
+  let total = 0;
+  async function walk(directory: string) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await walk(path);
+      else if (entry.isFile()) total += (await stat(path)).size;
+    }
+  }
+  await walk(root);
+  return total;
+}
+
+async function captureGitSource(
+  options: SourceOptions,
+  source: SourceInventory,
+  rawLocator: string,
+): Promise<void> {
+  const parsed = gitLocator(rawLocator, options.cwd);
+  source.locator = parsed.locator;
+  let localRoot = parsed.localRoot;
+  if (localRoot) {
+    try {
+      localRoot = await realpath(localRoot);
+      if (!(await stat(localRoot)).isDirectory()) throw new Error("not a directory");
+      source.locator = localRoot;
+    } catch {
+      throw readError("Selected local Git source is unavailable.");
+    }
+  }
+  const temp = await mkdtemp(join(tmpdir(), "tbspec-acquire-git-"));
+  if (process.platform !== "win32") await chmod(temp, 0o700);
+  const bare = join(temp, "repo.git");
+  const hooks = join(temp, "empty-hooks");
+  await mkdir(hooks, { mode: 0o700 });
+  const signal = nextSignal(source);
+  let retained = false;
+  try {
+    await runGit(["init", "--bare", bare], { hooks, signal });
+    const requestedRef = options.ref;
+    if (requestedRef !== undefined && (!requestedRef || requestedRef.startsWith("-")))
+      throw readError(
+        "Git ref must be a nonempty branch, tag or full commit identifier.",
+        "invalid_arguments",
+        "GIT_REF_INVALID",
+      );
+    const fetchRef = requestedRef ?? "HEAD";
+    let revisionKind: "default" | "ref" | "commit" = "default";
+    if (requestedRef !== undefined) {
+      revisionKind = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(requestedRef) ? "commit" : "ref";
+      if (revisionKind === "ref") {
+        const checked = await runGit(["check-ref-format", "--allow-onelevel", requestedRef], {
+          hooks,
+          signal,
+        });
+        void checked;
+      }
+    }
+    await runGit(
+      ["fetch", "--no-tags", "--no-recurse-submodules", "--depth=1", source.locator, fetchRef],
+      {
+        hooks,
+        cwd: bare,
+        signal,
+        workspacePath: temp,
+        maxWorkspaceBytes: options.limits.maxGitWorkspaceBytes,
+        allowedProtocols: localRoot ? "file" : parsed.url?.protocol === "https:" ? "https" : "ssh",
+      },
+    );
+    const resolved = (
+      await runGit(["rev-parse", "--verify", "FETCH_HEAD^{commit}"], {
+        hooks,
+        cwd: bare,
+        signal,
+        maxBytes: 256,
+      })
+    )
+      .toString("ascii")
+      .trim();
+    if (
+      !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(resolved) ||
+      (revisionKind === "commit" && resolved !== requestedRef)
+    )
+      throw readError(
+        "Git ref did not resolve to the requested immutable commit.",
+        "unavailable",
+        "GIT_REVISION_UNAVAILABLE",
+      );
+    const workspaceBytes = await workspaceSize(temp);
+    if (workspaceBytes > options.limits.maxGitWorkspaceBytes)
+      throw new ProjectError(
+        "unavailable",
+        "ACQUISITION_LIMIT",
+        "Git acquisition workspace exceeded maxGitWorkspaceBytes.",
+        null,
+        { maxGitWorkspaceBytes: options.limits.maxGitWorkspaceBytes },
+      );
+    const tree = await runGit(["ls-tree", "-rz", "--full-tree", resolved], {
+      hooks,
+      cwd: bare,
+      signal,
+    });
+    const files = new Map<string, { mode: string; oid: string }>();
+    const submodules: string[] = [];
+    for (const record of tree.toString("utf8").split("\0")) {
+      if (!record) continue;
+      const match = /^(\d{6}) (blob|commit) ([0-9a-f]{40,64})\t([\s\S]+)$/.exec(record);
+      if (!match)
+        throw readError(
+          "Git tree contains an unsupported entry.",
+          "invalid",
+          "GIT_FEATURE_UNSUPPORTED",
+        );
+      const path = portablePath(match[4] ?? "");
+      files.set(path, { mode: match[1] ?? "", oid: match[3] ?? "" });
+      if (match[1] === "160000" && match[2] === "commit") submodules.push(path);
+    }
+    const readBlob = async (
+      path: string,
+      maxBytes = options.limits.maxGraphBytes,
+    ): Promise<Buffer | null> => {
+      const entry = files.get(path);
+      if (!entry || !["100644", "100755"].includes(entry.mode)) return null;
+      const size = Number(
+        (await runGit(["cat-file", "-s", entry.oid], { hooks, cwd: bare, signal, maxBytes: 128 }))
+          .toString("ascii")
+          .trim(),
+      );
+      if (!Number.isSafeInteger(size) || size < 0)
+        throw readError("Git blob size is invalid.", "invalid", "GIT_FEATURE_UNSUPPORTED");
+      if (size > maxBytes)
+        throw new ProjectError(
+          "unavailable",
+          "ACQUISITION_LIMIT",
+          "Git source graph exceeds its configured byte limit.",
+          path,
+          { maxBytes },
+        );
+      return runGit(["cat-file", "blob", entry.oid], { hooks, cwd: bare, signal, maxBytes });
+    };
+    const manifestBytes = await readBlob("tbspec.toml", 1024 * 1024);
+    const lockBytes = manifestBytes
+      ? await readBlob("tbspec.lock", options.limits.maxGitWorkspaceBytes)
+      : null;
+    source.manifest = manifestBytes ? parseManifest(manifestBytes.toString("utf8")) : undefined;
+    source.lock = manifestBytes ? parseLock(lockBytes?.toString("utf8") ?? "") : undefined;
+    const excluded = sourceExclusions(source.manifest);
+    const isExcluded = (path: string) =>
+      excluded.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+    const requestedPath = options.resource?.replaceAll("\\", "/");
+    if (
+      requestedPath &&
+      submodules.some((path) => requestedPath === path || requestedPath.startsWith(`${path}/`))
+    )
+      throw readError(
+        "A selected Git submodule is unsupported; add its repository explicitly.",
+        "invalid",
+        "GIT_FEATURE_UNSUPPORTED",
+      );
+    for (const [path, file] of files) {
+      if (
+        isExcluded(path) ||
+        !supportedSuffix.test(path) ||
+        (file.mode !== "100644" && file.mode !== "100755")
+      )
+        continue;
+      checkCancelled(source);
+      const size = Number(
+        (await runGit(["cat-file", "-s", file.oid], { hooks, cwd: bare, signal, maxBytes: 128 }))
+          .toString("ascii")
+          .trim(),
+      );
+      if (!Number.isSafeInteger(size) || size < 0)
+        throw readError("Git blob size is invalid.", "invalid", "GIT_FEATURE_UNSUPPORTED");
+      if (size > options.limits.maxGraphBytes) {
+        source.entries.set(path, {
+          address: path,
+          sourceResource: path,
+          source: "source",
+          context: "source",
+          bytes: null,
+          byteLength: size,
+          parseError: new ProjectError(
+            "unavailable",
+            "ACQUISITION_LIMIT",
+            "Source graph exceeds maxGraphBytes.",
+            path,
+            { maxGraphBytes: options.limits.maxGraphBytes },
+          ),
+        });
+        continue;
+      }
+      source.entries.set(path, {
+        address: path,
+        sourceResource: path,
+        source: "source",
+        context: "source",
+        bytes: null,
+        byteLength: size,
+        readBytes: async () => {
+          checkCancelled(source);
+          const bytes = await readBlob(path);
+          checkCancelled(source);
+          if (
+            bytes
+              ?.toString("utf8", 0, Math.min(bytes.length, 80))
+              .startsWith("version https://git-lfs.github.com/spec/v1")
+          )
+            throw readError(
+              "A required Git LFS object is unavailable; install the object through a trusted external workflow.",
+              "invalid",
+              "GIT_FEATURE_UNSUPPORTED",
+            );
+          return bytes;
+        },
+        mediaType: mediaTypeForSuffix(path),
+        baseIri: gitBase(source.locator, path, localRoot),
+      });
+    }
+    if (source.lock)
+      for (const [dependencyId, dependency] of Object.entries(source.lock.dependencies))
+        for (const lockedFile of dependency.files) {
+          const path = `${dependency.snapshot_path}/${lockedFile.key}`;
+          source.entries.set(`dep:${dependencyId}/${lockedFile.key}`, {
+            address: `dep:${dependencyId}/${lockedFile.key}`,
+            sourceResource: lockedFile.source_resource,
+            source: lockedFile.source,
+            context: lockedFile.context,
+            bytes: null,
+            byteLength: lockedFile.byte_length,
+            capturedDigest: lockedFile.byte_digest,
+            readBytes: async () => {
+              checkCancelled(source);
+              const bytes = await readBlob(path);
+              checkCancelled(source);
+              return bytes;
+            },
+            lockedFile,
+            lockedDependency: dependency,
+          });
+        }
+    source.files = files;
+    source.submodules = submodules;
+    source.resolvedCommit = resolved;
+    source.revisionKind = revisionKind;
+    source.ref = requestedRef;
+    source.root = localRoot;
+    source.treeRevision = hash([...files].map(([path, value]) => ({ path, ...value })));
+    source.cleanup = async () => rm(temp, { recursive: true, force: true });
+    retained = true;
+  } finally {
+    if (!retained) await rm(temp, { recursive: true, force: true });
+  }
+}
+
+function responseMediaType(value: string | null, path: string): string {
+  const media = value?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  const formats = new Set(["text/turtle", "application/n-triples", "application/rdf+xml"]);
+  const suffix = mediaTypeForSuffix(path);
+  if (formats.has(media)) {
+    if (suffix && suffix !== media)
+      throw new ProjectError(
+        "invalid",
+        "RDF_FORMAT_UNSUPPORTED",
+        "HTTP Content-Type conflicts with the source filename format.",
+      );
+    return media;
+  }
+  if (
+    media &&
+    ![
+      "application/octet-stream",
+      "binary/octet-stream",
+      "text/plain",
+      "application/unknown",
+    ].includes(media)
+  )
+    throw new ProjectError(
+      "invalid",
+      "RDF_FORMAT_UNSUPPORTED",
+      "HTTP source Content-Type is unsupported.",
+    );
+  if (suffix) return suffix;
+  throw new ProjectError(
+    "invalid",
+    "RDF_FORMAT_UNSUPPORTED",
+    "HTTP source needs a supported RDF Content-Type or filename suffix.",
+  );
+}
+
+async function responseBytes(
+  response: Response,
+  limit: number,
+  signal: AbortSignal,
+): Promise<Buffer> {
+  if (!response.body) throw readError("HTTP source returned no RDF content.");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      if (signal.aborted) throw acquisitionAbort(signal);
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > limit)
+        throw new ProjectError(
+          "unavailable",
+          "ACQUISITION_LIMIT",
+          "HTTP graph exceeds maxGraphBytes.",
+          null,
+          { maxGraphBytes: limit },
+        );
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    if (signal.aborted) throw acquisitionAbort(signal);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(
+    chunks.map((chunk) => Buffer.from(chunk)),
+    length,
+  );
+}
+
+function acquisitionAbort(signal: AbortSignal): ProjectError {
+  return signal.reason?.name === "TimeoutError"
+    ? new ProjectError(
+        "unavailable",
+        "ACQUISITION_TIMEOUT",
+        "Dependency acquisition exceeded its time limit.",
+      )
+    : new ProjectError(
+        "conflict",
+        "ACQUISITION_CANCELLED",
+        "Dependency acquisition was cancelled.",
+      );
+}
+
+async function captureHttpSource(
+  source: SourceInventory,
+  locator: string,
+  limits: Limits,
+): Promise<void> {
+  const requested = safeHttpUrl(locator, "HTTP source");
+  source.locator = requested.href;
+  let current = requested;
+  let response: Response | undefined;
+  const signal = nextSignal(source);
+  for (let redirects = 0; redirects <= limits.maxRedirects; redirects++) {
+    checkCancelled(source);
+    try {
+      response = await fetch(current, {
+        redirect: "manual",
+        signal,
+        headers: { Accept: "text/turtle, application/n-triples, application/rdf+xml;q=0.9" },
+      });
+    } catch {
+      if (signal.aborted) throw acquisitionAbort(signal);
+      checkCancelled(source);
+      throw readError("HTTP source could not be retrieved.");
+    }
+    if (![301, 302, 303, 307, 308].includes(response.status)) break;
+    if (redirects >= limits.maxRedirects) {
+      await response.body?.cancel().catch(() => undefined);
+      throw readError("HTTP source exceeded maxRedirects.", "unavailable", "ACQUISITION_LIMIT");
+    }
+    const location = response.headers.get("location");
+    if (!location) {
+      await response.body?.cancel().catch(() => undefined);
+      throw readError("HTTP redirect did not include a location.");
+    }
+    let next: URL;
+    try {
+      next = new URL(location, current);
+    } catch {
+      await response.body?.cancel().catch(() => undefined);
+      throw readError("HTTP redirect target is invalid.", "invalid", "SOURCE_LOCATOR_INVALID");
+    }
+    let safe: URL;
+    try {
+      safe = safeHttpUrl(next.href, "HTTP redirect target");
+    } catch (error) {
+      await response.body?.cancel().catch(() => undefined);
+      throw error;
+    }
+    await response.body?.cancel().catch(() => undefined);
+    current = safe;
+  }
+  if (!response) throw readError("HTTP source returned an unsuccessful response.");
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw readError("HTTP source returned an unsuccessful response.");
+  }
+  const pathname = current.pathname;
+  let mediaType: string;
+  try {
+    mediaType = responseMediaType(response.headers.get("content-type"), pathname);
+  } catch (error) {
+    await response.body?.cancel().catch(() => undefined);
+    throw error;
+  }
+  const bytes = await responseBytes(response, limits.maxGraphBytes, signal);
+  source.kind = "url";
+  source.effectiveLocator = current.href;
+  source.entries.set("resource", {
+    address: "resource",
+    sourceResource: `resource.${mediaType === "text/turtle" ? "ttl" : mediaType === "application/n-triples" ? "nt" : "rdf"}`,
+    source: "source",
+    context: "source",
+    bytes,
+    mediaType,
+    baseIri: current.href,
+  });
+}
+
+async function discoverSource(options: SourceOptions): Promise<SourceInventory> {
+  const mode = sourceMode(options);
+  const source: SourceInventory = {
+    kind: mode.kind,
+    locator: mode.locator,
+    ...(options.ref === undefined ? {} : { ref: options.ref }),
+    entries: new Map(),
+    diagnostics: [],
+    deadline: Date.now() + options.limits.deadlineMs,
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
+  try {
+    if (mode.kind === "directory") await captureDirectorySource(options, source);
+    else if (mode.kind === "git") await captureGitSource(options, source, options.source);
+    else await captureHttpSource(source, mode.locator, options.limits);
+    checkCancelled(source);
+    const bundle = await loadStarters();
+    source.vettedDigest = bundle.vettedDigest;
+    for (const entry of source.entries.values()) {
+      checkCancelled(source);
+      if (entry.parseError) {
+        source.diagnostics.push(entry.parseError.diagnostic);
+        continue;
+      }
+      try {
+        if (!entry.bytes) entry.bytes = await readIndexedEntry(source, entry, options.limits);
+        else {
+          checkCancelled(source);
+          if (entry.bytes.byteLength > options.limits.maxGraphBytes)
+            throw new ProjectError(
+              "unavailable",
+              "ACQUISITION_LIMIT",
+              "Source graph exceeds maxGraphBytes.",
+              entry.address,
+              { maxGraphBytes: options.limits.maxGraphBytes },
+            );
+          entry.byteDigest = digest(entry.bytes);
+          entry.byteLength = entry.bytes.byteLength;
+        }
+        await parseSourceEntry(entry, bundle.vettedDigest);
+        if (entry.readBytes) {
+          entry.bytes = null;
+          entry.store = undefined;
+        }
+      } catch (error) {
+        if (hasCode(error, "ACQUISITION_CANCELLED") || hasCode(error, "ACQUISITION_TIMEOUT"))
+          throw error;
+        entry.parseable = false;
+        entry.parseError =
+          error instanceof ProjectError
+            ? new ProjectError(
+                error.status,
+                error.diagnostic.code,
+                "Source RDF is malformed, unavailable, or unsupported.",
+                entry.address,
+              )
+            : new ProjectError(
+                "invalid",
+                "RDF_SYNTAX",
+                "Source RDF is malformed or unsupported.",
+                entry.address,
+              );
+        if (entry.readBytes) {
+          entry.bytes = null;
+          entry.store = undefined;
+        }
+        source.diagnostics.push(entry.parseError.diagnostic);
+      }
+    }
+    checkCancelled(source);
+    return source;
+  } catch (error) {
+    await source.cleanup?.();
+    throw error;
+  }
+}
+
+export async function dependencyInspect(_options: {
+  project?: string;
+  cwd?: string;
+  source: string;
+  ref?: string;
+  resource?: string;
+  signal?: AbortSignal;
+}): Promise<Result> {
+  let source: SourceInventory | undefined;
+  try {
+    const project = await readProject({ project: _options.project, cwd: _options.cwd });
+    source = await discoverSource({
+      source: _options.source,
+      cwd: _options.cwd,
+      ref: _options.ref,
+      resource: _options.resource,
+      signal: _options.signal,
+      limits: defaultLimits(project.manifest),
+    });
+    const indexedSource = source;
+    const items = [...indexedSource.entries.values()]
+      .map((entry) => inspectEntry(indexedSource, entry))
+      .sort((left, right) => utf8Compare(String(left.resource), String(right.resource)));
+    return ok(
+      {
+        source: {
+          kind: indexedSource.kind,
+          locator: indexedSource.locator,
+          effectiveLocator: indexedSource.effectiveLocator ?? null,
+          revisionKind: indexedSource.revisionKind ?? null,
+          resolvedCommit: indexedSource.resolvedCommit ?? null,
+          requestedRef: indexedSource.ref ?? null,
+        },
+        items,
+      },
+      indexedSource.diagnostics,
+    );
+  } catch (error) {
+    return failure(error);
+  } finally {
+    await source?.cleanup?.();
+  }
+}
+export async function dependencyAdd(_options: {
+  project?: string;
+  cwd?: string;
+  source: string;
+  id: string;
+  kind: ResourceKind;
+  ref?: string;
+  resource?: string;
+  acceptedPreview?: string;
+  signal?: AbortSignal;
+}): Promise<Result> {
+  try {
+    const prepared = await prepareDependencyAdd(_options);
+    if (!_options.acceptedPreview)
+      return previewConflict(
+        prepared,
+        "PREVIEW_REQUIRED",
+        "Review the dependency preview and retry with its accepted fingerprint.",
+      );
+    if (_options.acceptedPreview !== prepared.plan.preview.fingerprint)
+      return previewConflict(
+        prepared,
+        "PREVIEW_CHANGED",
+        "The reacquired dependency differs from the accepted preview. Review the new preview and retry.",
+      );
+    return await publishPreparedDependency(prepared);
+  } catch (error) {
+    return failure(error);
+  }
+}
+export interface DependencyAddOptions {
+  project?: string;
+  cwd?: string;
+  source: string;
+  id: string;
+  kind: ResourceKind;
+  ref?: string;
+  resource?: string;
+  acceptedPreview?: string;
+  signal?: AbortSignal;
+}
+function inspectedResource(source: SourceInventory, entry: SourceEntry): string {
+  return source.kind === "url" ? entry.sourceResource : entry.address;
+}
+function inspectEntry(source: SourceInventory, entry: SourceEntry): Row {
+  const resource = inspectedResource(source, entry);
+  const byteDigest = entry.byteDigest ?? (entry.bytes ? digest(entry.bytes) : null);
+  const signature =
+    byteDigest && entry.mediaType && entry.baseIri && entry.profile
+      ? graphSignature({
+          byte_digest: byteDigest,
+          media_type: entry.mediaType,
+          base_iri: entry.baseIri,
+          parser_profile: entry.profile,
+        })
+      : (entry.lockedFile?.graph_signature ?? null);
+  return {
+    resource,
+    sourceResource: entry.sourceResource,
+    kind: entry.kind ?? "unclassified",
+    classification: entry.classification ?? "unclassified",
+    identity: entry.identity ?? "generated",
+    graphIri: entry.graphIri ?? null,
+    byteDigest,
+    graphSignature: signature,
+    byteLength: entry.byteLength ?? entry.bytes?.byteLength ?? null,
+    parseable: entry.parseable ?? Boolean(entry.store),
+    ...(entry.parseError ? { diagnostic: entry.parseError.diagnostic } : {}),
+  };
+}
+function resolvedKind(kind: ResourceKind, entry: SourceEntry): boolean {
+  return kind === "ontology"
+    ? entry.kind === "ontology"
+    : kind === "design"
+      ? entry.kind === "design"
+      : [
+          "model",
+          "conceptual-data-model",
+          "concrete-data-model",
+          "process-model",
+          "state-machine-model",
+        ].includes(entry.kind ?? "");
+}
+function sourceRecord(source: SourceInventory, selected: SourceEntry): Row {
+  const record: Row = {
+    id: "source",
+    kind: source.kind,
+    locator: source.locator,
+    selected_resource:
+      selected.address.startsWith("dep:") && selected.lockedDependency && selected.lockedFile
+        ? `${selected.lockedDependency.snapshot_path}/${selected.lockedFile.key}`
+        : selected.sourceResource,
+  };
+  if (source.kind === "url") record.effective_locator = source.effectiveLocator;
+  if (source.kind === "git") {
+    record.revision_kind = source.revisionKind ?? "default";
+    record.resolved_commit = source.resolvedCommit;
+    if (source.ref !== undefined) record.requested_ref = source.ref;
+  }
+  return record;
+}
+function outputKey(entry: SourceEntry): string {
+  if (entry.address === "resource") return portablePath(`source/${entry.sourceResource}`);
+  const address = entry.address.startsWith("dep:")
+    ? `locked/${entry.address.slice(4)}`
+    : entry.address;
+  return portablePath(`source/${address}`);
+}
+function sourceDependencyId(entry: SourceEntry): string | undefined {
+  return /^dep:([^/]+)\//.exec(entry.address)?.[1];
+}
+function upstreamSourceId(entry: SourceEntry, sourceId: string): string {
+  const dependencyId = sourceDependencyId(entry);
+  return dependencyId ? portablePath(`upstream/${dependencyId}/${sourceId}`) : "source";
+}
+function sourceIdFor(entry: SourceEntry): string {
+  return entry.lockedFile ? upstreamSourceId(entry, entry.lockedFile.source) : "source";
+}
+function contextIdFor(entry: SourceEntry): string {
+  return entry.lockedFile ? upstreamSourceId(entry, entry.lockedFile.context) : "source";
+}
+function entryKind(entry: SourceEntry): string | undefined {
+  return entry.kind ?? entry.lockedFile?.kind;
+}
+interface ClosureResult {
+  entries: SourceEntry[];
+  edges: Row[];
+  associations: Row[];
+  bindings: Row[];
+  choices: Row[];
+  attachments: Row[];
+  diagnostics: Diagnostic[];
+}
+async function ensureClosureEntry(
+  source: SourceInventory,
+  entry: SourceEntry,
+  limits: Limits,
+): Promise<void> {
+  if (entry.parseError) throw entry.parseError;
+  if (entry.bytes && entry.store) return;
+  const bytes = await readIndexedEntry(source, entry, limits);
+  entry.bytes = bytes;
+  try {
+    await parseSourceEntry(entry, source.vettedDigest ?? "");
+  } catch (error) {
+    entry.bytes = null;
+    entry.store = undefined;
+    const parseError =
+      error instanceof ProjectError
+        ? new ProjectError(
+            error.status,
+            error.diagnostic.code,
+            "An included source graph is malformed, unavailable, or unsupported.",
+            entry.address,
+          )
+        : new ProjectError(
+            "invalid",
+            "RDF_SYNTAX",
+            "An included source graph is malformed or unsupported.",
+            entry.address,
+          );
+    entry.parseError = parseError;
+    entry.parseable = false;
+    throw parseError;
+  }
+}
+
+function containsVocabularyTerm(entry: SourceEntry, value: string): boolean {
+  const store = entry.store;
+  if (!store) return false;
+  const term = DataFactory.namedNode(value);
+  return (
+    store.countQuads(term, null, null, null) > 0 || store.countQuads(null, term, null, null) > 0
+  );
+}
+
+async function uniqueVocabularyEntry(
+  source: SourceInventory,
+  value: string,
+  limits: Limits,
+): Promise<SourceEntry | undefined> {
+  let match: SourceEntry | undefined;
+  for (const candidate of source.entries.values()) {
+    checkCancelled(source);
+    if (candidate.parseError || !candidate.mediaType || !candidate.baseIri) continue;
+    const loadedHere = !candidate.store;
+    try {
+      if (loadedHere) {
+        candidate.bytes = await readIndexedEntry(source, candidate, limits);
+        await parseSourceEntry(candidate, source.vettedDigest ?? "");
+      }
+      if (!containsVocabularyTerm(candidate, value)) continue;
+      if (match) return undefined;
+      match = candidate;
+    } finally {
+      if (loadedHere && candidate.readBytes) {
+        candidate.bytes = null;
+        candidate.store = undefined;
+      }
+    }
+  }
+  return match;
+}
+
+async function buildClosure(
+  source: SourceInventory,
+  primary: SourceEntry,
+  limits: Limits,
+): Promise<ClosureResult> {
+  const entries = new Map<string, SourceEntry>();
+  const edges: Row[] = [];
+  const associations: Row[] = [];
+  const bindings: Row[] = [];
+  const choices: Row[] = [];
+  const attachments: Row[] = [];
+  const diagnostics: Diagnostic[] = [];
+  const seenEdges = new Set<string>();
+  const rememberEdge = (edge: Row) => {
+    const key = canonical(edge);
+    if (!seenEdges.has(key)) {
+      seenEdges.add(key);
+      edges.push(edge);
+    }
+  };
+  const byGraph = new Map<string, SourceEntry[]>();
+  for (const entry of source.entries.values())
+    if (entry.graphIri) {
+      const candidates = byGraph.get(entry.graphIri) ?? [];
+      candidates.push(entry);
+      byGraph.set(entry.graphIri, candidates);
+    }
+  const resolve = (iri: string, expected?: (entry: SourceEntry) => boolean) => {
+    const candidates = (byGraph.get(iri) ?? []).filter((entry) => !expected || expected(entry));
+    return candidates.length === 1 ? candidates[0] : undefined;
+  };
+  const selectedBySourceChoice = (target: string, kind: "ontology" | "design") => {
+    if (kind === "ontology") {
+      const selectedId = ((source.manifest?.ontology_choices ?? {}) as Record<string, string>)[
+        target
+      ];
+      const dependency = selectedId ? source.lock?.dependencies[selectedId] : undefined;
+      const selected = dependency
+        ? source.entries.get(`dep:${selectedId}/${dependency.primary}`)
+        : undefined;
+      if (selected && entryKind(selected) === kind && selected.graphIri === target) return selected;
+    }
+    if (kind === "design") {
+      const choice = ((source.manifest?.design_choices ?? {}) as Record<string, string>)[target];
+      if (choice) {
+        const selected = resolveSelector(choice);
+        if (selected && entryKind(selected) === kind) return selected;
+      }
+    }
+    return undefined;
+  };
+  const resolveSelector = (selection: string) => {
+    if (!selection.startsWith("dep:")) return source.entries.get(selection);
+    const [dependencyId, ...parts] = selection.slice(4).split("/");
+    const dependency = source.lock?.dependencies[dependencyId ?? ""];
+    const key = parts.join("/") || dependency?.primary;
+    const selected =
+      dependency && key ? source.entries.get(`dep:${dependencyId}/${key}`) : undefined;
+    if (
+      !selected &&
+      source.submodules?.some((path) => selection === path || selection.startsWith(`${path}/`))
+    )
+      throw readError(
+        "A required Git resource is inside an unsupported submodule; add its repository explicitly.",
+        "invalid",
+        "GIT_FEATURE_UNSUPPORTED",
+      );
+    return selected;
+  };
+  const queue: { entry: SourceEntry; role: string }[] = [{ entry: primary, role: "primary" }];
+  while (queue.length) {
+    const item = queue.shift();
+    if (!item) continue;
+    const entry = item.entry;
+    if (entries.has(entry.address)) continue;
+    if (entry.parseError) throw entry.parseError;
+    const byteLength = entry.byteLength ?? entry.bytes?.byteLength;
+    if (byteLength === undefined)
+      throw new ProjectError(
+        "invalid",
+        "DEPENDENCY_FILE_INVALID",
+        "A selected dependency or declared included file has no captured size.",
+        entry.address,
+      );
+    if (byteLength > limits.maxGraphBytes)
+      throw new ProjectError(
+        "unavailable",
+        "ACQUISITION_LIMIT",
+        "An included graph exceeds maxGraphBytes.",
+        entry.address,
+        { maxGraphBytes: limits.maxGraphBytes },
+      );
+    if (entries.size + 1 > limits.maxFiles)
+      throw new ProjectError(
+        "unavailable",
+        "ACQUISITION_LIMIT",
+        "Dependency closure exceeds maxFiles.",
+        null,
+        { maxFiles: limits.maxFiles },
+      );
+    const totalBytes = [...entries.values()].reduce(
+      (total, value) => total + (value.byteLength ?? value.bytes?.byteLength ?? 0),
+      0,
+    );
+    if (totalBytes + byteLength > limits.maxTotalBytes)
+      throw new ProjectError(
+        "unavailable",
+        "ACQUISITION_LIMIT",
+        "Dependency closure exceeds maxTotalBytes.",
+        null,
+        { maxTotalBytes: limits.maxTotalBytes },
+      );
+    await ensureClosureEntry(source, entry, limits);
+    const store = entry.store;
+    if (!store)
+      throw new ProjectError(
+        "invalid",
+        "DEPENDENCY_FILE_INVALID",
+        "A selected source graph could not be retained for closure inspection.",
+        entry.address,
+      );
+    entries.set(entry.address, entry);
+    const dependencyId = sourceDependencyId(entry);
+    const lockedDependency = entry.lockedDependency;
+    if (entry.lockedFile && lockedDependency && dependencyId) {
+      const sourceKey = entry.lockedFile.key;
+      for (const edge of lockedDependency.edges.filter((value) => value.from === sourceKey)) {
+        const target = edge.to
+          ? source.entries.get(`dep:${dependencyId}/${String(edge.to)}`)
+          : undefined;
+        if (edge.to && !target)
+          throw new ProjectError(
+            "invalid",
+            "SNAPSHOT_INTEGRITY",
+            "A retained source edge points to a missing locked file.",
+            entry.address,
+          );
+        rememberEdge({
+          context: contextIdFor(entry),
+          from: outputKey(entry),
+          relation: edge.relation,
+          ...(target ? { to: outputKey(target) } : { target_iri: edge.target_iri }),
+        });
+        if (target) queue.push({ entry: target, role: "closure" });
+      }
+      for (const binding of lockedDependency.bindings.filter(
+        (value) => value.resource === sourceKey,
+      )) {
+        const ontologies = (binding.ontologies as string[]).map((key) =>
+          source.entries.get(`dep:${dependencyId}/${key}`),
+        );
+        const schemas = (binding.schemas as string[]).map((key) =>
+          source.entries.get(`dep:${dependencyId}/${key}`),
+        );
+        if ([...ontologies, ...schemas].some((target) => !target))
+          throw new ProjectError(
+            "invalid",
+            "SNAPSHOT_INTEGRITY",
+            "A retained source binding points to a missing locked file.",
+            entry.address,
+          );
+        for (const target of [...ontologies, ...schemas])
+          if (target) queue.push({ entry: target, role: "closure" });
+        bindings.push({
+          context: contextIdFor(entry),
+          resource: outputKey(entry),
+          ontologies: ontologies.map((target) => outputKey(target as SourceEntry)),
+          schemas: schemas.map((target) => outputKey(target as SourceEntry)),
+          ...(binding.model_type ? { model_type: binding.model_type } : {}),
+          ...(binding.unresolved_iris ? { unresolved_iris: binding.unresolved_iris } : {}),
+        });
+      }
+      for (const choice of lockedDependency.choices.filter(
+        (value) => value.selected && value.context === entry.lockedFile?.context,
+      )) {
+        const selected = source.entries.get(`dep:${dependencyId}/${String(choice.selected)}`);
+        if (selected) {
+          choices.push({
+            context: contextIdFor(entry),
+            kind: choice.kind,
+            target_iri: choice.target_iri,
+            selected: outputKey(selected),
+          });
+          queue.push({ entry: selected, role: "closure" });
+        }
+      }
+      for (const association of lockedDependency.associations.filter(
+        (value) => value.resource === sourceKey && value.active === true,
+      )) {
+        const support = source.entries.get(`dep:${dependencyId}/${String(association.support)}`);
+        if (!support)
+          throw new ProjectError(
+            "invalid",
+            "SNAPSHOT_INTEGRITY",
+            "A retained source association points to a missing locked file.",
+            entry.address,
+          );
+        queue.push({ entry: support, role: String(association.role) });
+        const attachmentId = association.attachment
+          ? `att-${digest(`${dependencyId}/${String(association.attachment)}`).slice(7, 23)}`
+          : undefined;
+        associations.push({
+          context: contextIdFor(entry),
+          resource: outputKey(entry),
+          role: association.role,
+          support: outputKey(support),
+          origin: association.origin,
+          active: true,
+          ...(attachmentId ? { attachment: attachmentId } : {}),
+        });
+        if (association.attachment) {
+          const attached = lockedDependency.attachments.find(
+            (value) => value.id === association.attachment,
+          );
+          if (!attached)
+            throw new ProjectError(
+              "invalid",
+              "SNAPSHOT_INTEGRITY",
+              "A retained support attachment is missing.",
+              entry.address,
+            );
+          const resource = source.entries.get(`dep:${dependencyId}/${String(attached.resource)}`);
+          const attachmentPrimary = source.entries.get(
+            `dep:${dependencyId}/${String(attached.primary)}`,
+          );
+          if (!resource || !attachmentPrimary)
+            throw new ProjectError(
+              "invalid",
+              "SNAPSHOT_INTEGRITY",
+              "A retained support attachment points to a missing locked file.",
+              entry.address,
+            );
+          attachments.push({
+            id: attachmentId,
+            role: attached.role,
+            resource: outputKey(resource),
+            source: upstreamSourceId(entry, String(attached.source)),
+            primary: outputKey(attachmentPrimary),
+            active: attached.active,
+          });
+          queue.push(
+            { entry: resource, role: String(attached.role) },
+            { entry: attachmentPrimary, role: String(attached.role) },
+          );
+        }
+      }
+      continue;
+    }
+    for (const [predicate, relation, accepts] of [
+      [
+        owlImports,
+        "import",
+        (target: string) => resolve(target, (candidate) => candidate.kind === "ontology"),
+      ],
+      [
+        `${metadata}schema`,
+        "schema",
+        (target: string) =>
+          resolve(target, (candidate) => entryKind(candidate) === "conceptual-data-model"),
+      ],
+    ] as const) {
+      const targets = store.getObjects(null, predicate, null);
+      for (const target of targets) {
+        if (target.termType !== "NamedNode") continue;
+        const selected =
+          relation === "import" ? selectedBySourceChoice(target.value, "ontology") : undefined;
+        const found = selected ?? accepts(target.value);
+        const edge: Row = {
+          context: contextIdFor(entry),
+          from: outputKey(entry),
+          relation,
+          ...(found ? { to: outputKey(found) } : { target_iri: target.value }),
+        };
+        rememberEdge(edge);
+        if (selected)
+          choices.push({
+            context: contextIdFor(entry),
+            kind: "ontology",
+            target_iri: target.value,
+            selected: outputKey(selected),
+          });
+        if (found)
+          queue.push({ entry: found, role: relation === "schema" ? "closure" : "closure" });
+        else
+          diagnostics.push({
+            code: "DEPENDENCY_IRI_UNRESOLVED",
+            severity: "warning",
+            message:
+              "A referenced IRI was not present in the selected source inventory; it remains unresolved without network loading.",
+            file: null,
+            selector: inspectedResource(source, entry),
+          });
+      }
+    }
+    const targetConcepts = store.getObjects(null, `${metadata}targetConcept`, null);
+    const labelProperties = store.getObjects(null, `${metadata}labelProperty`, null);
+    for (const target of [...targetConcepts, ...labelProperties]) {
+      if (target.termType !== "NamedNode") continue;
+      const selected = selectedBySourceChoice(target.value, "ontology") ?? resolve(target.value);
+      const vocabularyMatch = selected
+        ? undefined
+        : await uniqueVocabularyEntry(source, target.value, limits);
+      const found = selected ?? vocabularyMatch;
+      const edge: Row = {
+        context: contextIdFor(entry),
+        from: outputKey(entry),
+        relation: "vocabulary",
+        ...(found ? { to: outputKey(found) } : { target_iri: target.value }),
+      };
+      rememberEdge(edge);
+      if (found) queue.push({ entry: found, role: "closure" });
+      else
+        diagnostics.push({
+          code: "DEPENDENCY_IRI_UNRESOLVED",
+          severity: "warning",
+          message:
+            "A vocabulary reference was not present in the selected source inventory; it remains unresolved without network loading.",
+          file: null,
+          selector: inspectedResource(source, entry),
+        });
+      const chosen = selectedBySourceChoice(target.value, "ontology");
+      if (chosen)
+        choices.push({
+          context: contextIdFor(entry),
+          kind: "ontology",
+          target_iri: target.value,
+          selected: outputKey(chosen),
+        });
+    }
+    for (const target of targetConcepts) {
+      if (target.termType !== "NamedNode") continue;
+      const chosen = selectedBySourceChoice(target.value, "design");
+      if (!chosen) continue;
+      queue.push({ entry: chosen, role: "design" });
+      associations.push({
+        context: contextIdFor(entry),
+        resource: outputKey(entry),
+        role: "design",
+        support: outputKey(chosen),
+        origin: "source",
+        active: true,
+      });
+      choices.push({
+        context: contextIdFor(entry),
+        kind: "design",
+        target_iri: target.value,
+        selected: outputKey(chosen),
+      });
+    }
+    const typeNames = entry.graphIri
+      ? store.getObjects(entry.graphIri, `${metadata}modelType`, null)
+      : [];
+    if (typeNames.length) {
+      if (typeNames.length !== 1 || typeNames[0]?.termType !== "Literal")
+        throw new ProjectError(
+          "invalid",
+          "SOURCE_BINDING_INVALID",
+          "Source model type metadata is ambiguous or unsupported.",
+          entry.address,
+        );
+      const modelType = (typeNames[0] as import("@rdfjs/types").Literal).value;
+      const modelTypes: Record<string, { enabled?: boolean; ontology: string; design?: string }> = {
+        ...source.lock?.starters.model_types,
+        ...((source.manifest?.model_types ?? {}) as Record<
+          string,
+          { enabled?: boolean; ontology: string; design?: string }
+        >),
+      };
+      const modelConfig = modelTypes[modelType];
+      if (!modelConfig || modelConfig.enabled === false)
+        throw new ProjectError(
+          "invalid",
+          "SOURCE_BINDING_INVALID",
+          "Source model type has no source-project binding.",
+          entry.address,
+        );
+      const ontology = resolveSelector(modelConfig.ontology);
+      if (!ontology || entryKind(ontology) !== "ontology")
+        throw new ProjectError(
+          "invalid",
+          "SOURCE_BINDING_INVALID",
+          "Source model type ontology binding is unavailable.",
+          entry.address,
+        );
+      queue.push({ entry: ontology, role: "closure" });
+      const modelIri = entry.graphIri;
+      const schemas = modelIri
+        ? store
+            .getObjects(modelIri, `${metadata}schema`, null)
+            .map((term) =>
+              term.termType === "NamedNode"
+                ? resolve(
+                    term.value,
+                    (candidate) => entryKind(candidate) === "conceptual-data-model",
+                  )
+                : undefined,
+            )
+            .filter((value): value is SourceEntry => Boolean(value))
+        : [];
+      for (const schema of schemas) queue.push({ entry: schema, role: "closure" });
+      bindings.push({
+        context: contextIdFor(entry),
+        resource: outputKey(entry),
+        ontologies: [outputKey(ontology)],
+        schemas: schemas.map((schema) => outputKey(schema)),
+        model_type: modelType,
+      });
+      if (modelConfig.design) {
+        const design = resolveSelector(modelConfig.design);
+        if (!design || entryKind(design) !== "design")
+          throw new ProjectError(
+            "invalid",
+            "SOURCE_BINDING_INVALID",
+            "Source model type design binding is unavailable.",
+            entry.address,
+          );
+        queue.push({ entry: design, role: "design" });
+        associations.push({
+          context: contextIdFor(entry),
+          resource: outputKey(entry),
+          role: "design",
+          support: outputKey(design),
+          origin: "source",
+          active: true,
+        });
+      }
+    }
+    for (const association of (source.manifest?.associations ?? []) as Row[]) {
+      const resource = resolveSelector(String(association.resource));
+      if (resource?.address !== entry.address) continue;
+      const support = resolveSelector(String(association.support));
+      if (!support?.parseable || support.parseError)
+        throw new ProjectError(
+          "invalid",
+          "DEPENDENCY_FILE_INVALID",
+          "A directly associated source resource is missing, corrupt, or unsupported.",
+          String(association.support),
+        );
+      const role = String(association.role);
+      const expectedKind = role === "shacl" ? "shapes" : "design";
+      if (entryKind(support) !== expectedKind)
+        throw new ProjectError(
+          "invalid",
+          "SOURCE_ASSOCIATION_INVALID",
+          "Source association role contradicts its support graph kind.",
+          support.address,
+        );
+      queue.push({ entry: support, role });
+      associations.push({
+        context: contextIdFor(entry),
+        resource: outputKey(entry),
+        role,
+        support: outputKey(support),
+        origin: "source",
+        active: true,
+      });
+    }
+    if (source.kind !== "url" && !entry.address.startsWith("dep:")) {
+      const sibling = entry.address.endsWith(".ttl")
+        ? `${entry.address.slice(0, -4)}.shacl.ttl`
+        : "";
+      const support = sibling ? source.entries.get(sibling) : undefined;
+      if (support) {
+        if (support.parseError || support.kind !== "shapes")
+          throw new ProjectError(
+            "invalid",
+            "DEPENDENCY_FILE_INVALID",
+            "Directly associated SHACL support is missing, corrupt, or unsupported.",
+            sibling,
+          );
+        queue.push({ entry: support, role: "shacl" });
+        associations.push({
+          context: contextIdFor(entry),
+          resource: outputKey(entry),
+          role: "shacl",
+          support: outputKey(support),
+          origin: "source",
+          active: true,
+        });
+      }
+    }
+  }
+  const unique = (rows: Row[]) => [...new Map(rows.map((row) => [canonical(row), row])).values()];
+  return {
+    entries: [...entries.values()],
+    edges: unique(edges),
+    associations: unique(associations),
+    bindings: unique(bindings),
+    choices: unique(choices),
+    attachments: unique(attachments),
+    diagnostics,
+  };
+}
+function dependencyFor(
+  dependencyId: string,
+  kind: ResourceKind,
+  source: SourceInventory,
+  primary: SourceEntry,
+  closure: ClosureResult,
+): Dependency {
+  const roles = new Map<string, Set<string>>();
+  const addRole = (entry: SourceEntry, role: string) => {
+    const key = outputKey(entry);
+    const value = roles.get(key) ?? new Set<string>();
+    value.add(role);
+    roles.set(key, value);
+  };
+  addRole(primary, "primary");
+  for (const entry of closure.entries)
+    if (entry.address !== primary.address) addRole(entry, "closure");
+  for (const association of closure.associations) {
+    const support = closure.entries.find((entry) => outputKey(entry) === association.support);
+    if (support) addRole(support, String(association.role));
+  }
+  for (const attachment of closure.attachments) {
+    const support = closure.entries.find((entry) => outputKey(entry) === attachment.primary);
+    if (support) addRole(support, String(attachment.role));
+  }
+  const files = closure.entries.map((entry): LockedFile => {
+    const bytes = entry.bytes as Buffer;
+    const key = outputKey(entry);
+    const identity = entry.identity ?? "generated";
+    const fileKind = entry.kind ?? "unclassified";
+    const classification = entry.classification ?? "unclassified";
+    const graphIri =
+      identity === "declared"
+        ? (entry.graphIri as string)
+        : `urn:tbspec:graph:${digest(`dep:${dependencyId}/${key}`).slice(7)}`;
+    const mediaType = entry.lockedFile?.media_type ?? (entry.mediaType as string);
+    const baseIri = entry.lockedFile?.base_iri ?? (entry.baseIri as string);
+    const parserProfile = entry.lockedFile?.parser_profile ?? (entry.profile as string);
+    const byteDigest = digest(bytes);
+    const item = {
+      key,
+      source: sourceIdFor(entry),
+      source_resource: entry.sourceResource,
+      context: contextIdFor(entry),
+      roles: sortedSet([...(roles.get(key) ?? new Set(["closure"]))]),
+      kind: fileKind,
+      classification,
+      ...(entry.lockedFile?.kind_override ? { kind_override: entry.lockedFile.kind_override } : {}),
+      graph_iri: graphIri,
+      identity,
+      source_graph_iri: entry.lockedFile?.source_graph_iri ?? (entry.graphIri as string),
+      byte_digest: byteDigest,
+      byte_length: bytes.byteLength,
+      media_type: mediaType,
+      base_iri: baseIri,
+      parser_profile: parserProfile,
+      graph_signature: graphSignature({
+        byte_digest: byteDigest,
+        media_type: mediaType,
+        base_iri: baseIri,
+        parser_profile: parserProfile,
+      }),
+    };
+    return item;
+  });
+  const upstreamSources = new Map<string, Row>();
+  for (const entry of closure.entries)
+    for (const record of entry.lockedDependency?.sources ?? []) {
+      const remapped = upstreamSourceId(entry, String(record.id));
+      upstreamSources.set(remapped, { ...record, id: remapped });
+    }
+  if (primary.lockedFile) {
+    const primarySourceId = sourceIdFor(primary);
+    const record = upstreamSources.get(primarySourceId);
+    if (record)
+      upstreamSources.set(primarySourceId, {
+        ...record,
+        selected_resource: primary.sourceResource,
+      });
+  }
+  const output: Dependency = {
+    kind,
+    primary: outputKey(primary),
+    snapshot_path: `.tbspec/dependencies/${dependencyId}`,
+    interpretation_signature: "sha256:" + "0".repeat(64),
+    sources: [sourceRecord(source, primary), ...upstreamSources.values()],
+    files,
+    edges: closure.edges,
+    bindings: closure.bindings,
+    associations: closure.associations,
+    choices: closure.choices,
+    attachments: closure.attachments,
+  };
+  output.interpretation_signature = interpretationSignature(output);
+  return output;
+}
+
+export async function prepareDependencyAdd(
+  options: DependencyAddOptions,
+): Promise<PreparedDependency> {
+  const dependencyId = id(options.id);
+  if (!["ontology", "model", "design"].includes(options.kind))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Dependency kind must be ontology, model, or design.",
+    );
+  const current = await readProject({ project: options.project, cwd: options.cwd });
+  if (current.lock.dependencies[dependencyId])
+    throw new ProjectError(
+      "conflict",
+      "DEPENDENCY_EXISTS",
+      "Dependency ID already exists.",
+      "tbspec.lock",
+    );
+  const limits = defaultLimits(current.manifest);
+  const source = await discoverSource({
+    source: options.source,
+    cwd: options.cwd,
+    ref: options.ref,
+    resource: options.resource,
+    signal: options.signal,
+    limits,
+  });
+  try {
+    return await prepareDependencyFromSource(options, current, limits, source);
+  } finally {
+    await source.cleanup?.();
+  }
+}
+
+async function prepareDependencyFromSource(
+  options: DependencyAddOptions,
+  current: Awaited<ReturnType<typeof readProject>>,
+  limits: Limits,
+  source: SourceInventory,
+): Promise<PreparedDependency> {
+  const dependencyId = id(options.id);
+  const requested = options.resource;
+  const requestedEntry =
+    requested === undefined
+      ? undefined
+      : [...source.entries.values()].find((entry) =>
+          [entry.address, entry.sourceResource, inspectedResource(source, entry)].includes(
+            requested,
+          ),
+        );
+  if (requestedEntry?.parseError) throw requestedEntry.parseError;
+  const candidates = [...source.entries.values()].filter((entry) =>
+    resolvedKind(options.kind, entry),
+  );
+  if (!candidates.length)
+    throw new ProjectError(
+      "invalid",
+      "RESOURCE_MISSING",
+      "Source inventory contains no resource of the requested kind.",
+    );
+  const primary =
+    requested === undefined
+      ? candidates.length === 1
+        ? candidates[0]
+        : undefined
+      : candidates.find((entry) =>
+          [entry.address, entry.sourceResource, inspectedResource(source, entry)].includes(
+            requested,
+          ),
+        );
+  if (!primary)
+    throw new ProjectError(
+      requested ? "invalid_arguments" : "invalid_arguments",
+      requested ? "RESOURCE_MISSING" : "RESOURCE_SELECTION_REQUIRED",
+      requested
+        ? "Selected source resource is unavailable or has a different kind."
+        : "Select one resource from the source inventory.",
+    );
+  const closure = await buildClosure(source, primary, limits);
+  await source.verifyIncluded?.(closure.entries);
+  const dependency = dependencyFor(dependencyId, options.kind, source, primary, closure);
+  const lock: Lock = {
+    ...current.lock,
+    dependencies: { ...current.lock.dependencies, [dependencyId]: dependency },
+  };
+  const lockBytes = Buffer.from(writeToml(lock));
+  const writes = [
+    { file: "tbspec.lock", bytes: lockBytes },
+    ...closure.entries.map((entry) => ({
+      file: `${dependency.snapshot_path}/${outputKey(entry)}`,
+      bytes: Buffer.from(entry.bytes as Buffer),
+    })),
+  ];
+  const targetPaths = writes
+    .filter((write) => write.file !== "tbspec.lock")
+    .map((write) => write.file);
+  const statusSnapshot = await captureInspection(current.root, "status");
+  if (
+    !statusSnapshot.files["tbspec.toml"]?.equals(current.snapshot.files["tbspec.toml"] as Buffer) ||
+    !statusSnapshot.files["tbspec.lock"]?.equals(current.snapshot.files["tbspec.lock"] as Buffer)
+  )
+    throw new ProjectError(
+      "conflict",
+      "REVISION_CONFLICT",
+      "Project configuration changed during dependency acquisition; retry with a fresh preview.",
+    );
+  const before = await inspectSnapshot(current.root, statusSnapshot, { command: "status" });
+  const destinations = await capture(
+    current.root,
+    ["tbspec.toml", "tbspec.lock", ...targetPaths],
+    [{ path: ".tbspec/dependencies", included: [dependencyId], excluded: [] }],
+  );
+  if (
+    destinations.files["tbspec.toml"]?.equals(current.snapshot.files["tbspec.toml"] as Buffer) !==
+      true ||
+    destinations.files["tbspec.lock"]?.equals(current.snapshot.files["tbspec.lock"] as Buffer) !==
+      true
+  )
+    throw new ProjectError(
+      "conflict",
+      "REVISION_CONFLICT",
+      "Project configuration changed during dependency acquisition; retry with a fresh preview.",
+    );
+  const existingReads = new Map(statusSnapshot.reads.map((read) => [canonical(read), read]));
+  for (const read of destinations.reads) existingReads.set(canonical(read), read);
+  const snapshot: Snapshot & { ownedPaths: string[]; target?: string } = {
+    ...statusSnapshot,
+    files: { ...statusSnapshot.files, ...destinations.files },
+    reads: [...existingReads.values()],
+  };
+  for (const write of writes)
+    if (write.file !== "tbspec.lock" && snapshot.files[write.file] !== null)
+      throw new ProjectError(
+        "conflict",
+        "DEPENDENCY_SNAPSHOT_EXISTS",
+        "Dependency snapshot destination is already occupied.",
+        write.file,
+      );
+  const plan = preparePlan(snapshot, "dependency.add", writes, {
+    id: dependencyId,
+    kind: options.kind,
+    source: source.locator,
+    resource: inspectedResource(source, primary),
+  });
+  const staged = {
+    ...snapshot,
+    files: {
+      ...snapshot.files,
+      "tbspec.lock": lockBytes,
+      ...Object.fromEntries(
+        closure.entries.map((entry) => [
+          `${dependency.snapshot_path}/${outputKey(entry)}`,
+          Buffer.from(entry.bytes as Buffer),
+        ]),
+      ),
+    },
+  };
+  const after = await inspectSnapshot(current.root, staged, { command: "status" });
+  const impact = compareDiagnosticImpact(before.diagnostics, after.diagnostics);
+  const acquired = dependency.files.map((file) => ({
+    selector: selector(`dep:${dependencyId}/${file.key}`),
+    byteDigest: file.byte_digest,
+    graphSignature: file.graph_signature,
+  }));
+  const completedPlan = withPlanImpact(
+    {
+      ...plan,
+      preview: {
+        ...plan.preview,
+        acquired,
+        interpretationSignatures: { [dependencyId]: dependency.interpretation_signature },
+      },
+    },
+    {
+      impact: {
+        baselineErrors: impact.baselineErrors,
+        introducedErrors: impact.introducedErrors,
+        worsenedErrors: impact.worsenedErrors,
+        skippedChecks: impact.skippedChecks,
+        affectedFiles: sortedSet([
+          ...new Set([...plan.preview.impact.affectedFiles, ...targetPaths]),
+        ]),
+        acceptance: [],
+      },
+    },
+  );
+  return {
+    root: current.root,
+    id: dependencyId,
+    dependency,
+    plan: completedPlan,
+    diagnostics: [...source.diagnostics, ...closure.diagnostics, ...after.diagnostics],
+    projectValidity: (after.data?.project?.validity ??
+      "unchecked") as PreparedDependency["projectValidity"],
+    validationComplete: after.data?.project?.validationComplete ?? false,
+  };
+}
+function previewConflict(prepared: PreparedDependency, code: string, message: string): Result {
+  const result = ok(
+    {
+      applied: false,
+      id: prepared.id,
+      dependency: prepared.dependency,
+      primarySelector: `dep:${prepared.id}/${prepared.dependency.primary}`,
+      projectValidity: prepared.projectValidity,
+      validationComplete: prepared.validationComplete,
+      preview: prepared.plan.preview,
+    },
+    prepared.diagnostics,
+  );
+  return {
+    ...result,
+    status: "conflict",
+    diagnostics: [...result.diagnostics, { code, severity: "error", message, file: "tbspec.lock" }],
+  };
+}
+export async function publishPreparedDependency(prepared: PreparedDependency): Promise<Result> {
+  try {
+    const diagnostics = await publishPlan(prepared.root, prepared.plan);
+    return ok(
+      {
+        applied: true,
+        id: prepared.id,
+        primarySelector: `dep:${prepared.id}/${prepared.dependency.primary}`,
+        dependency: prepared.dependency,
+        projectValidity: prepared.projectValidity,
+        validationComplete: prepared.validationComplete,
+        preview: prepared.plan.preview,
+      },
+      [...prepared.diagnostics, ...diagnostics],
+    );
+  } catch (error) {
+    return failure(error);
+  }
+}
+export async function dependencyList(_options: {
+  project?: string;
+  cwd?: string;
+}): Promise<Result> {
+  try {
+    const project = await readProject({ project: _options.project, cwd: _options.cwd });
+    const items = Object.entries(project.lock.dependencies)
+      .sort(([left], [right]) => utf8Compare(left, right))
+      .map(([name, dependency]) => ({
+        id: name,
+        kind: dependency.kind,
+        primarySelector: `dep:${name}/${dependency.primary}`,
+        interpretationSignature: dependency.interpretation_signature,
+        files: dependency.files.map((file) => ({
+          selector: `dep:${name}/${file.key}`,
+          file: `${dependency.snapshot_path}/${file.key}`,
+          role: file.roles,
+        })),
+      }));
+    return ok({ items });
+  } catch (error) {
+    return failure(error);
+  }
+}
+export async function dependencyShow(_options: {
+  project?: string;
+  cwd?: string;
+  id: string;
+}): Promise<Result> {
+  try {
+    const dependencyId = id(_options.id);
+    const project = await readProject({ project: _options.project, cwd: _options.cwd });
+    const dependency = project.lock.dependencies[dependencyId];
+    if (!dependency)
+      throw new ProjectError(
+        "unavailable",
+        "RESOURCE_MISSING",
+        "Dependency ID was not found.",
+        "tbspec.lock",
+      );
+    return ok({
+      id: dependencyId,
+      dependency: {
+        ...dependency,
+        primarySelector: `dep:${dependencyId}/${dependency.primary}`,
+        files: dependency.files.map((file) => ({
+          ...file,
+          selector: `dep:${dependencyId}/${file.key}`,
+          file: `${dependency.snapshot_path}/${file.key}`,
+        })),
+      },
+    });
+  } catch (error) {
+    return failure(error);
+  }
+}

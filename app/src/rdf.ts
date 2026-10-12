@@ -4,6 +4,49 @@ import { digest } from "./canonical.ts";
 import { ProjectError } from "./output.ts";
 import type { LockedFile } from "./schemas.ts";
 
+function hasXmlDtdDeclaration(text: string): boolean {
+  let index = 0;
+  while (index < text.length) {
+    if (text.startsWith("<!--", index)) {
+      const end = text.indexOf("-->", index + 4);
+      if (end < 0) return false;
+      index = end + 3;
+      continue;
+    }
+    if (text.startsWith("<![CDATA[", index)) {
+      const end = text.indexOf("]]>", index + 9);
+      if (end < 0) return false;
+      index = end + 3;
+      continue;
+    }
+    if (text.startsWith("<?", index)) {
+      const end = text.indexOf("?>", index + 2);
+      if (end < 0) return false;
+      index = end + 2;
+      continue;
+    }
+    if (text.startsWith("<!DOCTYPE", index) || text.startsWith("<!ENTITY", index)) return true;
+    if (text[index] !== "<") {
+      index++;
+      continue;
+    }
+    let quote = "";
+    index++;
+    while (index < text.length) {
+      const character = text[index];
+      if (quote) {
+        if (character === quote) quote = "";
+      } else if (character === '"' || character === "'") quote = character;
+      else if (character === ">") {
+        index++;
+        break;
+      }
+      index++;
+    }
+  }
+  return false;
+}
+
 export const rdfFormats: Record<string, string> = {
   ".ttl": "text/turtle",
   ".nt": "application/n-triples",
@@ -65,7 +108,7 @@ export async function parseRdf(
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   let quads: Quad[];
   if (mediaType === "application/rdf+xml") {
-    if (/<!DOCTYPE|<!ENTITY/i.test(text) && !vetted)
+    if (hasXmlDtdDeclaration(text) && !vetted)
       throw new ProjectError(
         "invalid",
         "RDF_FORMAT_UNSUPPORTED",

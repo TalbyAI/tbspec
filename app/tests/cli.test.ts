@@ -136,6 +136,62 @@ test("CLI query commands save, inspect, bind, run and confirm removal", async ()
   assert.equal(removed.status, 0, removed.stderr);
   assert.equal(invoke(["query", "list"], root).envelope.data.items.length, 0);
 });
+
+test("CLI dependency commands inspect a source and apply its reviewed fingerprint", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-cli-dependency-"));
+  const source = join(root, "source");
+  const project = join(root, "project");
+  await mkdir(source);
+  await initializeProject({ directory: project, baseIri: "urn:dependency-cli:/" });
+  await writeFile(
+    join(source, "shop.ttl"),
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/shop> a owl:Ontology .\n",
+  );
+  const inspected = invoke(["dependency", "inspect", "--source", source], project);
+  assert.equal(inspected.status, 0, inspected.stderr);
+  assert.equal(inspected.envelope.data.items[0].resource, "shop.ttl");
+
+  const preview = invoke(
+    ["dependency", "add", "shop", "--source", source, "--kind", "ontology"],
+    project,
+  );
+  assert.equal(preview.status, 3, preview.stderr);
+  assert.equal(preview.envelope.status, "conflict");
+  const fingerprint = preview.envelope.data.preview.fingerprint;
+  assert.equal(
+    invoke(
+      [
+        "dependency",
+        "add",
+        "shop",
+        "--source",
+        source,
+        "--kind",
+        "ontology",
+        "--accepted-preview",
+        fingerprint,
+      ],
+      project,
+    ).status,
+    0,
+  );
+  assert.ok(
+    invoke(["dependency", "list"], project).envelope.data.items.some(
+      (dependency: { id: string }) => dependency.id === "shop",
+    ),
+  );
+  assert.equal(
+    invoke(["dependency", "show", "shop"], project).envelope.data.dependency.primarySelector,
+    "dep:shop/source/shop.ttl",
+  );
+  for (const args of [
+    ["dependency", "add", "shop", "--source", source, "--kind", "ontology", "--accept-impact"],
+    ["dependency", "inspect", "--resource", "shop.ttl"],
+  ]) {
+    const rejected = invoke(args, project);
+    assert.equal(rejected.status, 2, `${args.join(" ")}: ${rejected.stderr}`);
+  }
+});
 test("CLI authors and inspects every model family and imports locked vocabulary offline", async () => {
   const root = await mkdtemp(join(tmpdir(), "tb-cli-author-"));
   await initializeProject({ directory: root, baseIri: "urn:cli:/" });

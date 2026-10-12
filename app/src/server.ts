@@ -6,6 +6,7 @@ import { Worker } from "node:worker_threads";
 import type { AuthoringOptions } from "./authoring.ts";
 import { canonical } from "./canonical.ts";
 import type { ModelTypeConfigurationOptions } from "./configuration.ts";
+import type { DependencyWorkerRequest } from "./dependency-worker.ts";
 import type { EditingOptions } from "./editing.ts";
 import type { InspectionCommand } from "./inspection.ts";
 import type { AuthoringRequest, InspectionResponse } from "./inspection-worker.ts";
@@ -161,6 +162,67 @@ export async function startWebServer(
   const consoles = new Map<ServerResponse, number>();
   const recent: { type: "state" | "log"; data: Record<string, unknown> }[] = [];
   const jobs = new Set<Promise<Result | InspectionResponse>>();
+  const dependencyJobs = new Set<Promise<Result>>();
+  const dependencyRequests = new Map<string, (result: Result) => void>();
+  const activeDependencyOperations = new Map<string, string>();
+  let dependencyWorkerFailed = false;
+  const dependencyWorker = new Worker(
+    new URL(
+      import.meta.url.endsWith(".ts") ? "./dependency-worker.ts" : "./dependency-worker.js",
+      import.meta.url,
+    ),
+    { resourceLimits: { maxOldGenerationSizeMb: 512 } },
+  );
+  const dependencyWorkerReady = new Promise<void>((resolve, reject) => {
+    const failDependencyWorker = () => {
+      dependencyWorkerFailed = true;
+      for (const finish of dependencyRequests.values())
+        finish(
+          failure(
+            new ProjectError("unavailable", "IO_FAILURE", "Dependency worker ended unexpectedly."),
+          ),
+        );
+      dependencyRequests.clear();
+    };
+    dependencyWorker.on(
+      "message",
+      (message: { ready?: boolean; requestId?: string; json?: string }) => {
+        if (message.ready) {
+          resolve();
+          return;
+        }
+        const requestId = message.requestId;
+        const finish = requestId ? dependencyRequests.get(requestId) : undefined;
+        if (!requestId || !finish || !message.json) return;
+        dependencyRequests.delete(requestId);
+        try {
+          finish(JSON.parse(message.json) as Result);
+        } catch {
+          finish(
+            failure(
+              new ProjectError(
+                "unavailable",
+                "IO_FAILURE",
+                "Dependency worker returned an invalid result.",
+              ),
+            ),
+          );
+        }
+      },
+    );
+    dependencyWorker.once("error", (error) => {
+      failDependencyWorker();
+      reject(error);
+    });
+    dependencyWorker.once("exit", () => {
+      if (record.state !== "stopping") {
+        failDependencyWorker();
+        reject(new Error("Dependency worker ended before server shutdown."));
+      }
+    });
+    dependencyWorker.on("error", failDependencyWorker);
+  });
+  // The worker is created once per server instance and remains independent from inspection jobs.
   let workerFailed = false;
   let workerReady = Promise.resolve();
   function createWorker(): Worker {
@@ -303,6 +365,52 @@ export async function startWebServer(
       worker.off("exit", failed);
     }
   }
+  async function acquire(
+    data: Omit<DependencyWorkerRequest, "requestId" | "project" | "instanceId" | "session">,
+    session = "",
+  ): Promise<Result> {
+    try {
+      await dependencyWorkerReady;
+      if (dependencyWorkerFailed)
+        return failure(
+          new ProjectError("unavailable", "IO_FAILURE", "Dependency worker is unavailable."),
+        );
+      if (data.operationId) {
+        const owner = activeDependencyOperations.get(data.operationId);
+        if (owner !== undefined && owner !== session)
+          return failure(
+            new ProjectError(
+              "conflict",
+              "OPERATION_OWNERSHIP",
+              "Dependency operation belongs to another session.",
+            ),
+          );
+        activeDependencyOperations.set(data.operationId, session);
+      }
+      const requestId = token();
+      const job = new Promise<Result>((resolve) => {
+        dependencyRequests.set(requestId, resolve);
+        dependencyWorker.postMessage({
+          ...data,
+          requestId,
+          project: root,
+          instanceId: record.instanceId,
+          session,
+        } satisfies DependencyWorkerRequest);
+      });
+      dependencyJobs.add(job);
+      try {
+        return await job;
+      } finally {
+        dependencyJobs.delete(job);
+      }
+    } catch (error) {
+      return failure(error);
+    } finally {
+      if (data.operationId && activeDependencyOperations.get(data.operationId) === session)
+        activeDependencyOperations.delete(data.operationId);
+    }
+  }
   const queryProject = (operation: QueryOperation) =>
     inspect("status", undefined, undefined, operation);
   const server = createServer((request, response) => {
@@ -326,12 +434,15 @@ export async function startWebServer(
       log("state", { state: "stopping" });
       bootstraps.clear();
       sessions.clear();
+      for (const operationId of activeDependencyOperations.keys())
+        dependencyWorker.postMessage({ operation: "abort", operationId });
       const closed = new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
       server.closeIdleConnections();
-      await Promise.allSettled([...jobs]);
+      await Promise.allSettled([...jobs, ...dependencyJobs]);
       await worker.terminate();
+      await dependencyWorker.terminate();
       previewWarnings.push(...(await cleanupPreviews(root, record.instanceId)));
       for (const warning of previewWarnings) log("log", { ...warning });
       for (const response of consoles.keys()) {
@@ -578,6 +689,161 @@ export async function startWebServer(
               ),
             ),
           );
+          return;
+        }
+        if (request.method === "GET" && url.pathname === "/api/project/v1/dependencies") {
+          respond(response, await acquire({ operation: "list" }, credential ?? ""));
+          return;
+        }
+        if (request.method === "GET" && url.pathname === "/api/project/v1/dependency") {
+          const ids = url.searchParams.getAll("id");
+          if (ids.length !== 1 || [...url.searchParams.keys()].some((key) => key !== "id"))
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Dependency show requires one ID.",
+            );
+          respond(
+            response,
+            await acquire({ operation: "show", id: ids[0] ?? "" }, credential ?? ""),
+          );
+          return;
+        }
+        if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/inspect") {
+          const body = await jsonBody(request);
+          if (
+            Object.keys(body).some(
+              (key) => !["source", "ref", "resource", "operationId"].includes(key),
+            ) ||
+            typeof body.source !== "string" ||
+            ["ref", "resource", "operationId"].some(
+              (key) => body[key] !== undefined && typeof body[key] !== "string",
+            ) ||
+            (body.operationId !== undefined &&
+              !/^[A-Za-z0-9_-]{16,64}$/.test(body.operationId as string))
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Invalid dependency inspect fields.",
+            );
+          const operationId = typeof body.operationId === "string" ? body.operationId : token();
+          if (activeDependencyOperations.has(operationId))
+            throw new ProjectError(
+              "conflict",
+              "OPERATION_OWNERSHIP",
+              "Dependency operation ID is already active.",
+            );
+          activeDependencyOperations.set(operationId, credential ?? "");
+          respond(
+            response,
+            await acquire(
+              {
+                operation: "inspect",
+                source: body.source,
+                ...(typeof body.ref === "string" ? { ref: body.ref } : {}),
+                ...(typeof body.resource === "string" ? { resource: body.resource } : {}),
+                operationId,
+              },
+              credential ?? "",
+            ),
+          );
+          return;
+        }
+        if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/add") {
+          const body = await jsonBody(request);
+          if (
+            Object.keys(body).some(
+              (key) => !["id", "source", "kind", "ref", "resource", "operationId"].includes(key),
+            ) ||
+            typeof body.id !== "string" ||
+            typeof body.source !== "string" ||
+            (body.kind !== "ontology" && body.kind !== "model" && body.kind !== "design") ||
+            ["ref", "resource", "operationId"].some(
+              (key) => body[key] !== undefined && typeof body[key] !== "string",
+            ) ||
+            (body.operationId !== undefined &&
+              !/^[A-Za-z0-9_-]{16,64}$/.test(body.operationId as string))
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Invalid dependency add fields.",
+            );
+          const operationId = typeof body.operationId === "string" ? body.operationId : token();
+          if (activeDependencyOperations.has(operationId))
+            throw new ProjectError(
+              "conflict",
+              "OPERATION_OWNERSHIP",
+              "Dependency operation ID is already active.",
+            );
+          activeDependencyOperations.set(operationId, credential ?? "");
+          respond(
+            response,
+            await acquire(
+              {
+                operation: "preview",
+                id: body.id,
+                source: body.source,
+                kind: body.kind,
+                ...(typeof body.ref === "string" ? { ref: body.ref } : {}),
+                ...(typeof body.resource === "string" ? { resource: body.resource } : {}),
+                operationId,
+              },
+              credential ?? "",
+            ),
+          );
+          return;
+        }
+        if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/apply") {
+          const body = await jsonBody(request);
+          if (
+            Object.keys(body).some((key) => !["handle", "fingerprint"].includes(key)) ||
+            typeof body.handle !== "string" ||
+            typeof body.fingerprint !== "string"
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Invalid dependency apply fields.",
+            );
+          respond(
+            response,
+            await acquire(
+              { operation: "apply", handle: body.handle, fingerprint: body.fingerprint },
+              credential ?? "",
+            ),
+          );
+          return;
+        }
+        if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/cancel") {
+          const body = await jsonBody(request);
+          if (
+            Object.keys(body).length !== 1 ||
+            (typeof body.operationId !== "string" && typeof body.handle !== "string") ||
+            (body.operationId !== undefined &&
+              (typeof body.operationId !== "string" ||
+                !/^[A-Za-z0-9_-]{16,64}$/.test(body.operationId))) ||
+            (body.handle !== undefined && typeof body.handle !== "string")
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Cancellation requires one operation ID or preview handle.",
+            );
+          if (typeof body.operationId === "string") {
+            if (activeDependencyOperations.get(body.operationId) !== credential) {
+              respond(response, ok({ cancelling: false }));
+              return;
+            }
+            dependencyWorker.postMessage({ operation: "abort", operationId: body.operationId });
+            respond(response, ok({ cancelling: true }));
+          } else {
+            respond(
+              response,
+              await acquire({ operation: "cancel", handle: body.handle }, credential ?? ""),
+            );
+          }
           return;
         }
         if (request.method === "GET" && url.pathname === "/api/project/v1/queries") {
@@ -950,7 +1216,7 @@ export async function startWebServer(
   }
   try {
     // Load the shared operation modules once, keeping this server tied to its launched release.
-    await workerReady;
+    await Promise.all([workerReady, dependencyWorkerReady]);
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(port, "127.0.0.1", () => {
@@ -969,6 +1235,7 @@ export async function startWebServer(
   } catch (error) {
     server.close();
     await worker.terminate();
+    await dependencyWorker.terminate();
     await removeRuntime(record).catch(() => {});
     if (hasCode(error, "EADDRINUSE"))
       throw runtimeError(

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { get } from "node:http";
+import { chmod, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { createServer, get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -141,6 +141,158 @@ test("authenticated HTTP exposes saved query lifecycle and execution", {
     "ok",
   );
   assert.deepEqual((await request("queries")).envelope.data.items, []);
+});
+
+test("authenticated HTTP stages, applies, lists and shows an acquired directory dependency", {
+  timeout: 60000,
+}, async (t) => {
+  const parent = await privateDirectory(join(tmpdir(), "tbspec-web-dependency-"));
+  const root = join(parent, "project");
+  const source = join(parent, "source");
+  await mkdir(source);
+  await initializeProject({ directory: root });
+  const original = `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/web-acquired> a owl:Ontology .\n`;
+  await writeFile(join(source, "ontology.ttl"), original);
+  const server = await startWebServer(await realpath(root), 0);
+  t.after(() => server.stop());
+  const baseUrl = server.record.baseUrl;
+  assert.ok(baseUrl);
+  const link = await controlRequest(server.record, "opening-link", {});
+  const bootstrap = new URL(String(link.openingLink)).hash.slice("#tbspec-bootstrap=".length);
+  const exchanged = await fetch(new URL("api/auth/v1/bootstrap", baseUrl), {
+    method: "POST",
+    headers: { Origin: new URL(baseUrl).origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ protocolVersion: 1, bootstrap }),
+  });
+  const session = String(
+    ((await exchanged.json()) as { data: { sessionToken: string } }).data.sessionToken,
+  );
+  const headers = {
+    Authorization: `Bearer ${session}`,
+    "X-Tbspec-Schema-Version": "1",
+    Origin: new URL(baseUrl).origin,
+  };
+  const request = async (path: string, body?: Record<string, unknown>) => {
+    const response = await fetch(new URL(`api/project/v1/${path}`, baseUrl), {
+      method: body ? "POST" : "GET",
+      headers: { ...headers, ...(body ? { "Content-Type": "application/json" } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    return {
+      status: response.status,
+      envelope: (await response.json()) as {
+        status: string;
+        data: Record<string, unknown> | null;
+        diagnostics: { code: string; message: string }[];
+      },
+    };
+  };
+
+  const inventory = await request("dependencies/inspect", { source });
+  assert.equal(inventory.envelope.status, "ok", JSON.stringify(inventory.envelope));
+  assert.ok(inventory.envelope.data);
+  assert.equal(
+    (inventory.envelope.data.items as { resource: string }[])[0]?.resource,
+    "ontology.ttl",
+  );
+  const prepared = await request("dependencies/add", {
+    id: "web-source",
+    kind: "ontology",
+    source,
+    resource: "ontology.ttl",
+    operationId: "acquisition-preview-0001",
+  });
+  assert.equal(prepared.envelope.status, "preview", JSON.stringify(prepared.envelope));
+  const staged = prepared.envelope.data as { handle: string; preview: { fingerprint: string } };
+  assert.equal(typeof staged.handle, "string");
+  assert.match(staged.preview.fingerprint, /^sha256:[a-f0-9]{64}$/);
+  await writeFile(join(source, "ontology.ttl"), "source changed after preview");
+  const applied = await request("dependencies/apply", {
+    handle: staged.handle,
+    fingerprint: staged.preview.fingerprint,
+  });
+  assert.equal(applied.envelope.status, "ok", JSON.stringify(applied.envelope));
+  const listed = await request("dependencies");
+  assert.ok(listed.envelope.data);
+  assert.ok(
+    (listed.envelope.data.items as { id: string }[]).some((item) => item.id === "web-source"),
+  );
+  const shown = await request("dependency?id=web-source");
+  assert.ok(shown.envelope.data);
+  assert.equal(
+    (shown.envelope.data.dependency as { primarySelector: string }).primarySelector,
+    "dep:web-source/source/ontology.ttl",
+  );
+  assert.equal(
+    await readFile(join(root, ".tbspec/dependencies/web-source/source/ontology.ttl"), "utf8"),
+    original,
+  );
+  const invalid = await request("dependencies/inspect", { source, unknown: true });
+  assert.equal(invalid.envelope.status, "invalid_arguments");
+  assert.equal(invalid.status, 400);
+});
+
+test("dependency acquisition cancellation leaves status responsive and aborts source reads", {
+  timeout: 30000,
+}, async (t) => {
+  const root = await privateDirectory(join(tmpdir(), "tbspec-web-dependency-cancel-"));
+  await initializeProject({ directory: root });
+  let sourceRequested = () => {};
+  const requested = new Promise<void>((resolve) => {
+    sourceRequested = resolve;
+  });
+  const sourceServer = createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "text/turtle" });
+    response.flushHeaders();
+    sourceRequested();
+  });
+  await new Promise<void>((resolve) => sourceServer.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise<void>((resolve) => sourceServer.close(() => resolve())));
+  const address = sourceServer.address();
+  assert.ok(address && typeof address !== "string");
+  const locator = `http://127.0.0.1:${address.port}/ontology.ttl`;
+  const server = await startWebServer(await realpath(root), 0);
+  t.after(() => server.stop());
+  const baseUrl = server.record.baseUrl;
+  assert.ok(baseUrl);
+  const link = await controlRequest(server.record, "opening-link", {});
+  const bootstrap = new URL(String(link.openingLink)).hash.slice("#tbspec-bootstrap=".length);
+  const exchanged = await fetch(new URL("api/auth/v1/bootstrap", baseUrl), {
+    method: "POST",
+    headers: { Origin: new URL(baseUrl).origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ protocolVersion: 1, bootstrap }),
+  });
+  const session = String(
+    ((await exchanged.json()) as { data: { sessionToken: string } }).data.sessionToken,
+  );
+  const headers = {
+    Authorization: `Bearer ${session}`,
+    "X-Tbspec-Schema-Version": "1",
+    Origin: new URL(baseUrl).origin,
+  };
+  const operationId = "cancel-acquisition-0001";
+  const pending = fetch(new URL("api/project/v1/dependencies/inspect", baseUrl), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ source: locator, operationId }),
+  }).then(async (response) => ({
+    status: response.status,
+    envelope: (await response.json()) as { status: string; diagnostics: { code: string }[] },
+  }));
+  await requested;
+  const status = await fetch(new URL("api/project/v1/status", baseUrl), { headers });
+  assert.equal(status.status, 200);
+  const cancelled = await fetch(new URL("api/project/v1/dependencies/cancel", baseUrl), {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ operationId }),
+  });
+  assert.equal(cancelled.status, 200);
+  const result = await pending;
+  assert.equal(result.envelope.status, "conflict");
+  assert.ok(
+    result.envelope.diagnostics.some((diagnostic) => diagnostic.code === "ACQUISITION_CANCELLED"),
+  );
 });
 
 test("a failed stopping registration can be explicitly retried without disabling reads", {
