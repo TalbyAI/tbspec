@@ -15,6 +15,7 @@ function invoke(args: string[], cwd: string) {
     cwd,
     encoding: "utf8",
     windowsHide: true,
+    maxBuffer: 16 * 1024 * 1024,
     env: { ...process.env, PATH: "" },
   });
   assert.equal(result.stdout.trim().split("\n").length, 1, result.stdout);
@@ -83,6 +84,39 @@ test("CLI validates, lists shapes and confirms schema removal offline with exact
     ["shapes", "create", "model.ttl", "--source", "schema.ttl"],
   ])
     assert.equal(invoke(args, root).status, 2);
+});
+
+test("repair CLI supports bare reference listing, exact IRI refactoring and recursive one-envelope guidance", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-cli-repair-"));
+  await initializeProject({ directory: root, baseIri: "urn:repair:cli:/" });
+  const oldIri = "urn:repair:cli:old";
+  const newIri = "urn:repair:cli:new";
+  await writeFile(
+    join(root, "vocabulary.ttl"),
+    `<${oldIri}> a <http://www.w3.org/2002/07/owl#Ontology> .\n`,
+  );
+
+  const bare = invoke(["references", "list"], root);
+  assert.equal(bare.status, 0);
+  assert.ok(bare.envelope.data.items.length > 0);
+  const targeted = invoke(["references", "list", "--target", oldIri], root);
+  assert.equal(targeted.status, 0);
+  assert.ok(
+    targeted.envelope.data.items.some((item: { targetIri: string }) => item.targetIri === oldIri),
+  );
+  assert.equal(invoke(["references", "list", "--target", oldIri, "--dangling"], root).status, 2);
+
+  const preview = invoke(["refactor", "iri", oldIri, newIri], root);
+  assert.equal(preview.status, 0);
+  assert.equal(preview.envelope.status, "preview");
+  assert.ok((await readFile(join(root, "vocabulary.ttl"), "utf8")).includes(oldIri));
+  const applied = invoke(["refactor", "iri", oldIri, newIri, "--apply"], root);
+  assert.equal(applied.status, 0);
+  assert.ok((await readFile(join(root, "vocabulary.ttl"), "utf8")).includes(newIri));
+
+  const guidance = invoke(["llms", "repair", "references"], root);
+  assert.equal(guidance.status, 0);
+  assert.match(guidance.envelope.data.text, /Bare listing is read-only/);
 });
 
 test("CLI query commands save, inspect, bind, run and confirm removal", async () => {

@@ -4,6 +4,7 @@ import type { Result } from "../src/output.ts";
 import { DependenciesPanel } from "./dependencies-ui.tsx";
 import type { EditorDraft } from "./drafts.ts";
 import { type CanvasDesignChoices, GraphEditor } from "./editor.tsx";
+import { RepairPanel } from "./repair-ui.tsx";
 import { ViewsPanel } from "./views-ui.tsx";
 import "./style.css";
 
@@ -679,6 +680,7 @@ function App() {
                 "views",
                 "queries",
                 "dependencies",
+                "repair",
                 "configuration",
                 "diagnostics",
               ].map((name) => (
@@ -1460,6 +1462,9 @@ function App() {
             )}
             {tab === "dependencies" && (
               <DependenciesPanel session={session} onApplied={() => void refresh(session, true)} />
+            )}
+            {tab === "repair" && (
+              <RepairPanel session={session} onApplied={() => void refresh(session, true)} />
             )}
             {tab === "views" && (
               <ViewsPanel

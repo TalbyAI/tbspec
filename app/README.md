@@ -26,6 +26,13 @@ node dist/cli.js --project ./knowledge shapes list --source models/examples.ttl 
 node dist/cli.js --project ./knowledge validate models/examples.ttl --json
 node dist/cli.js --project ./knowledge validate --json
 node dist/cli.js --project ./knowledge config show --json
+node dist/cli.js --project ./knowledge references list --json
+node dist/cli.js --project ./knowledge references list --dangling --json
+node dist/cli.js --project ./knowledge refactor iri urn:old urn:new
+node dist/cli.js --project ./knowledge references redirect urn:old urn:new --file models/concepts.ttl
+node dist/cli.js --project ./knowledge references remove urn:missing --all
+node dist/cli.js --project ./knowledge gc
+node dist/cli.js --project ./knowledge gc --resource models/old.shacl.ttl --apply --confirm
 node dist/cli.js --project ./knowledge dependency inspect --source ../vocabulary --json
 node dist/cli.js --project ./knowledge dependency list --json
 node dist/cli.js --project ./knowledge web --background --json
@@ -36,9 +43,17 @@ npm test
 
 The compiled executable and immutable `starters/0.1.0/` assets form the package runtime. After dependency installation and compilation, initialization needs Node and the platform's built-in process-identity facilities, with no Git or network access. Source tests use Node's TypeScript stripping; installed execution uses compiled JavaScript. `npm pack` builds a local artifact and does not publish it.
 
-Implemented commands are `init`, `status`, `validate`, `impact`, `resource move`, `shapes list/create/remove`, `graph list/show`, `ontology list/show/create/import/remove`, `model list/show/create/import/remove`, `model schema list/add/remove`, `view list/show/create/remove`, `design list/show/create/import/remove/select/clear`, `dependency inspect/add/update/rename/remove/support set/support clear/list/show/check/select/clear`, `config show`, `config model-type list`, custom model-type removal, `web`, `web status/stop`, recursive `llms`, help and version. View presentation, visual-rule editing, and individual statement editing are available in the browser.
+Implemented commands are `init`, `status`, `validate`, `impact`, `resource move`, `refactor iri`, `references list/redirect/remove`, `gc`, `shapes list/create/remove`, `graph list/show`, `ontology list/show/create/import/remove`, `model list/show/create/import/remove`, `model schema list/add/remove`, `view list/show/create/remove`, `design list/show/create/import/remove/select/clear`, `dependency inspect/add/update/rename/remove/support set/support clear/list/show/check/select/clear`, `config show`, `config model-type list`, custom model-type removal, `web`, `web status/stop`, recursive `llms`, help and version. View presentation, visual-rule editing, and individual statement editing are available in the browser.
 
 `init [directory] [--base-iri <iri>]` defaults to the working directory. Global `--project <dir>` can select the initialization directory instead of a positional directory. Base IRIs must be absolute and end in `/` or `#`. Every `--json` invocation, including help, version and argument errors, writes one schema-version-1 envelope to stdout. Diagnostics go to stderr. Exits are 0 success/preview, 1 invalidity, 2 arguments/policy, 3 conflict/recovery/acceptance and 4 unavailable/I/O. Initialization reports resulting validity as `unchecked`; run `validate` or `status` to establish full project validity.
+
+## Exact IRI repair and support collection
+
+`references list` is read-only and reports every known exact occurrence; add `--target <iri>` to filter by one IRI or `--dangling` to show only managed targets currently proven missing in their context. The inventory covers RDF subject, predicate and object terms, literal datatype IRIs, project configuration, and locked references. Ordinary individual-valued links remain ordinary data. Listing does not infer ownership from prefixes or dereference an IRI.
+
+`refactor iri <old-iri> <new-iri>` previews the exact owned RDF and configuration changes before writing. Add `--apply` to publish the reviewed plan. A target already declared by a different owned resource is refused; locked references are reported without editing locked bytes. RDF/XML and OWL rewrites are reparsed and checked for term preservation, and malformed required graphs or unrepresentable edits are refused before publication.
+
+`references redirect` and `references remove` require an explicit set of `--file <path>` values or `--all`, then preview exact occurrence and diagnostic changes. Add `--apply` to publish. A redirect target must be usable for each selected managed position. `gc` first previews orphaned owned support candidates; select exact candidate paths with `--resource <path>` or use `--all`, then pass both `--apply --confirm` to delete. Collection keeps independent design graphs and cleared manual support. The authenticated browser exposes the same inspection, scoped repair, review, cancellation, and separate collection stages in its **Repair** workspace.
 
 ## Dependency updates and manual support
 

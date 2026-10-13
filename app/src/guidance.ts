@@ -219,13 +219,38 @@ const tree: Record<string, Guidance> = {
     topics: [],
   },
   repair: {
-    text: "Use impact <kind> <selector> for a read-only inventory of known managed references. Owned graph and custom model-type removals return previews and require --confirm; they do not cascade or rewrite incoming RDF. resource move previews path and manifest selector changes, then requires --apply with the exact --accepted-preview fingerprint. Stale revisions require a fresh plan; unknown ownership and pending recovery require exclusive manual inspection.",
+    text: "tbspec references list [--target <iri> | --dangling]; tbspec refactor iri <old-iri> <new-iri> [--apply]; tbspec references redirect <old-iri> <new-iri> (--file <path> ... | --all) [--apply]; tbspec references remove <target-iri> (--file <path> ... | --all) [--apply]; tbspec gc [--resource <path> ... | --all] [--apply --confirm]. Bare references list reports all exact known occurrences. Target listing includes RDF subject, predicate, object, nested literal datatype, configuration, and locked occurrences; dangling reports only currently required managed targets proven missing in their context. Repair edits only scoped project-owned parseable RDF and safely supported project configuration. No prefix ownership, deleted-identity registry, or dereferencing is used. Refactor and reference repair preview then apply; locked occurrences remain unchanged. Garbage collection is a separate preview for orphaned owned SHACL support and saved view/presentation pairs; independent designs and cleared manual support remain retained. Existing broken-reference repair, resource removal, and lifecycle workflows remain explicit and revision-guarded.",
     topics: [
+      {
+        invocation: "tbspec llms repair references",
+        description:
+          "Exact occurrence inventory, managed dangling classification and scoped repairs.",
+      },
+      {
+        invocation: "tbspec llms repair refactor",
+        description: "Project-wide owned IRI changes and locked-reference disclosure.",
+      },
+      {
+        invocation: "tbspec llms repair gc",
+        description: "Explicitly confirmed collection of eligible orphaned support.",
+      },
       {
         invocation: "tbspec llms safety recovery",
         description: "Preserve interrupted-transaction evidence and establish exclusive access.",
       },
     ],
+  },
+  "repair references": {
+    text: "tbspec references list; tbspec references list --target <iri>; tbspec references list --dangling; tbspec references redirect <old-iri> <new-iri> (--file <path> ... | --all) [--apply]; tbspec references remove <target-iri> (--file <path> ... | --all) [--apply]. Bare listing is read-only and includes every known exact occurrence in owned RDF, configuration, and locked RDF/configuration. The object term for a literal retains its datatype; targetIri is the exact nested datatype IRI when present. Dangling includes only the exact object/member/relationship, datatype, or association position diagnosed as missing by current managed context; ordinary individual links remain ordinary values. Redirect requires a target usable for the required position. Selected scope consists only of listed project-owned RDF files or tbspec.toml, and all scope includes all owned references. Locked bytes are never edited.",
+    topics: [],
+  },
+  "repair refactor": {
+    text: "tbspec refactor iri <old-iri> <new-iri>; tbspec refactor iri <old-iri> <new-iri> --apply. Preview lists exact known owned and locked occurrences, proposed typed-literal datatype changes, affected files, collision checks and resulting validation. Only project-owned RDF/configuration changes; locked references are disclosed and remain unchanged. New identity collision checks apply to the target graph root. Parser-supported writes are reparsed and checked for term preservation; unrepresentable output, malformed required RDF, stale input revisions or inventory changes refuse before publication.",
+    topics: [],
+  },
+  "repair gc": {
+    text: "tbspec gc; tbspec gc --resource <path> ...; tbspec gc --all; tbspec gc --resource <path> --apply --confirm; tbspec gc --all --apply --confirm. A bare GC invocation previews every eligible candidate. Candidates are only orphaned project-owned SHACL support tied to a demonstrably absent source and saved view/presentation pairs tied to an absent source. Independent design graphs and cleared manual attachments remain. Select one or more exact candidate paths or --all, review deletions and manifest changes, then apply with both --apply and --confirm. GC performs no IRI dereferencing or deletion-history lookup.",
+    topics: [],
   },
   projects: {
     text: "A project is identified by tbspec.toml. Explicit --project selects that root and takes precedence over upward discovery. Dependency snapshots are versionable; Git initialization is separate. Application upgrades do not change schema versions or locked defaults. Inspect live resources with status, config show, graph list/show and dependency list/show.",
@@ -269,6 +294,33 @@ export function guidance(topics: string[]): { found: boolean; data: Guidance } {
   };
 }
 export function help(command: string): Guidance {
+  if (command === "refactor")
+    return {
+      text: "Usage: tbspec refactor iri <old-iri> <new-iri> [--apply]\nOptions: --project <dir>, --json, --help\nPreview before applying. Owned RDF and configuration are updated together; locked occurrences are reported unchanged.",
+      topics: [
+        { invocation: "tbspec llms repair refactor", description: "IRI refactoring details." },
+      ],
+    };
+  if (command === "references")
+    return {
+      text: "Usage: tbspec references list [--target <iri> | --dangling]\n       tbspec references redirect <old-iri> <new-iri> (--file <path> ... | --all) [--apply]\n       tbspec references remove <target-iri> (--file <path> ... | --all) [--apply]\nOptions: --project <dir>, --json, --help\nBare listing is read-only. Repair previews before applying and edits only selected owned, parseable graphs/configuration.",
+      topics: [
+        {
+          invocation: "tbspec llms repair references",
+          description: "Exact reference and repair scope.",
+        },
+      ],
+    };
+  if (command === "gc")
+    return {
+      text: "Usage: tbspec gc [--resource <path> ... | --all] [--apply --confirm]\nOptions: --project <dir>, --json, --help\nPreview candidates by default; apply requires both flags.",
+      topics: [
+        {
+          invocation: "tbspec llms repair gc",
+          description: "Orphaned support eligibility and confirmation.",
+        },
+      ],
+    };
   if (command === "view")
     return {
       text: "Usage: tbspec view list [--source <selector>]\n       tbspec view show <view-selector>\n       tbspec view create <path> --source <owned-or-locked-selector> [--protocol <project-ontology-selector>]\n       tbspec view remove <view-selector> [--confirm --accepted-preview <fingerprint>]\nOptions: --project <dir>, --json, --help\nEach view owns independent exact member and relationship selections plus a separate presentation graph. Removal previews all three files. The browser Views workspace edits presentation; use tbspec llms views designs for rule and appearance behavior.",
@@ -401,7 +453,7 @@ export function help(command: string): Guidance {
       topics: guidance([]).data.topics,
     };
   return {
-    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, impact, resource move, shapes list/create/remove, graph list/show, ontology list/show/create/import/remove, model list/show/create/import/remove/schema list/add/remove, view list/show/create/remove, design list/show/create/import/remove/select/clear, dependency inspect/add/update/support set/support clear/list/show/check/select/clear, query list/show/save/run/remove, config show/model-type list/show/set/disable/enable/reset/design/remove, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExamples: tbspec impact ontology vocabularies/core.ttl --json; tbspec dependency inspect --source ../vocabulary --json\nCLI and authenticated browser share views, designs, queries, configuration, authoring, dependencies and project operations. Use tbspec llms views, llms views designs, llms queries, llms impact, llms resource, llms dependencies and llms project for guidance.",
+    text: "Usage: tbspec <command> [--project <dir>] [--json]\nCommands: init, status, validate, impact, resource move, refactor iri, references list/redirect/remove, gc, shapes list/create/remove, graph list/show, ontology list/show/create/import/remove, model list/show/create/import/remove/schema list/add/remove, view list/show/create/remove, design list/show/create/import/remove/select/clear, dependency inspect/add/update/support set/support clear/list/show/check/select/clear, query list/show/save/run/remove, config show/model-type list/show/set/disable/enable/reset/design/remove, web [status|stop], llms\nGlobal options: --help, --version, --json, --project <dir>\nExamples: tbspec references list --dangling --json; tbspec dependency inspect --source ../vocabulary --json\nCLI and authenticated browser share views, designs, queries, configuration, authoring, dependencies, repair and project operations. Use tbspec llms views, llms views designs, llms queries, llms repair, llms impact, llms resource, llms dependencies and llms project for guidance.",
     topics: [
       { invocation: "tbspec init --help", description: "Initialize an offline project." },
       { invocation: "tbspec llms --help", description: "Recursive agent guidance." },

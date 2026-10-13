@@ -659,6 +659,197 @@ export function parseLock(text: string, bundled = false): Lock {
 export function writeToml(value: unknown): string {
   return stringify(value as Parameters<typeof stringify>[0]);
 }
+
+/** Rewrites one exact IRI token in manifest values and keys without rewriting comments or layout. */
+export function editManifestIri(text: string, oldIri: string, newIri: string): string {
+  if (!absoluteIri(oldIri) || !absoluteIri(newIri))
+    throw new ProjectError("invalid_arguments", "ARGUMENT_INVALID", "IRIs must be absolute.");
+  const before = parseManifest(text);
+  const rewrite = (value: unknown): unknown => {
+    if (typeof value === "string") return value === oldIri ? newIri : value;
+    if (Array.isArray(value)) return value.map(rewrite);
+    if (!value || typeof value !== "object") return value;
+    if (![Object.prototype, null].includes(Object.getPrototypeOf(value))) return value;
+    const result = Object.create(Object.getPrototypeOf(value)) as Row;
+    for (const [key, child] of Object.entries(value)) {
+      const nextKey = key === oldIri ? newIri : key;
+      if (nextKey !== key && Object.hasOwn(value, nextKey))
+        throw new ProjectError(
+          "conflict",
+          "CONFIG_IRI_COLLISION",
+          `Configuration already contains the target IRI key <${newIri}>.`,
+          "tbspec.toml",
+        );
+      Object.defineProperty(result, nextKey, {
+        value: rewrite(child),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
+    return result;
+  };
+  const expected = rewrite(before) as Row;
+  const lines = (text.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? []).filter(Boolean);
+  const content = (line: string) => line.replace(/(?:\r\n|\n|\r)$/, "");
+  const ending = (line: string) => line.slice(content(line).length);
+  const keyPattern = /^(\s*)("(?:[^"\\]|\\.)*"|'[^'\r\n]*'|[A-Za-z0-9_-]+)(\s*=\s*)(.*)$/;
+  let changed = false;
+  const result = lines.map((line) => {
+    const body = content(line);
+    const assignment = keyPattern.exec(body);
+    if (!assignment) return line;
+    const keyToken = assignment[2] ?? "";
+    let parsedKey: string;
+    try {
+      parsedKey = Object.keys(parse(`${keyToken} = 0`))[0] ?? "";
+    } catch {
+      throw new ProjectError(
+        "invalid",
+        "MANIFEST_INVALID",
+        "Cannot safely decode a TOML key while refactoring an IRI.",
+        "tbspec.toml",
+      );
+    }
+    const leading = assignment[1] ?? "";
+    const separator = assignment[3] ?? " = ";
+    const raw = assignment[4] ?? "";
+    const marker = trailingTomlComment(raw);
+    const valueText = marker < 0 ? raw : raw.slice(0, marker);
+    const suffix = marker < 0 ? "" : raw.slice(marker);
+    const nextValue = valueText.replace(/"(?:[^"\\]|\\.)*"|'[^'\r\n]*'/g, (token) => {
+      let parsedValue: unknown;
+      try {
+        parsedValue = parse(`value = ${token}`).value;
+      } catch {
+        throw new ProjectError(
+          "invalid",
+          "MANIFEST_INVALID",
+          "Cannot safely decode a TOML string while refactoring an IRI.",
+          "tbspec.toml",
+        );
+      }
+      if (parsedValue !== oldIri) return token;
+      changed = true;
+      return JSON.stringify(newIri);
+    });
+    const nextKeyChanged = parsedKey === oldIri;
+    if (nextKeyChanged || nextValue !== valueText) changed = true;
+    const key = nextKeyChanged ? JSON.stringify(newIri) : keyToken;
+    return `${leading}${key}${separator}${nextValue}${suffix}${ending(line)}`;
+  });
+  const changedText = result.join("");
+  const after = parseManifest(changedText);
+  if (!isDeepStrictEqual(after, expected))
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Cannot safely rewrite the exact IRI in every manifest occurrence; no write is permitted.",
+      "tbspec.toml",
+    );
+  if (!isDeepStrictEqual(before, expected) && !changed)
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Manifest IRI references could not be located safely.",
+      "tbspec.toml",
+    );
+  return changedText;
+}
+
+/** Remove a single IRI-keyed choice while preserving every unrelated TOML byte. */
+export function removeManifestIriChoice(
+  text: string,
+  table: "ontology_choices" | "design_choices",
+  iri: string,
+): string {
+  if (!absoluteIri(iri))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Choice key must be an absolute IRI.",
+    );
+  const before = parseManifest(text);
+  const choices = (before[table] ?? {}) as Row;
+  if (!Object.hasOwn(choices, iri))
+    throw new ProjectError(
+      "invalid_arguments",
+      "REFERENCE_NOT_DANGLING",
+      "The selected IRI choice does not exist.",
+      "tbspec.toml",
+    );
+  const expectedChoices = Object.assign(
+    Object.create(Object.getPrototypeOf(choices)) as Row,
+    choices,
+  );
+  delete expectedChoices[iri];
+  const expected = Object.assign(Object.create(Object.getPrototypeOf(before)) as Row, before);
+  if (Object.keys(expectedChoices).length) expected[table] = expectedChoices;
+  else delete expected[table];
+  const lines = (text.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? []).filter(Boolean);
+  const content = (line: string) => line.replace(/(?:\r\n|\n|\r)$/, "");
+  const ending = (line: string) => line.slice(content(line).length);
+  const header = new RegExp(`^\\s*\\[\\s*(?:"${table}"|'${table}'|${table})\\s*\\]\\s*(?:#.*)?$`);
+  const start = lines.findIndex((line) => header.test(content(line)));
+  if (start < 0)
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Cannot locate the selected IRI choice table.",
+      "tbspec.toml",
+    );
+  const stop = lines.findIndex((line, index) => index > start && /^\s*\[/.test(content(line)));
+  const end = stop < 0 ? lines.length : stop;
+  const keyPattern = /^(\s*)("(?:[^"\\]|\\.)*"|'[^'\r\n]*'|[A-Za-z0-9_-]+)(\s*=)(.*)$/;
+  const retained: string[] = [];
+  let removed = 0;
+  for (let index = start + 1; index < end; index++) {
+    const line = lines[index] ?? "";
+    const match = keyPattern.exec(content(line));
+    let key: string | undefined;
+    if (match) {
+      try {
+        key = Object.keys(parse(`${match[2]} = 0`))[0];
+      } catch {
+        throw new ProjectError(
+          "invalid",
+          "MANIFEST_INVALID",
+          "Cannot safely decode an IRI choice key.",
+          "tbspec.toml",
+        );
+      }
+    }
+    if (key !== iri) {
+      retained.push(line);
+      continue;
+    }
+    removed++;
+    const body = content(line);
+    const comment = trailingTomlComment(body);
+    if (comment >= 0)
+      retained.push(`${body.slice(0, body.search(/\S|$/))}${body.slice(comment)}${ending(line)}`);
+  }
+  if (removed !== 1)
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Cannot identify exactly one selected IRI choice.",
+      "tbspec.toml",
+    );
+  const prefix = Object.keys(expectedChoices).length
+    ? lines.slice(0, start + 1)
+    : lines.slice(0, start);
+  const changed = [...prefix, ...retained, ...lines.slice(end)].join("");
+  if (!isDeepStrictEqual(parseManifest(changed), expected))
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Removing the IRI choice changed unrelated configuration.",
+      "tbspec.toml",
+    );
+  return changed;
+}
+
 export function editOntologyChoice(
   text: string,
   ontologyIri: string,
@@ -1266,10 +1457,10 @@ export function editManifestView(text: string, view: Row, remove = false): strin
     changed = [...lines.slice(0, match.start), ...lines.slice(match.end)].join("");
     const after = parseManifest(changed);
     const expectedViews = existing.filter((entry) => entry.view !== path);
-    const expected = { ...before };
+    const expected = Object.assign(Object.create(Object.getPrototypeOf(before)) as Row, before);
     if (expectedViews.length) expected.views = expectedViews;
     else delete expected.views;
-    if (canonical(after) !== canonical(expected))
+    if (!isDeepStrictEqual(after, expected))
       throw new ProjectError(
         "invalid",
         "MANIFEST_INVALID",
@@ -1286,13 +1477,15 @@ export function editManifestView(text: string, view: Row, remove = false): strin
       "View or presentation path is already associated.",
       path,
     );
-  const row = {
+  const row = Object.assign(Object.create(Object.getPrototypeOf(existing[0] ?? before)) as Row, {
     view: path,
     presentation: view.presentation,
     source: view.source,
     ...(view.protocol === undefined ? {} : { protocol: view.protocol }),
-  };
-  const expected = { ...before, views: [...existing, row] };
+  });
+  const expected = Object.assign(Object.create(Object.getPrototypeOf(before)) as Row, before, {
+    views: [...existing, row],
+  });
   const newline = text.includes("\r\n") ? "\r\n" : text.includes("\r") ? "\r" : "\n";
   const separator = text.length && !/(?:\r\n|\r|\n)$/.test(text) ? newline : "";
   changed =
@@ -1301,11 +1494,75 @@ export function editManifestView(text: string, view: Row, remove = false): strin
     `presentation = ${JSON.stringify(row.presentation)}${newline}` +
     `source = ${JSON.stringify(row.source)}${newline}` +
     (row.protocol === undefined ? "" : `protocol = ${JSON.stringify(row.protocol)}${newline}`);
-  if (canonical(parseManifest(changed)) !== canonical(expected))
+  if (!isDeepStrictEqual(parseManifest(changed), expected))
     throw new ProjectError(
       "invalid",
       "MANIFEST_INVALID",
       "Adding the view changed unrelated configuration.",
+      "tbspec.toml",
+    );
+  return changed;
+}
+
+/** Remove only named manual SHACL associations while retaining unrelated TOML bytes and comments. */
+export function removeManifestSupportAssociations(text: string, supportPaths: string[]): string {
+  const before = parseManifest(text);
+  const associations = (before.associations ?? []) as Row[];
+  const selected = new Set(supportPaths);
+  const retained = associations.filter(
+    (row) =>
+      !(row.role === "shacl" && typeof row.support === "string" && selected.has(row.support)),
+  );
+  if (retained.length === associations.length) return text;
+
+  const lines = (text.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? []).filter(Boolean);
+  const content = (line: string) => line.replace(/(?:\r\n|\n|\r)$/, "");
+  const sections: { start: number; end: number; remove: boolean }[] = [];
+  for (let start = 0; start < lines.length; start++) {
+    if (!/^\s*\[\[\s*associations\s*\]\]\s*(?:#.*)?$/.test(content(lines[start] ?? ""))) continue;
+    let end = start + 1;
+    while (end < lines.length && !/^\s*\[/.test(content(lines[end] ?? ""))) end++;
+    let parsed: Row;
+    try {
+      parsed = object(parse(lines.slice(start, end).join("")));
+    } catch {
+      throw new ProjectError(
+        "invalid",
+        "MANIFEST_INVALID",
+        "Cannot safely locate the selected support association.",
+        "tbspec.toml",
+      );
+    }
+    const row = ((parsed.associations ?? []) as Row[])[0];
+    sections.push({
+      start,
+      end,
+      remove: row?.role === "shacl" && typeof row.support === "string" && selected.has(row.support),
+    });
+    start = end - 1;
+  }
+  const removed = sections.filter((section) => section.remove);
+  if (removed.length !== associations.length - retained.length)
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Cannot identify every selected support association without changing unrelated configuration.",
+      "tbspec.toml",
+    );
+  const omit = new Set(
+    removed.flatMap((section) =>
+      Array.from({ length: section.end - section.start }, (_, offset) => section.start + offset),
+    ),
+  );
+  const changed = lines.filter((_, index) => !omit.has(index)).join("");
+  const expected = Object.assign(Object.create(Object.getPrototypeOf(before)) as Row, before);
+  if (retained.length) expected.associations = retained;
+  else delete expected.associations;
+  if (!isDeepStrictEqual(parseManifest(changed), expected))
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Support-association removal changed unrelated configuration.",
       "tbspec.toml",
     );
   return changed;

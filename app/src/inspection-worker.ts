@@ -25,6 +25,14 @@ import { safePath } from "./paths.ts";
 import { discardPreview, retainedPreview } from "./previews.ts";
 import { type QueryOperation, queryOperation } from "./query.ts";
 import {
+  listReferences,
+  type PreparedRepair,
+  prepareRepair,
+  publishRepair,
+  type RepairRequest,
+  type SupportCandidate,
+} from "./repair.ts";
+import {
   inspectImpact,
   type LifecycleOptions,
   type LifecycleResourceKind,
@@ -49,6 +57,10 @@ export interface AuthoringRequest {
   views?: ViewOptions;
   lifecycle?: LifecycleOptions & { action: "remove" | "move" };
   impact?: { kind: LifecycleResourceKind; selector: string };
+  referenceList?: { target?: string; dangling?: boolean };
+  garbageList?: boolean;
+  repair?: RepairRequest;
+  repairApply?: boolean;
   session: string;
   mode: "preview" | "apply" | "cancel";
   fingerprint?: string;
@@ -57,7 +69,14 @@ export interface AuthoringRequest {
   accept?: string[];
 }
 interface StoredPreview {
-  prepared: PreparedResource | PreparedModelTypeConfiguration | PreparedResourceLifecycle;
+  prepared:
+    | PreparedResource
+    | PreparedModelTypeConfiguration
+    | PreparedResourceLifecycle
+    | PreparedRepair;
+  repair?: boolean;
+  repairRequest?: RepairRequest;
+  candidates?: SupportCandidate[];
   expires: number;
   session: string;
   instanceId: string;
@@ -96,6 +115,17 @@ async function handle(request: WorkerRequest) {
         project: request.project,
         ...authoring.impact,
       });
+    } else if (authoring.referenceList) {
+      result = await listReferences({ project: request.project, ...authoring.referenceList });
+    } else if (authoring.garbageList) {
+      if (!request.project)
+        throw new ProjectError(
+          "invalid_arguments",
+          "PROJECT_REQUIRED",
+          "Reference inspection requires a project.",
+        );
+      const inventory = await prepareRepair({ operation: "gc" }, request.project);
+      result = ok({ candidates: inventory.candidates ?? [] });
     } else if (
       authoring.mode === "preview" &&
       (authoring.options ||
@@ -103,7 +133,8 @@ async function handle(request: WorkerRequest) {
         authoring.deletion ||
         authoring.views ||
         authoring.configuration ||
-        authoring.lifecycle)
+        authoring.lifecycle ||
+        authoring.repair)
     ) {
       for (const [key, preview] of previews)
         if (preview.expires <= Date.now()) {
@@ -116,26 +147,38 @@ async function handle(request: WorkerRequest) {
           "PROJECT_BUSY",
           "Resource preview capacity is full. Wait for expiry.",
         );
-      const prepared = authoring.deletion
-        ? await prepareElementDeletion({ ...authoring.deletion, project: request.project })
-        : authoring.editing
-          ? await prepareEdit({ ...authoring.editing, project: request.project })
-          : authoring.views
-            ? await prepareEditWithViews({ ...authoring.views, project: request.project })
-            : authoring.configuration
-              ? await prepareModelTypeConfiguration({
-                  ...authoring.configuration,
-                  project: request.project,
-                })
-              : authoring.lifecycle
-                ? await prepareResourceLifecycle({
-                    ...authoring.lifecycle,
+      if (authoring.repair && !request.project)
+        throw new ProjectError(
+          "invalid_arguments",
+          "PROJECT_REQUIRED",
+          "Reference repair requires a project.",
+        );
+      const repairPlan =
+        authoring.repair && request.project
+          ? await prepareRepair(authoring.repair, request.project)
+          : undefined;
+      const prepared =
+        repairPlan?.prepared ??
+        (authoring.deletion
+          ? await prepareElementDeletion({ ...authoring.deletion, project: request.project })
+          : authoring.editing
+            ? await prepareEdit({ ...authoring.editing, project: request.project })
+            : authoring.views
+              ? await prepareEditWithViews({ ...authoring.views, project: request.project })
+              : authoring.configuration
+                ? await prepareModelTypeConfiguration({
+                    ...authoring.configuration,
                     project: request.project,
                   })
-                : await prepareResource({
-                    ...(authoring.options as AuthoringOptions),
-                    project: request.project,
-                  });
+                : authoring.lifecycle
+                  ? await prepareResourceLifecycle({
+                      ...authoring.lifecycle,
+                      project: request.project,
+                    })
+                  : await prepareResource({
+                      ...(authoring.options as AuthoringOptions),
+                      project: request.project,
+                    }));
       if (!authoring.instanceId) throw new Error("Missing server instance.");
       const handle = token();
       const expires = Date.now() + 900000;
@@ -182,36 +225,59 @@ async function handle(request: WorkerRequest) {
       timer.unref();
       previews.set(handle, {
         prepared,
+        ...(authoring.repair ? { repair: true } : {}),
+        ...(authoring.repair ? { repairRequest: authoring.repair } : {}),
+        ...(repairPlan?.candidates ? { candidates: repairPlan.candidates } : {}),
         expires,
         session: authoring.session,
         instanceId: authoring.instanceId,
         workspace,
         timer,
       });
+      const nonRepairPrepared = prepared as
+        | PreparedResource
+        | PreparedModelTypeConfiguration
+        | PreparedResourceLifecycle;
+      let previewDetails: Record<string, unknown>;
+      if (authoring.repair) {
+        if (!repairPlan)
+          throw new ProjectError(
+            "invalid_arguments",
+            "PROJECT_REQUIRED",
+            "Reference repair requires a project.",
+          );
+        previewDetails = {
+          projectValidity: repairPlan.prepared.projectValidity,
+          validationComplete: repairPlan.prepared.validationComplete,
+          ...(repairPlan.candidates ? { candidates: repairPlan.candidates } : {}),
+        };
+      } else if ("lifecycle" in nonRepairPrepared) {
+        previewDetails = {
+          resource: nonRepairPrepared.resource,
+          modelType: nonRepairPrepared.modelType,
+          affectedModels: nonRepairPrepared.affectedModels,
+          projectValidity: nonRepairPrepared.projectValidity,
+          validationComplete: nonRepairPrepared.validationComplete,
+        };
+      } else if ("modelType" in nonRepairPrepared) {
+        previewDetails = {
+          modelType: nonRepairPrepared.modelType,
+          affectedModels: nonRepairPrepared.affectedModels,
+          projectValidity: nonRepairPrepared.projectValidity,
+          validationComplete: nonRepairPrepared.validationComplete,
+        };
+      } else {
+        previewDetails = {
+          resource: nonRepairPrepared.resource,
+          projectValidity: nonRepairPrepared.validation?.validity ?? "unchecked",
+          validationComplete: nonRepairPrepared.validation?.validationComplete ?? false,
+          ...(nonRepairPrepared.validation ? { validation: nonRepairPrepared.validation } : {}),
+        };
+      }
       result = {
         ...ok(
           {
-            ...("lifecycle" in prepared
-              ? {
-                  resource: prepared.resource,
-                  modelType: prepared.modelType,
-                  affectedModels: prepared.affectedModels,
-                  projectValidity: prepared.projectValidity,
-                  validationComplete: prepared.validationComplete,
-                }
-              : "modelType" in prepared
-                ? {
-                    modelType: prepared.modelType,
-                    affectedModels: prepared.affectedModels,
-                    projectValidity: prepared.projectValidity,
-                    validationComplete: prepared.validationComplete,
-                  }
-                : {
-                    resource: prepared.resource,
-                    projectValidity: prepared.validation?.validity ?? "unchecked",
-                    validationComplete: prepared.validation?.validationComplete ?? false,
-                    ...(prepared.validation ? { validation: prepared.validation } : {}),
-                  }),
+            ...previewDetails,
             applied: false,
             preview: prepared.plan.preview,
             handle,
@@ -230,6 +296,7 @@ async function handle(request: WorkerRequest) {
         preview.expires <= Date.now() ||
         preview.session !== authoring.session ||
         preview.instanceId !== authoring.instanceId ||
+        Boolean(preview.repair) !== Boolean(authoring.repairApply) ||
         (authoring.mode !== "cancel" &&
           preview.prepared.plan.preview.fingerprint !== authoring.fingerprint)
       )
@@ -242,6 +309,17 @@ async function handle(request: WorkerRequest) {
         await discard(key);
         result = ok({ cancelled: true });
       } else {
+        if (
+          authoring.mode === "apply" &&
+          preview.repairRequest?.operation === "gc" &&
+          preview.repairRequest.all !== true &&
+          !preview.repairRequest.resources?.length
+        )
+          throw new ProjectError(
+            "invalid_arguments",
+            "GC_SCOPE_REQUIRED",
+            "GC application requires explicit candidate paths or all=true.",
+          );
         if (
           preview.prepared.plan.preview.impact.acceptance.some(
             (flag) => !authoring.accept?.includes(flag),
@@ -267,12 +345,13 @@ async function handle(request: WorkerRequest) {
           }),
         );
         const publication = { ...preview.prepared, plan: { ...preview.prepared.plan, writes } };
-        result =
-          "lifecycle" in publication
+        result = preview.repair
+          ? await publishRepair(publication as PreparedRepair)
+          : "lifecycle" in publication
             ? await publishResourceLifecycle(publication)
             : "modelType" in publication
               ? await publishModelTypeConfiguration(publication)
-              : await publishResource(publication);
+              : await publishResource(publication as PreparedResource);
         if (result.status === "ok") {
           await discard(key);
         } else if (
