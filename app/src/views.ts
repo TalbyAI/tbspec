@@ -1450,8 +1450,14 @@ async function synchronizeViews(
       presentation.resource.file,
     ]),
   );
+  const isWinningDesignTie = (diagnostic: (typeof baseline.diagnostics)[number]) =>
+    diagnostic.code === "DESIGN_CONFLICT" &&
+    (diagnostic.details?.identity as { kind?: unknown } | undefined)?.kind === "collision";
   const broken = baseline.diagnostics.find(
-    (diagnostic) => candidateFiles.has(diagnostic.file ?? "") && diagnostic.severity === "error",
+    (diagnostic) =>
+      candidateFiles.has(diagnostic.file ?? "") &&
+      diagnostic.severity === "error" &&
+      !isWinningDesignTie(diagnostic),
   );
   if (broken)
     throw new ProjectError(

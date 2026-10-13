@@ -1,6 +1,7 @@
 import { Background, Controls, type Edge, MarkerType, type Node, ReactFlow } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CanvasDesignChoices } from "./editor.tsx";
+import { loadViewsWorkspace } from "./views-workspace.ts";
 
 interface Term {
   kind: string;
@@ -284,7 +285,7 @@ export function ViewsPanel({
   );
 
   const refresh = useCallback(async () => {
-    const [result, designs] = await Promise.all([call("views"), call("designs")]);
+    const { views: result, designs } = await loadViewsWorkspace(call);
     setItems((result.data?.items as typeof items) ?? []);
     setDesignItems((designs.data?.items as typeof designItems) ?? []);
   }, [call]);
@@ -368,11 +369,11 @@ export function ViewsPanel({
             .map((association) => association.selector),
         ),
       ];
-      const vocabularyResults = await Promise.all(
-        vocabularySelectors.map((selector) =>
-          call(`graph?selector=${encodeURIComponent(selector)}`).catch(() => undefined),
-        ),
-      );
+      const vocabularyResults = [];
+      for (const selector of vocabularySelectors)
+        vocabularyResults.push(
+          await call(`graph?selector=${encodeURIComponent(selector)}`).catch(() => undefined),
+        );
       setVocabularyTriples(
         vocabularyResults.flatMap(
           (result) => (result?.data?.triples as Triple[] | undefined) ?? [],
