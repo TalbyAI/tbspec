@@ -403,6 +403,79 @@ test("authenticated HTTP stages, applies, lists and shows an acquired directory 
     await readFile(join(root, ".tbspec/dependencies/web-source/source/ontology.ttl"), "utf8"),
     updated,
   );
+  const lockedBytesBeforeRename = await readFile(
+    join(root, ".tbspec/dependencies/web-source/source/ontology.ttl"),
+  );
+  const lockBeforeRename = await readFile(join(root, "tbspec.lock"));
+  const renamePreview = await request("dependencies/rename", {
+    from: "web-source",
+    to: "web-renamed",
+    operationId: "dependency-rename-preview-0001",
+  });
+  assert.equal(renamePreview.envelope.status, "preview", JSON.stringify(renamePreview.envelope));
+  const renameStaged = renamePreview.envelope.data as {
+    handle: string;
+    preview: {
+      operation: string;
+      fingerprint: string;
+      arguments: { selectors: Record<string, string> };
+    };
+  };
+  assert.equal(renameStaged.preview.operation, "dependency.rename");
+  assert.equal(
+    renameStaged.preview.arguments.selectors["dep:web-source/source/ontology.ttl"],
+    "dep:web-renamed/source/ontology.ttl",
+  );
+  assert.deepEqual(await readFile(join(root, "tbspec.lock")), lockBeforeRename);
+  assert.deepEqual(
+    await readFile(join(root, ".tbspec/dependencies/web-source/source/ontology.ttl")),
+    lockedBytesBeforeRename,
+  );
+  const renameApplied = await request("dependencies/apply", {
+    schemaVersion: 1,
+    handle: renameStaged.handle,
+    fingerprint: renameStaged.preview.fingerprint,
+    accept: [],
+  });
+  assert.equal(renameApplied.envelope.status, "ok", JSON.stringify(renameApplied.envelope));
+  assert.equal(renameApplied.envelope.data?.operation, "dependency.rename");
+  assert.deepEqual(
+    await readFile(join(root, ".tbspec/dependencies/web-renamed/source/ontology.ttl")),
+    lockedBytesBeforeRename,
+  );
+  await assert.rejects(
+    readFile(join(root, ".tbspec/dependencies/web-source/source/ontology.ttl")),
+    { code: "ENOENT" },
+  );
+  const removePreview = await request("dependencies/remove", {
+    id: "web-renamed",
+    operationId: "dependency-remove-preview-0001",
+  });
+  assert.equal(removePreview.envelope.status, "preview", JSON.stringify(removePreview.envelope));
+  const removeStaged = removePreview.envelope.data as {
+    handle: string;
+    preview: { fingerprint: string; impact: { acceptance: string[] } };
+  };
+  assert.ok(removeStaged.preview.impact.acceptance.includes("confirm"));
+  const removeApplied = await request("dependencies/apply", {
+    schemaVersion: 1,
+    handle: removeStaged.handle,
+    fingerprint: removeStaged.preview.fingerprint,
+    accept: ["confirm"],
+  });
+  assert.equal(removeApplied.envelope.status, "ok", JSON.stringify(removeApplied.envelope));
+  assert.equal(removeApplied.envelope.data?.removed, true);
+  await assert.rejects(
+    readFile(join(root, ".tbspec/dependencies/web-renamed/source/ontology.ttl")),
+    { code: "ENOENT" },
+  );
+  const afterRemoval = await request("dependencies");
+  assert.ok(afterRemoval.envelope.data);
+  assert.ok(
+    !(afterRemoval.envelope.data.items as { id: string }[]).some(
+      (item) => item.id === "web-renamed",
+    ),
+  );
   const invalid = await request("dependencies/inspect", { source, unknown: true });
   assert.equal(invalid.envelope.status, "invalid_arguments");
   assert.equal(invalid.status, 400);

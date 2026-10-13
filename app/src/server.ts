@@ -918,6 +918,69 @@ export async function startWebServer(
           );
           return;
         }
+        if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/rename") {
+          const body = await jsonBody(request);
+          if (
+            Object.keys(body).some((key) => !["from", "to", "operationId"].includes(key)) ||
+            typeof body.from !== "string" ||
+            typeof body.to !== "string" ||
+            (body.operationId !== undefined &&
+              (typeof body.operationId !== "string" ||
+                !/^[A-Za-z0-9_-]{16,64}$/.test(body.operationId)))
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Invalid dependency rename fields.",
+            );
+          const operationId = typeof body.operationId === "string" ? body.operationId : token();
+          if (activeDependencyOperations.has(operationId))
+            throw new ProjectError(
+              "conflict",
+              "OPERATION_OWNERSHIP",
+              "Dependency operation ID is already active.",
+            );
+          activeDependencyOperations.set(operationId, credential ?? "");
+          respond(
+            response,
+            await acquire(
+              { operation: "rename-preview", from: body.from, to: body.to, operationId },
+              credential ?? "",
+            ),
+          );
+          return;
+        }
+        if (request.method === "POST" && url.pathname === "/api/project/v1/dependencies/remove") {
+          const body = await jsonBody(request);
+          if (
+            Object.keys(body).some((key) => !["id", "operationId"].includes(key)) ||
+            typeof body.id !== "string" ||
+            (body.operationId !== undefined &&
+              (typeof body.operationId !== "string" ||
+                !/^[A-Za-z0-9_-]{16,64}$/.test(body.operationId)))
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Invalid dependency removal fields.",
+            );
+          const operationId = typeof body.operationId === "string" ? body.operationId : token();
+          if (activeDependencyOperations.has(operationId))
+            throw new ProjectError(
+              "conflict",
+              "OPERATION_OWNERSHIP",
+              "Dependency operation ID is already active.",
+            );
+          activeDependencyOperations.set(operationId, credential ?? "");
+          respond(
+            response,
+            await acquire(
+              { operation: "remove-preview", id: body.id, operationId },
+              credential ?? "",
+            ),
+          );
+          return;
+        }
         if (
           request.method === "POST" &&
           url.pathname === "/api/project/v1/dependencies/support/set"

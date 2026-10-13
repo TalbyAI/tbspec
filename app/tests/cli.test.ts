@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { dependencyAdd, dependencyList, dependencyRename } from "../src/dependencies.ts";
 import { discoverProject, initializeProject } from "../src/project.ts";
 
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -191,6 +192,135 @@ test("CLI dependency commands inspect a source and apply its reviewed fingerprin
     const rejected = invoke(args, project);
     assert.equal(rejected.status, 2, `${args.join(" ")}: ${rejected.stderr}`);
   }
+});
+
+test("CLI dependency rename and removal preview exact scope and apply accepted fingerprints", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-cli-dependency-rename-"));
+  const source = join(root, "source");
+  const project = join(root, "project");
+  await mkdir(source);
+  await initializeProject({ directory: project, baseIri: "urn:dependency-rename-cli:/" });
+  const original =
+    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/rename> a owl:Ontology .\n";
+  await writeFile(join(source, "rename.ttl"), original);
+  for (const id of ["old", "repeated"]) {
+    const addPreview = await dependencyAdd({ project, source, id, kind: "ontology" });
+    assert.equal(addPreview.status, "conflict", JSON.stringify(addPreview));
+    assert.ok(addPreview.data);
+    const added = await dependencyAdd({
+      project,
+      source,
+      id,
+      kind: "ontology",
+      acceptedPreview: (addPreview.data.preview as { fingerprint: string }).fingerprint,
+    });
+    assert.equal(added.status, "ok", JSON.stringify(added));
+  }
+
+  const lockBefore = await readFile(join(project, "tbspec.lock"));
+  const sourceBefore = await readFile(join(project, ".tbspec/dependencies/old/source/rename.ttl"));
+  const repeatedBefore = await readFile(
+    join(project, ".tbspec/dependencies/repeated/source/rename.ttl"),
+  );
+  const invalidId = await dependencyRename({ project, from: "old", to: "Bad" });
+  assert.equal(invalidId.status, "invalid_arguments", JSON.stringify(invalidId));
+  assert.equal(invalidId.diagnostics[0]?.code, "ARGUMENT_INVALID");
+  const collision = await dependencyRename({ project, from: "old", to: "repeated" });
+  assert.equal(collision.status, "conflict", JSON.stringify(collision));
+  assert.equal(collision.diagnostics[0]?.code, "DEPENDENCY_ID_COLLISION");
+  const destination = join(project, ".tbspec/dependencies/occupied");
+  await mkdir(destination);
+  const occupied = await dependencyRename({ project, from: "old", to: "occupied" });
+  assert.equal(occupied.status, "conflict", JSON.stringify(occupied));
+  assert.equal(occupied.diagnostics[0]?.code, "DEPENDENCY_DESTINATION_OCCUPIED");
+
+  const stalePreview = await dependencyRename({ project, from: "old", to: "stale" });
+  assert.equal(stalePreview.status, "preview", JSON.stringify(stalePreview));
+  assert.ok(stalePreview.data);
+  await appendFile(join(project, "tbspec.toml"), "\n# intervening configuration edit\n");
+  const staleApply = await dependencyRename({
+    project,
+    from: "old",
+    to: "stale",
+    apply: true,
+    acceptedPreview: (stalePreview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(staleApply.status, "conflict", JSON.stringify(staleApply));
+  assert.equal(staleApply.diagnostics.at(-1)?.code, "PREVIEW_CHANGED");
+  await readFile(join(project, ".tbspec/dependencies/old/source/rename.ttl"));
+  await assert.rejects(readFile(join(project, ".tbspec/dependencies/stale/source/rename.ttl")), {
+    code: "ENOENT",
+  });
+
+  const preview = invoke(["dependency", "rename", "old", "new"], project);
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.equal(preview.envelope.status, "preview");
+  assert.equal(preview.envelope.data.preview.operation, "dependency.rename");
+  assert.equal(
+    preview.envelope.data.preview.arguments.selectors["dep:old/source/rename.ttl"],
+    "dep:new/source/rename.ttl",
+  );
+  const fingerprint = preview.envelope.data.preview.fingerprint;
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBefore);
+  assert.deepEqual(
+    await readFile(join(project, ".tbspec/dependencies/old/source/rename.ttl")),
+    sourceBefore,
+  );
+  assert.deepEqual(sourceBefore, Buffer.from(original));
+  const applied = invoke(
+    ["dependency", "rename", "old", "new", "--apply", "--accepted-preview", fingerprint],
+    project,
+  );
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.equal(applied.envelope.data.applied, true);
+  assert.deepEqual(
+    await readFile(join(project, ".tbspec/dependencies/new/source/rename.ttl")),
+    sourceBefore,
+  );
+  await assert.rejects(readFile(join(project, ".tbspec/dependencies/old/source/rename.ttl")), {
+    code: "ENOENT",
+  });
+  assert.deepEqual(
+    await readFile(join(project, ".tbspec/dependencies/repeated/source/rename.ttl")),
+    repeatedBefore,
+  );
+  const removePreview = invoke(["dependency", "remove", "new"], project);
+  assert.equal(removePreview.status, 0, removePreview.stderr);
+  assert.equal(removePreview.envelope.status, "preview");
+  assert.deepEqual(removePreview.envelope.data.preview.impact.acceptance, ["confirm"]);
+  assert.ok(
+    removePreview.envelope.data.directAndDownstreamReferences.some(
+      (reference: { ownership: string; file: string }) =>
+        reference.ownership === "locked" &&
+        reference.file.startsWith(".tbspec/dependencies/repeated/"),
+    ),
+    JSON.stringify(removePreview.envelope.data.directAndDownstreamReferences),
+  );
+  const removed = invoke(
+    [
+      "dependency",
+      "remove",
+      "new",
+      "--confirm",
+      "--accepted-preview",
+      removePreview.envelope.data.preview.fingerprint,
+    ],
+    project,
+  );
+  assert.equal(removed.status, 0, removed.stderr);
+  assert.equal(removed.envelope.data.removed, true);
+  await assert.rejects(readFile(join(project, ".tbspec/dependencies/new/source/rename.ttl")), {
+    code: "ENOENT",
+  });
+  assert.deepEqual(
+    await readFile(join(project, ".tbspec/dependencies/repeated/source/rename.ttl")),
+    repeatedBefore,
+  );
+  const listed = await dependencyList({ project });
+  assert.ok(listed.data);
+  const listedIds = (listed.data.items as { id: string }[]).map((item) => item.id);
+  assert.ok(listedIds.includes("repeated"));
+  assert.ok(!listedIds.includes("new"));
 });
 
 test("CLI dependencies select and clear an ontology winner and check source drift", async () => {
