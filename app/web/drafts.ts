@@ -42,6 +42,7 @@ export type StateMachineDraft = {
 export interface EditorDraft {
   mode: string;
   selected?: EditorTerm;
+  canvasPositions: Record<string, { x: string; y: string }>;
   section: string;
   sourceDraft?: { text: string; revision: Revision };
   pending?: { edit: Edit; revision: Revision };
@@ -55,6 +56,7 @@ export interface EditorDraft {
 
 export const emptyDraft: EditorDraft = {
   mode: "canvas",
+  canvasPositions: {},
   section: "",
   initialValues: [],
   conflictKind: "source",

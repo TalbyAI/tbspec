@@ -254,8 +254,8 @@ export async function startWebServer(
         import.meta.url.endsWith(".ts") ? "./inspection-worker.ts" : "./inspection-worker.js",
         import.meta.url,
       ),
-      // shortcut: this old-generation limit is provisional, recalibrate with representative projects.
-      { resourceLimits: { maxOldGenerationSizeMb: 512 } },
+      // Status and view editing share this measured per-worker old-generation ceiling.
+      { resourceLimits: { maxOldGenerationSizeMb: 1024 } },
     );
     workerFailed = false;
     current.on("error", () => {
@@ -1389,7 +1389,7 @@ export async function startWebServer(
             /^\/api\/project\/v1\/(views\/create|views\/remove|view\/edit)$/,
           );
           if (viewRoute) {
-            const body = await jsonBody(request, 65536);
+            const body = await jsonBody(request, 4194304);
             const action =
               viewRoute[1] === "views/create"
                 ? "create"
@@ -1429,6 +1429,7 @@ export async function startWebServer(
             } else {
               const allowed = [
                 "selector",
+                "sourceRevision",
                 "viewRevision",
                 "presentationRevision",
                 "members",
@@ -1439,6 +1440,7 @@ export async function startWebServer(
               ];
               const required = [
                 "selector",
+                "sourceRevision",
                 "viewRevision",
                 "presentationRevision",
                 "members",
@@ -1582,6 +1584,7 @@ export async function startWebServer(
               views = {
                 action,
                 selector: body.selector,
+                sourceRevision: expectedViewRevision(body.sourceRevision),
                 viewRevision: expectedViewRevision(body.viewRevision),
                 presentationRevision: expectedViewRevision(body.presentationRevision),
                 members: body.members as string[],

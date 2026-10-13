@@ -6,14 +6,25 @@ import {
   type EdgeProps,
   MarkerType,
   type Node,
+  type NodeChange,
   ReactFlow,
   useNodesState,
 } from "@xyflow/react";
-import { type CSSProperties, type SetStateAction, useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { EditingOptions, EditorData, EditorTerm, Triple } from "../src/editing.ts";
 import type { Diagnostic, Result } from "../src/output.ts";
 import { pPlan, proc } from "../src/process.ts";
+import { CanvasLayoutBridge, type LayoutRequest, lexicalPositions } from "./canvas-layout.tsx";
 import { type EditorDraft, emptyDraft, updateDraft } from "./drafts.ts";
+import { type PositionMap, usablePosition } from "./layout.ts";
 import { ProcessForm } from "./process-form.tsx";
 import { StateMachineForm } from "./state-machine-form.tsx";
 import "@xyflow/react/dist/style.css";
@@ -325,6 +336,45 @@ export function GraphEditor({
     setConflict = setter("conflict"),
     setConflictKind = setter("conflictKind");
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [layoutRequest, setLayoutRequest] = useState<LayoutRequest>({
+    id: 0,
+    active: false,
+    mode: "missing",
+  });
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const [layoutMessage, setLayoutMessage] = useState("");
+  const [layoutDuration, setLayoutDuration] = useState<number>();
+  const [searchText, setSearchText] = useState("");
+  const [explorationTarget, setExplorationTarget] = useState<string>();
+  const [focusRequest, setFocusRequest] = useState<{ id: string; sequence: number }>();
+  const [layoutBackup, setLayoutBackup] = useState<{
+    positions: PositionMap;
+    knownIds: string[];
+  }>();
+  const positionedIds = useRef(
+    new Set(
+      Object.entries(draft.canvasPositions)
+        .filter(([, position]) => usablePosition(position))
+        .map(([id]) => id),
+    ),
+  );
+  const pendingMissing = useRef("");
+  const currentDraftPositions = useRef(draft.canvasPositions);
+  currentDraftPositions.current = draft.canvasPositions;
+  const draftChanged = useCallback(
+    (positions: PositionMap) => {
+      const current = drafts.get(selector) ?? emptyDraft;
+      const nextPositions = Object.fromEntries(
+        Object.entries(positions).filter(
+          ([id, position]) => positionedIds.current.has(id) && usablePosition(position),
+        ),
+      );
+      if (JSON.stringify(current.canvasPositions) === JSON.stringify(nextPositions)) return;
+      setLocalDraft(updateDraft(drafts, selector, { canvasPositions: nextPositions }));
+      onDraftChange();
+    },
+    [drafts, onDraftChange, selector],
+  );
   async function read() {
     const result = await call(`editor?selector=${encodeURIComponent(selector)}`);
     if (!result.data) throw new Error(result.diagnostics.map((d) => d.message).join(" "));
@@ -390,11 +440,31 @@ export function GraphEditor({
       edges,
     };
   }, [data]);
+  const neighborIds = useMemo(() => {
+    if (!explorationTarget) return new Set<string>();
+    const neighbors = new Set<string>();
+    for (const edge of projection.edges) {
+      if (edge.source === explorationTarget) neighbors.add(edge.target);
+      if (edge.target === explorationTarget) neighbors.add(edge.source);
+    }
+    return neighbors;
+  }, [explorationTarget, projection.edges]);
   const canvasNodes = useMemo(
     () =>
       nodes.map((node) => {
         const term = JSON.parse(node.id) as EditorTerm;
-        if (term.kind !== "iri") return node;
+        if (term.kind !== "iri")
+          return {
+            ...node,
+            style: {
+              ...node.style,
+              ...(node.id === explorationTarget
+                ? { boxShadow: "0 0 0 4px #c65b26, 0 0 0 8px #f6cfaa", zIndex: 10 }
+                : neighborIds.has(node.id)
+                  ? { boxShadow: "0 0 0 3px #e4a46f", zIndex: 5 }
+                  : {}),
+            },
+          };
         const candidates = designData?.designRuleOptions?.nodes[term.value];
         const rule = canvasRule(
           designData?.effectivePresentation?.nodes[term.value],
@@ -425,6 +495,11 @@ export function GraphEditor({
           fontSize: safeNumber(appearance.fontSize, 14, 1, 200),
           fontWeight: [100, 200, 300, 400, 500, 600, 700, 800, 900].includes(weight) ? weight : 400,
           fontStyle: safeEnum(appearance.fontStyle, ["normal", "italic"]) ?? "normal",
+          ...(node.id === explorationTarget
+            ? { boxShadow: "0 0 0 4px #c65b26, 0 0 0 8px #f6cfaa", zIndex: 10 }
+            : neighborIds.has(node.id)
+              ? { boxShadow: "0 0 0 3px #e4a46f", zIndex: 5 }
+              : {}),
         };
         return {
           ...node,
@@ -432,7 +507,7 @@ export function GraphEditor({
           style,
         };
       }),
-    [data, designChoices.nodes, designData, nodes],
+    [data, designChoices.nodes, designData, explorationTarget, neighborIds, nodes],
   );
   const canvasEdges = useMemo(
     () =>
@@ -450,6 +525,9 @@ export function GraphEditor({
         const stroke = safeColor(appearance.strokeColor, "#5e766b");
         const weight = safeNumber(appearance.fontWeight, 400, 100, 900);
         const arrow = safeEnum(appearance.arrowHead, ["none", "arrow"]);
+        const highlighted =
+          !!explorationTarget &&
+          (edge.source === explorationTarget || edge.target === explorationTarget);
         return {
           ...edge,
           label: canvasLabel(triple.predicate, rule, data?.triples ?? []),
@@ -457,8 +535,8 @@ export function GraphEditor({
           data: {
             ...edge.data,
             visualStyle: {
-              stroke,
-              strokeWidth: safeNumber(appearance.strokeWidth, 1.5, 0, 100),
+              stroke: highlighted ? "#c65b26" : stroke,
+              strokeWidth: highlighted ? 3 : safeNumber(appearance.strokeWidth, 1.5, 0, 100),
               strokeDasharray: line === "dashed" ? "6 4" : line === "dotted" ? "2 4" : undefined,
             },
             visualLabelStyle: {
@@ -479,7 +557,7 @@ export function GraphEditor({
           },
         };
       }),
-    [data, designChoices.relationships, designData, projection.edges],
+    [data, designChoices.relationships, designData, explorationTarget, projection.edges],
   );
   const selectableResources = useMemo(() => {
     const terms = new Map<string, EditorTerm>();
@@ -489,13 +567,42 @@ export function GraphEditor({
     return [...terms];
   }, [data]);
   useEffect(() => {
-    setNodes((old) =>
-      projection.nodes.map((n) => ({
-        ...n,
-        position: old.find((p) => p.id === n.id)?.position ?? n.position,
-      })),
+    const currentIds = new Set(projection.nodes.map((node) => node.id));
+    positionedIds.current = new Set([...positionedIds.current].filter((id) => currentIds.has(id)));
+    const retained = Object.fromEntries(
+      Object.entries(currentDraftPositions.current).filter(
+        ([id, position]) => currentIds.has(id) && usablePosition(position),
+      ),
     );
-  }, [projection, setNodes]);
+    setNodes((old) =>
+      projection.nodes.map((node) => {
+        const saved = retained[node.id];
+        const prior = old.find((item) => item.id === node.id)?.position;
+        return {
+          ...node,
+          position: saved ? { x: Number(saved.x), y: Number(saved.y) } : (prior ?? node.position),
+        };
+      }),
+    );
+    if (JSON.stringify(currentDraftPositions.current) !== JSON.stringify(retained)) {
+      currentDraftPositions.current = retained;
+      setLocalDraft(updateDraft(drafts, selector, { canvasPositions: retained }));
+      onDraftChange();
+    }
+  }, [drafts, onDraftChange, projection, selector, setNodes]);
+  useEffect(() => {
+    const missing = projection.nodes
+      .map((node) => node.id)
+      .filter((id) => !positionedIds.current.has(id));
+    const signature = missing.sort().join("\u0000");
+    if (!signature) {
+      pendingMissing.current = "";
+      return;
+    }
+    if (pendingMissing.current === signature) return;
+    pendingMissing.current = signature;
+    setLayoutRequest((current) => ({ id: current.id + 1, active: true, mode: "missing" }));
+  }, [projection]);
   const writable = data?.resource.ownership === "project" && data.resource.file.endsWith(".ttl");
   const scope = `${data?.resource.selector}@${data?.resource.revision.state === "present" ? data.resource.revision.digest : ""}`;
   const sections =
@@ -505,6 +612,116 @@ export function GraphEditor({
   const binding = sections.find((s) => s.type === section) ?? sections[0];
   const statements =
     data?.triples.filter((q) => selected && key(q.subject) === key(selected)) ?? [];
+  const searchableResources = useMemo(
+    () =>
+      projection.nodes.map((node) => {
+        const term = JSON.parse(node.id) as EditorTerm;
+        if (term.kind !== "iri") return { id: node.id, term, label: text(term) };
+        const rule = canvasRule(
+          designData?.effectivePresentation?.nodes[term.value],
+          designData?.designRuleOptions?.nodes[term.value],
+          designChoices.nodes[term.value],
+        );
+        return { id: node.id, term, label: canvasLabel(term, rule, data?.triples ?? []) };
+      }),
+    [data, designChoices.nodes, designData, projection.nodes],
+  );
+  const searchMatches = useMemo(() => {
+    const needle = searchText.trim().toLocaleLowerCase();
+    if (!needle) return [];
+    return searchableResources
+      .filter(
+        (resource) =>
+          resource.label.toLocaleLowerCase().includes(needle) ||
+          text(resource.term).toLocaleLowerCase().includes(needle),
+      )
+      .slice(0, 30);
+  }, [searchText, searchableResources]);
+  const incomingTriples =
+    data?.triples.filter((triple) => selected && key(triple.object) === key(selected)) ?? [];
+  const outgoingTriples =
+    data?.triples.filter((triple) => selected && key(triple.subject) === key(selected)) ?? [];
+  function focusTerm(term: EditorTerm, triple?: Triple) {
+    const id = key(term);
+    setSelected(term);
+    setEdge(triple);
+    setExplorationTarget(id);
+    setFocusRequest((current) => ({ id, sequence: (current?.sequence ?? 0) + 1 }));
+  }
+  const currentPositionMap = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(lexicalPositions(nodes)).filter(([id]) => positionedIds.current.has(id)),
+      ),
+    [nodes],
+  );
+  useEffect(() => {
+    draftChanged(lexicalPositions(nodes));
+  }, [draftChanged, nodes]);
+  function requestLayout(mode: "missing" | "reorganize") {
+    if (mode === "reorganize")
+      setLayoutBackup({ positions: currentPositionMap, knownIds: [...positionedIds.current] });
+    setLayoutMessage("");
+    setLayoutDuration(undefined);
+    setLayoutRequest((current) => ({ id: current.id + 1, active: true, mode }));
+  }
+  function commitLayoutPositions(
+    positions: PositionMap,
+    result: { fallback: boolean; durationMs: number; nodeCount: number },
+  ) {
+    positionedIds.current = new Set(Object.keys(positions));
+    pendingMissing.current = "";
+    currentDraftPositions.current = positions;
+    setNodes((current) =>
+      current.map((node) => {
+        const saved = positions[node.id];
+        return saved ? { ...node, position: { x: Number(saved.x), y: Number(saved.y) } } : node;
+      }),
+    );
+    draftChanged(positions);
+    setLayoutBusy(false);
+    setLayoutDuration(result.durationMs);
+    setLayoutMessage(
+      result.fallback
+        ? `Temporary grid shown for ${result.nodeCount} resources after the ELK worker failed.`
+        : `ELK positioned ${result.nodeCount} resources using measured dimensions in ${Math.round(result.durationMs)} ms.`,
+    );
+    setLayoutRequest((current) => ({ ...current, active: false }));
+  }
+  function failLayout(message: string) {
+    setLayoutBusy(false);
+    setLayoutMessage(message);
+    setLayoutRequest((current) => ({ ...current, active: false }));
+  }
+  function cancelLayoutPreview() {
+    setLayoutRequest((current) => ({ ...current, active: false }));
+    setLayoutBusy(false);
+    if (layoutBackup) {
+      positionedIds.current = new Set(layoutBackup.knownIds);
+      currentDraftPositions.current = layoutBackup.positions;
+      setNodes((current) =>
+        current.map((node) => {
+          const saved = layoutBackup.positions[node.id];
+          const initial = projection.nodes.find((item) => item.id === node.id)?.position;
+          return saved
+            ? { ...node, position: { x: Number(saved.x), y: Number(saved.y) } }
+            : { ...node, position: initial ?? node.position };
+        }),
+      );
+      draftChanged(layoutBackup.positions);
+    }
+    setLayoutBackup(undefined);
+    setLayoutMessage("Reorganization cancelled; previous positions restored.");
+  }
+  function keepTemporaryLayout() {
+    setLayoutBackup(undefined);
+    setLayoutMessage("Temporary complete-graph positions retained for this session.");
+  }
+  function handleNodeChanges(changes: NodeChange[]) {
+    for (const change of changes)
+      if (change.type === "position" && change.position) positionedIds.current.add(change.id);
+    onNodesChange(changes);
+  }
   async function save(
     options: Omit<EditingOptions, "selector">,
     source = false,
@@ -879,6 +1096,106 @@ export function GraphEditor({
                     ))}
                   </ul>
                 )}
+                <section className="canvas-explorer" aria-label="Complete graph explorer">
+                  <label>
+                    Search labels and full IRIs
+                    <input
+                      aria-label="Search complete graph resources"
+                      value={searchText}
+                      onChange={(event) => setSearchText(event.target.value)}
+                      placeholder="Search every resource, including off-screen nodes"
+                    />
+                  </label>
+                  {searchMatches.length > 0 && (
+                    <ul className="canvas-search-results" aria-label="Matching graph resources">
+                      {searchMatches.map(({ id, term, label }) => (
+                        <li key={id}>
+                          <button type="button" onClick={() => focusTerm(term)}>
+                            {label} · <code>{text(term)}</code>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="canvas-layout-actions">
+                    <button
+                      type="button"
+                      disabled={layoutBusy || layoutRequest.active || projection.nodes.length === 0}
+                      onClick={() => requestLayout("reorganize")}
+                    >
+                      Preview canvas reorganization
+                    </button>
+                    {(layoutBusy || layoutBackup) && (
+                      <button type="button" onClick={cancelLayoutPreview}>
+                        Cancel reorganization
+                      </button>
+                    )}
+                    {layoutBackup && !layoutBusy && (
+                      <button type="button" onClick={keepTemporaryLayout}>
+                        Keep temporary layout
+                      </button>
+                    )}
+                    {!layoutBusy && layoutMessage.includes("retry") && (
+                      <button type="button" onClick={() => requestLayout("reorganize")}>
+                        Retry ELK layout
+                      </button>
+                    )}
+                    <span role="status" aria-live="polite">
+                      {layoutBusy
+                        ? `ELK is arranging ${projection.nodes.length} measured resources in a browser worker…`
+                        : layoutMessage ||
+                          (layoutDuration === undefined
+                            ? ""
+                            : `Last layout took ${Math.round(layoutDuration)} ms.`)}
+                    </span>
+                  </div>
+                  {selected && selected.kind !== "literal" && (
+                    <section
+                      className="canvas-neighborhood"
+                      aria-label="Selected resource relationships"
+                    >
+                      <section>
+                        <h4>Incoming exact triples</h4>
+                        <ul className="neighborhood-list" aria-label="Incoming exact triples">
+                          {incomingTriples.map((triple) => (
+                            <li key={JSON.stringify(triple)}>
+                              <button
+                                type="button"
+                                onClick={() => focusTerm(triple.subject, triple)}
+                              >
+                                {text(triple.subject)} {text(triple.predicate)}{" "}
+                                {text(triple.object)}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                      <section>
+                        <h4>Outgoing exact triples</h4>
+                        <ul className="neighborhood-list" aria-label="Outgoing exact triples">
+                          {outgoingTriples.map((triple) => (
+                            <li key={JSON.stringify(triple)}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  focusTerm(
+                                    triple.object.kind === "literal"
+                                      ? triple.subject
+                                      : triple.object,
+                                    triple,
+                                  )
+                                }
+                              >
+                                {text(triple.subject)} {text(triple.predicate)}{" "}
+                                {text(triple.object)}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    </section>
+                  )}
+                </section>
                 {!!Object.values(designData?.designRuleOptions?.nodes ?? {}).some(
                   (rules) => rules.length > 1,
                 ) && (
@@ -950,20 +1267,32 @@ export function GraphEditor({
                     nodes={canvasNodes}
                     edges={canvasEdges}
                     edgeTypes={edgeTypes}
-                    onNodesChange={onNodesChange}
+                    onNodesChange={handleNodeChanges}
                     onNodeClick={(_, node) => {
-                      setSelected(JSON.parse(node.id) as EditorTerm);
-                      setEdge(undefined);
+                      focusTerm(JSON.parse(node.id) as EditorTerm);
                     }}
                     onEdgeClick={(_, clicked) => {
                       const triple = JSON.parse(clicked.id) as Triple;
-                      setEdge(triple);
-                      setSelected(triple.subject);
+                      focusTerm(triple.subject, triple);
                     }}
                     nodesConnectable={false}
+                    nodesDraggable={!layoutBusy && !layoutRequest.active}
+                    onlyRenderVisibleElements={false}
                     deleteKeyCode={null}
                     fitView
                   >
+                    <CanvasLayoutBridge
+                      request={layoutRequest}
+                      revision={scope}
+                      previous={currentPositionMap}
+                      focus={focusRequest}
+                      onStart={() => {
+                        setLayoutBusy(true);
+                        setLayoutMessage("");
+                      }}
+                      onResult={commitLayoutPositions}
+                      onFailure={failLayout}
+                    />
                     <Background />
                     <Controls />
                   </ReactFlow>
@@ -976,9 +1305,14 @@ export function GraphEditor({
                 aria-label="Selected resource"
                 value={selected ? key(selected) : ""}
                 onChange={(e) => {
-                  setSelected(
-                    e.target.value ? (JSON.parse(e.target.value) as EditorTerm) : undefined,
-                  );
+                  const term = e.target.value
+                    ? (JSON.parse(e.target.value) as EditorTerm)
+                    : undefined;
+                  if (term) focusTerm(term);
+                  else {
+                    setSelected(undefined);
+                    setExplorationTarget(undefined);
+                  }
                   setEdge(undefined);
                   setSection("");
                 }}
