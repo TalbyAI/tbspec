@@ -9,7 +9,7 @@ import { DataFactory, type Store } from "n3";
 import { canonical, digest, graphSignature, hash, sortedSet, utf8Compare } from "./canonical.ts";
 import { compareDiagnosticImpact } from "./diagnostic-impact.ts";
 import { equalRevision, fileBytes, inventory, revision, verifyReads } from "./filesystem.ts";
-import { captureInspection, inspectSnapshot } from "./inspection.ts";
+import { captureInspection, inspectSnapshot, rdfTerm } from "./inspection.ts";
 import { withLock } from "./lock.ts";
 import { dependencyDistances, resolveOntologyCandidates } from "./ontology-resolution.ts";
 import { type Diagnostic, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
@@ -18,6 +18,7 @@ import { discoverProject, projectDiscoveryScope, readProject } from "./project.t
 import { classifyGraph, parseGraph, parseRdf, rdfFormats } from "./rdf.ts";
 import {
   type Dependency,
+  editManifestSelectors,
   editOntologyChoice,
   interpretationSignature,
   type Lock,
@@ -25,6 +26,7 @@ import {
   parseLock,
   parseManifest,
   type Row,
+  removeDependencyChoices,
   selector,
   writeToml,
 } from "./schemas.ts";
@@ -126,6 +128,10 @@ export interface PreparedDependency {
   projectValidity: "valid" | "invalid" | "unchecked";
   validationComplete: boolean;
   requiresImpactAcceptance?: boolean;
+  administration?: {
+    kind: "rename" | "remove";
+    details: Record<string, unknown>;
+  };
 }
 
 function checkCancelled(source: SourceInventory): void {
@@ -1591,6 +1597,803 @@ export async function dependencyUpdate(options: {
         prepared,
         "ACCEPTANCE_REQUIRED",
         "Dependency update introduces or worsens affected impact. Retry with --accept-impact after review.",
+      );
+    return await publishPreparedDependency(prepared);
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+type DependencyAdminSnapshot = Awaited<ReturnType<typeof captureInspection>>;
+type DependencyReference = {
+  ownership: "owned" | "locked";
+  file: string;
+  selector?: string;
+  targetIri: string;
+  position: "subject" | "predicate" | "object" | "configuration";
+  field?: string;
+  statement?: { subject: Row; predicate: Row; object: Row };
+};
+
+const dependencyEntityTypes = new Set([
+  "http://www.w3.org/2002/07/owl#Class",
+  "http://www.w3.org/2000/01/rdf-schema#Class",
+  "http://www.w3.org/2000/01/rdf-schema#Datatype",
+  "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property",
+  "http://www.w3.org/2002/07/owl#ObjectProperty",
+  "http://www.w3.org/2002/07/owl#DatatypeProperty",
+  "http://www.w3.org/2002/07/owl#AnnotationProperty",
+  "http://www.w3.org/2002/07/owl#OntologyProperty",
+  "http://www.w3.org/2002/07/owl#NamedIndividual",
+]);
+const dependencyRdfType = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+
+function dependencySelector(selectorValue: string, dependencyId: string): boolean {
+  return (
+    selectorValue === `dep:${dependencyId}` || selectorValue.startsWith(`dep:${dependencyId}/`)
+  );
+}
+
+function manifestSelectors(manifest: Row): { selector: string; field: string }[] {
+  const found: { selector: string; field: string }[] = [];
+  const add = (value: unknown, field: string) => {
+    if (typeof value === "string" && value.startsWith("dep:"))
+      found.push({ selector: value, field });
+  };
+  for (const [name, value] of Object.entries((manifest.model_types ?? {}) as Record<string, Row>))
+    for (const field of ["ontology", "design"]) add(value[field], `model_types.${name}.${field}`);
+  for (const [index, row] of ((manifest.associations ?? []) as Row[]).entries())
+    for (const field of ["resource", "support"]) add(row[field], `associations[${index}].${field}`);
+  for (const [index, row] of ((manifest.views ?? []) as Row[]).entries())
+    for (const field of ["view", "presentation", "source", "protocol"])
+      add(row[field], `views[${index}].${field}`);
+  for (const [iri, value] of Object.entries((manifest.design_choices ?? {}) as Row))
+    add(value, `design_choices.${iri}`);
+  return found.sort(
+    (left, right) =>
+      utf8Compare(left.field, right.field) || utf8Compare(left.selector, right.selector),
+  );
+}
+
+async function captureDependencyAdministration(
+  root: string,
+  extraPaths: string[],
+  scopes: { path: string; included: string[]; excluded: string[] }[],
+): Promise<DependencyAdminSnapshot> {
+  const status = await captureInspection(root, "status");
+  const extra = await capture(
+    root,
+    [...new Set(["tbspec.toml", "tbspec.lock", ...extraPaths])],
+    scopes,
+  );
+  const snapshot = {
+    ...status,
+    files: { ...status.files, ...extra.files },
+    reads: [
+      ...new Map([...status.reads, ...extra.reads].map((read) => [canonical(read), read])).values(),
+    ],
+  };
+  await verifyReads(root, snapshot.reads);
+  return snapshot;
+}
+
+function requireAddition(dependency: Dependency | undefined, dependencyId: string): Dependency {
+  if (!dependency)
+    throw new ProjectError("invalid_arguments", "RESOURCE_MISSING", "Dependency ID was not found.");
+  if (
+    dependencyId.startsWith("tbspec-") ||
+    dependency.sources.some((source) => source.kind === "bundle")
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "DEPENDENCY_MANAGED",
+      "Bundled dependencies are managed by the tool and cannot be renamed or removed.",
+    );
+  return dependency;
+}
+
+async function pathExists(root: string, relativePath: string): Promise<boolean> {
+  try {
+    await stat(await safePath(root, relativePath));
+    return true;
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) return false;
+    throw error;
+  }
+}
+
+function statusResult(result: Result) {
+  const data = result.data as Row | null;
+  const project = (data?.project ?? {}) as Row;
+  return {
+    projectValidity: (project.validity ?? "unchecked") as PreparedDependency["projectValidity"],
+    validationComplete: project.validationComplete === true,
+  };
+}
+
+function dependencyAdminImpact(
+  plan: Plan,
+  baseline: Result,
+  proposed: Result,
+  changedSelectors: string[],
+  affectedFiles: string[],
+  acceptance: string[],
+): Plan {
+  const comparison = compareDiagnosticImpact(
+    baseline.diagnostics,
+    proposed.diagnostics,
+    changedSelectors,
+    {
+      baselineChecks: impactChecks(baseline),
+      proposedChecks: impactChecks(proposed),
+      changedFiles: affectedFiles,
+    },
+  );
+  return withPlanImpact(plan, {
+    impact: {
+      baselineErrors: comparison.baselineErrors,
+      introducedErrors: comparison.introducedErrors,
+      worsenedErrors: comparison.worsenedErrors,
+      skippedChecks: comparison.skippedChecks,
+      affectedFiles: sortedSet(affectedFiles),
+      acceptance,
+    },
+  });
+}
+
+function checkAcceptedPreview(value: string | undefined) {
+  if (value !== undefined && !/^sha256:[0-9a-f]{64}$/.test(value))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Accepted preview must be a SHA-256 digest.",
+    );
+}
+
+export async function prepareDependencyRename(options: {
+  project?: string;
+  cwd?: string;
+  from: string;
+  to: string;
+}): Promise<PreparedDependency> {
+  const fromId = id(options.from);
+  const toId = id(options.to);
+  if (fromId === toId)
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "The new dependency ID must differ from the current ID.",
+    );
+  if (toId.startsWith("tbspec-"))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Dependency IDs beginning with tbspec- are reserved for bundled resources.",
+    );
+  const root = await discoverProject(options);
+  const first = await capture(root, ["tbspec.toml", "tbspec.lock"]);
+  const initialLock = parseLock(first.files["tbspec.lock"]?.toString("utf8") ?? "");
+  const oldDependency = requireAddition(initialLock.dependencies[fromId], fromId);
+  if (initialLock.dependencies[toId])
+    throw new ProjectError(
+      "conflict",
+      "DEPENDENCY_ID_COLLISION",
+      "A dependency with the requested ID already exists.",
+      "tbspec.lock",
+    );
+  const fromRoot = oldDependency.snapshot_path;
+  const toRoot = `.tbspec/dependencies/${toId}`;
+  if (await pathExists(root, toRoot))
+    throw new ProjectError(
+      "conflict",
+      "DEPENDENCY_DESTINATION_OCCUPIED",
+      "The requested dependency snapshot destination already exists.",
+      toRoot,
+    );
+  const files = oldDependency.files.map((file) => ({
+    file,
+    from: `${fromRoot}/${file.key}`,
+    to: `${toRoot}/${file.key}`,
+  }));
+  const snapshot = await captureDependencyAdministration(
+    root,
+    files.flatMap(({ from, to }) => [from, to]),
+    [{ path: ".tbspec/dependencies", included: [fromRoot, toRoot], excluded: [] }],
+  );
+  const manifestText = snapshot.files["tbspec.toml"]?.toString("utf8") ?? "";
+  const lockText = snapshot.files["tbspec.lock"]?.toString("utf8") ?? "";
+  const manifest = parseManifest(manifestText);
+  const lock = parseLock(lockText);
+  const dependency = requireAddition(lock.dependencies[fromId], fromId);
+  if (lock.dependencies[toId])
+    throw new ProjectError(
+      "conflict",
+      "DEPENDENCY_ID_COLLISION",
+      "A dependency with the requested ID already exists.",
+      "tbspec.lock",
+    );
+  if (await pathExists(root, toRoot))
+    throw new ProjectError(
+      "conflict",
+      "DEPENDENCY_DESTINATION_OCCUPIED",
+      "The requested dependency snapshot destination already exists.",
+      toRoot,
+    );
+
+  const fileSelectors: Record<string, string> = {};
+  for (const file of dependency.files)
+    fileSelectors[`dep:${fromId}/${file.key}`] = `dep:${toId}/${file.key}`;
+  const allSelectors = manifestSelectors(manifest).filter(({ selector: value }) =>
+    dependencySelector(value, fromId),
+  );
+  const selectorChanges = Object.fromEntries(
+    allSelectors.map(({ selector: value }) => [
+      value,
+      value === `dep:${fromId}`
+        ? `dep:${toId}`
+        : `dep:${toId}${value.slice(`dep:${fromId}`.length)}`,
+    ]),
+  );
+  const selectorRewrites = Object.fromEntries(
+    Object.entries(selectorChanges).map(([oldSelector, newSelector]) => [oldSelector, newSelector]),
+  );
+  const ontologyChoices = Object.entries(
+    (manifest.ontology_choices ?? {}) as Record<string, string>,
+  )
+    .filter(([, selected]) => selected === fromId)
+    .map(([ontologyIri]) => ({ ontologyIri, from: fromId, to: toId }))
+    .sort((left, right) => utf8Compare(left.ontologyIri, right.ontologyIri));
+  let nextManifest = manifestText;
+  for (const choice of ontologyChoices)
+    nextManifest = editOntologyChoice(nextManifest, choice.ontologyIri, toId);
+  nextManifest = editManifestSelectors(nextManifest, selectorRewrites);
+
+  const generatedIdentityChanges: Row[] = [];
+  const renamedDependency: Dependency = {
+    ...dependency,
+    snapshot_path: toRoot,
+    files: dependency.files.map((file) => {
+      if (file.identity !== "generated") return file;
+      const selectorBefore = `dep:${fromId}/${file.key}`;
+      const graphIriAfter = `urn:tbspec:graph:${digest(`dep:${toId}/${file.key}`).slice(7)}`;
+      generatedIdentityChanges.push({
+        selectorBefore,
+        selectorAfter: `dep:${toId}/${file.key}`,
+        graphIriBefore: file.graph_iri,
+        graphIriAfter,
+      });
+      return { ...file, graph_iri: graphIriAfter };
+    }),
+  };
+  if (interpretationSignature(renamedDependency) !== dependency.interpretation_signature)
+    throw new ProjectError(
+      "conflict",
+      "DEPENDENCY_SIGNATURE_CHANGED",
+      "Renaming changed the dependency interpretation signature; no write is permitted.",
+      "tbspec.lock",
+    );
+  const renamedDependencies: Record<string, Dependency> = {};
+  for (const [currentId, current] of Object.entries(lock.dependencies))
+    renamedDependencies[currentId === fromId ? toId : currentId] =
+      currentId === fromId ? renamedDependency : current;
+  const nextLockText = writeToml({ ...lock, dependencies: renamedDependencies });
+  const nextLock = parseLock(nextLockText);
+  const nextDependency = nextLock.dependencies[toId];
+  if (!nextDependency)
+    throw new ProjectError("invalid", "LOCK_INVALID", "Renamed dependency was not written.");
+
+  const baseline = await inspectSnapshot(root, snapshot, { command: "status" });
+  const stagedFiles: Record<string, Buffer | null> = {
+    ...snapshot.files,
+    "tbspec.lock": Buffer.from(nextLockText),
+    "tbspec.toml": Buffer.from(nextManifest),
+  };
+  const writes = [
+    { file: "tbspec.lock", bytes: Buffer.from(nextLockText) },
+    ...(nextManifest !== manifestText
+      ? [{ file: "tbspec.toml", bytes: Buffer.from(nextManifest) }]
+      : []),
+    ...files.map(({ from, to }) => {
+      const bytes = snapshot.files[from];
+      if (!bytes)
+        throw new ProjectError(
+          "invalid",
+          "SNAPSHOT_INTEGRITY",
+          "A managed dependency file is missing; no rename is permitted.",
+          from,
+        );
+      stagedFiles[from] = null;
+      stagedFiles[to] = bytes;
+      return { file: from, to, bytes };
+    }),
+  ];
+  const staged = { ...snapshot, files: stagedFiles };
+  const proposed = await inspectSnapshot(root, staged, { command: "status" });
+  const status = statusResult(proposed);
+  const affectedFiles = sortedSet([
+    "tbspec.lock",
+    ...(nextManifest !== manifestText ? ["tbspec.toml"] : []),
+    ...files.flatMap(({ from, to }) => [from, to]),
+  ]);
+  const plan = dependencyAdminImpact(
+    preparePlan(snapshot, "dependency.rename", writes, {
+      from: fromId,
+      to: toId,
+      selectors: { ...fileSelectors, ...selectorChanges },
+      selectorChanges: allSelectors.map(({ selector: value, field }) => ({
+        field,
+        from: value,
+        to: selectorChanges[value],
+      })),
+      paths: files.map(({ from, to, file }) => ({
+        from,
+        to,
+        selectorBefore: `dep:${fromId}/${file.key}`,
+        selectorAfter: `dep:${toId}/${file.key}`,
+        byteDigest: file.byte_digest,
+        graphSignature: file.graph_signature,
+        parserContext: file.context,
+        declaredGraphIri: file.identity === "declared" ? file.graph_iri : null,
+      })),
+      ontologyChoices,
+      generatedIdentityChanges,
+      projectValidity: status.projectValidity,
+    }),
+    baseline,
+    proposed,
+    [
+      ...Object.keys(fileSelectors),
+      ...Object.values(fileSelectors),
+      ...Object.keys(selectorChanges),
+      ...Object.values(selectorChanges),
+      ...generatedIdentityChanges.flatMap((change) => [
+        String(change.selectorBefore),
+        String(change.selectorAfter),
+      ]),
+    ],
+    affectedFiles,
+    [],
+  );
+  return {
+    root,
+    id: toId,
+    dependency: nextDependency,
+    plan,
+    diagnostics: proposed.diagnostics,
+    projectValidity: status.projectValidity,
+    validationComplete: status.validationComplete,
+    administration: {
+      kind: "rename",
+      details: {
+        fromId,
+        toId,
+        selectors: { ...fileSelectors, ...selectorChanges },
+        paths: files.map(({ from, to, file }) => ({
+          from,
+          to,
+          selectorBefore: `dep:${fromId}/${file.key}`,
+          selectorAfter: `dep:${toId}/${file.key}`,
+        })),
+        ontologyChoices,
+        generatedIdentityChanges,
+      },
+    },
+  };
+}
+
+function configReferencesForRemoval(
+  manifest: Row,
+  dependencyId: string,
+  primarySelector: string,
+  primaryGraphIri: string,
+): DependencyReference[] {
+  const references = manifestSelectors(manifest)
+    .filter(({ selector: value }) => dependencySelector(value, dependencyId))
+    .map(({ selector: value, field }) => ({
+      ownership: "owned" as const,
+      file: "tbspec.toml",
+      selector: value,
+      targetIri: primaryGraphIri,
+      position: "configuration" as const,
+      field,
+    }));
+  const designChoices = Object.entries((manifest.design_choices ?? {}) as Row)
+    .filter(([, value]) => typeof value === "string" && dependencySelector(value, dependencyId))
+    .map(([ontologyIri, value]) => ({
+      ownership: "owned" as const,
+      file: "tbspec.toml",
+      selector: String(value),
+      targetIri: primaryGraphIri,
+      position: "configuration" as const,
+      field: `design_choices.${ontologyIri}`,
+    }));
+  const ontologyChoices = Object.entries(
+    (manifest.ontology_choices ?? {}) as Record<string, string>,
+  )
+    .filter(([, value]) => value === dependencyId)
+    .map(([ontologyIri]) => ({
+      ownership: "owned" as const,
+      file: "tbspec.toml",
+      selector: primarySelector,
+      targetIri: ontologyIri,
+      position: "configuration" as const,
+      field: `ontology_choices.${ontologyIri}`,
+    }));
+  return [...references, ...designChoices, ...ontologyChoices].sort(
+    (left, right) =>
+      utf8Compare(left.field ?? "", right.field ?? "") ||
+      utf8Compare(left.selector ?? "", right.selector ?? ""),
+  );
+}
+
+function lockStringReferences(
+  lock: Lock,
+  targets: Set<string>,
+  excludedId: string,
+): DependencyReference[] {
+  const found: DependencyReference[] = [];
+  function visit(value: unknown, path: string, dependencyId?: string): void {
+    if (typeof value === "string") {
+      if (targets.has(value))
+        found.push({
+          ownership: "locked",
+          file: "tbspec.lock",
+          ...(dependencyId ? { selector: `dep:${dependencyId}` } : {}),
+          targetIri: value,
+          position: "configuration",
+          field: path,
+        });
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => {
+        visit(item, `${path}[${index}]`, dependencyId);
+      });
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, item] of Object.entries(value))
+      visit(item, path ? `${path}.${key}` : key, dependencyId);
+  }
+  for (const [dependencyId, dependency] of Object.entries(lock.dependencies)) {
+    if (dependencyId === excludedId) continue;
+    visit(dependency, `dependencies.${dependencyId}`, dependencyId);
+  }
+  return found;
+}
+
+async function bytesFromStatus(
+  root: string,
+  snapshot: DependencyAdminSnapshot,
+  path: string,
+): Promise<Buffer | null> {
+  const captured = snapshot.reads.find((read) => read.kind === "file" && read.path === path);
+  const bytes = snapshot.files[path] ?? (await fileBytes(root, path));
+  if (!captured || !equalRevision(captured.revision, revision(bytes)))
+    throw new ProjectError(
+      "conflict",
+      "REVISION_CONFLICT",
+      "A graph changed during dependency impact inspection.",
+      path,
+    );
+  return bytes;
+}
+
+async function dependencyReferences(
+  root: string,
+  snapshot: DependencyAdminSnapshot,
+  lock: Lock,
+  removedId: string,
+  dependency: Dependency,
+  manifest: Row,
+): Promise<{ references: DependencyReference[]; targetIris: string[]; skippedFiles: string[] }> {
+  const bundle = await loadStarters();
+  const targets = new Set<string>();
+  for (const file of dependency.files) {
+    const path = `${dependency.snapshot_path}/${file.key}`;
+    const bytes = await bytesFromStatus(root, snapshot, path);
+    if (!bytes)
+      throw new ProjectError(
+        "invalid",
+        "SNAPSHOT_INTEGRITY",
+        "A managed dependency file is missing; no removal is permitted.",
+        path,
+      );
+    const store = await parseGraph(
+      bytes,
+      file,
+      bundle.vettedDigest,
+      `dep:${removedId}/${file.key}`,
+    );
+    targets.add(file.graph_iri);
+    for (const quad of store)
+      if (
+        quad.subject.termType === "NamedNode" &&
+        quad.predicate.value === dependencyRdfType &&
+        quad.object.termType === "NamedNode" &&
+        dependencyEntityTypes.has(quad.object.value)
+      )
+        targets.add(quad.subject.value);
+  }
+
+  const references: DependencyReference[] = configReferencesForRemoval(
+    manifest,
+    removedId,
+    `dep:${removedId}/${dependency.primary}`,
+    dependency.files.find((file) => file.key === dependency.primary)?.graph_iri ??
+      `dep:${removedId}/${dependency.primary}`,
+  );
+  const lockedPaths = new Map<string, string>();
+  for (const [id, current] of Object.entries(lock.dependencies))
+    if (id !== removedId)
+      for (const file of current.files)
+        lockedPaths.set(`${current.snapshot_path}/${file.key}`, `dep:${id}/${file.key}`);
+  const skippedFiles: string[] = [];
+
+  const recordStoreReferences = (
+    store: Store,
+    path: string,
+    ownership: "owned" | "locked",
+    graphSelector: string | undefined,
+  ) => {
+    for (const quad of store) {
+      const positions: { position: "subject" | "predicate" | "object"; target: string }[] = [];
+      if (quad.subject.termType === "NamedNode" && targets.has(quad.subject.value))
+        positions.push({ position: "subject", target: quad.subject.value });
+      if (targets.has(quad.predicate.value))
+        positions.push({ position: "predicate", target: quad.predicate.value });
+      if (quad.object.termType === "NamedNode" && targets.has(quad.object.value))
+        positions.push({ position: "object", target: quad.object.value });
+      for (const match of positions)
+        references.push({
+          ownership,
+          file: path,
+          ...(graphSelector ? { selector: graphSelector } : {}),
+          targetIri: match.target,
+          position: match.position,
+          statement: {
+            subject: rdfTerm(quad.subject, graphSelector ?? path),
+            predicate: rdfTerm(quad.predicate, graphSelector ?? path),
+            object: rdfTerm(quad.object, graphSelector ?? path),
+          },
+        });
+    }
+  };
+
+  for (const [path, graphSelector] of lockedPaths) {
+    const bytes = await bytesFromStatus(root, snapshot, path);
+    if (!bytes) continue;
+    const file = Object.entries(lock.dependencies)
+      .flatMap(([id, current]) =>
+        current.files
+          .filter((record) => `${current.snapshot_path}/${record.key}` === path)
+          .map((record) => ({ id, record })),
+      )
+      .find((entry) => entry.id !== removedId)?.record;
+    if (!file) continue;
+    const store = await parseGraph(bytes, file, bundle.vettedDigest, graphSelector);
+    recordStoreReferences(store, path, "locked", graphSelector);
+  }
+  const mediaByExtension = rdfFormats;
+  for (const path of snapshot.ownedPaths) {
+    const mediaType = mediaByExtension[extname(path).toLowerCase()];
+    if (!mediaType) continue;
+    const bytes = await bytesFromStatus(root, snapshot, path);
+    if (!bytes) continue;
+    try {
+      const baseIri =
+        typeof manifest.base_iri === "string"
+          ? manifest.base_iri
+          : pathToFileURL(await safePath(root, path)).href;
+      const store = await parseRdf(bytes, mediaType, baseIri, false, path);
+      recordStoreReferences(store, path, "owned", undefined);
+    } catch {
+      skippedFiles.push(path);
+    }
+  }
+  references.push(...lockStringReferences(lock, targets, removedId));
+  const unique = new Map<string, DependencyReference>();
+  for (const reference of references) unique.set(canonical(reference), reference);
+  const result = [...unique.values()].sort(
+    (left, right) =>
+      utf8Compare(left.file, right.file) ||
+      utf8Compare(left.selector ?? "", right.selector ?? "") ||
+      utf8Compare(left.targetIri, right.targetIri) ||
+      utf8Compare(left.position, right.position),
+  );
+  return {
+    references: result,
+    targetIris: sortedSet([...targets]),
+    skippedFiles: sortedSet(skippedFiles),
+  };
+}
+
+export async function prepareDependencyRemove(options: {
+  project?: string;
+  cwd?: string;
+  id: string;
+}): Promise<PreparedDependency> {
+  const dependencyId = id(options.id);
+  const root = await discoverProject(options);
+  const first = await capture(root, ["tbspec.toml", "tbspec.lock"]);
+  const initialLock = parseLock(first.files["tbspec.lock"]?.toString("utf8") ?? "");
+  const initialDependency = requireAddition(initialLock.dependencies[dependencyId], dependencyId);
+  const paths = initialDependency.files.map(
+    (file) => `${initialDependency.snapshot_path}/${file.key}`,
+  );
+  const snapshot = await captureDependencyAdministration(root, paths, [
+    { path: ".tbspec/dependencies", included: [initialDependency.snapshot_path], excluded: [] },
+  ]);
+  const manifestText = snapshot.files["tbspec.toml"]?.toString("utf8") ?? "";
+  const lockText = snapshot.files["tbspec.lock"]?.toString("utf8") ?? "";
+  const manifest = parseManifest(manifestText);
+  const lock = parseLock(lockText);
+  const dependency = requireAddition(lock.dependencies[dependencyId], dependencyId);
+  const impact = await dependencyReferences(
+    root,
+    snapshot,
+    lock,
+    dependencyId,
+    dependency,
+    manifest,
+  );
+  const nextManifest = removeDependencyChoices(manifestText, dependencyId);
+  const retainedDependencies = Object.fromEntries(
+    Object.entries(lock.dependencies).filter(([currentId]) => currentId !== dependencyId),
+  );
+  const nextLockText = writeToml({ ...lock, dependencies: retainedDependencies });
+  parseLock(nextLockText);
+  const baseline = await inspectSnapshot(root, snapshot, { command: "status" });
+  const stagedFiles: Record<string, Buffer | null> = {
+    ...snapshot.files,
+    "tbspec.lock": Buffer.from(nextLockText),
+    "tbspec.toml": Buffer.from(nextManifest),
+  };
+  const writes = [
+    { file: "tbspec.lock", bytes: Buffer.from(nextLockText) },
+    ...(nextManifest !== manifestText
+      ? [{ file: "tbspec.toml", bytes: Buffer.from(nextManifest) }]
+      : []),
+    ...paths.map((path) => {
+      if (!snapshot.files[path])
+        throw new ProjectError(
+          "invalid",
+          "SNAPSHOT_INTEGRITY",
+          "A managed dependency file is missing; no removal is permitted.",
+          path,
+        );
+      stagedFiles[path] = null;
+      return { file: path, bytes: null };
+    }),
+  ];
+  const staged = { ...snapshot, files: stagedFiles };
+  const proposed = await inspectSnapshot(root, staged, { command: "status" });
+  const status = statusResult(proposed);
+  const choices = {
+    ontology: Object.entries((manifest.ontology_choices ?? {}) as Record<string, string>)
+      .filter(([, selected]) => selected === dependencyId)
+      .map(([ontologyIri]) => ontologyIri)
+      .sort(utf8Compare),
+    design: Object.entries((manifest.design_choices ?? {}) as Row)
+      .filter(([, value]) => typeof value === "string" && dependencySelector(value, dependencyId))
+      .map(([ontologyIri, selected]) => ({ ontologyIri, selector: selected }))
+      .sort((left, right) => utf8Compare(left.ontologyIri, right.ontologyIri)),
+  };
+  const removedSelectors = dependency.files
+    .map((file) => `dep:${dependencyId}/${file.key}`)
+    .sort(utf8Compare);
+  const affectedFiles = sortedSet([
+    ...new Set([
+      "tbspec.lock",
+      ...(nextManifest !== manifestText ? ["tbspec.toml"] : []),
+      ...paths,
+      ...impact.references.map((reference) => reference.file),
+    ]),
+  ]);
+  const details = {
+    id: dependencyId,
+    primarySelector: `dep:${dependencyId}/${dependency.primary}`,
+    removedSelectors,
+    removedPaths: paths,
+    choices,
+    directAndDownstreamReferences: impact.references,
+    targetIris: impact.targetIris,
+    skippedFiles: impact.skippedFiles,
+    projectValidity: status.projectValidity,
+  };
+  const plan = dependencyAdminImpact(
+    preparePlan(snapshot, "dependency.remove", writes, details),
+    baseline,
+    proposed,
+    [...removedSelectors, ...impact.targetIris, `dep:${dependencyId}`],
+    affectedFiles,
+    ["confirm"],
+  );
+  return {
+    root,
+    id: dependencyId,
+    dependency,
+    plan,
+    diagnostics: [
+      ...proposed.diagnostics,
+      ...impact.skippedFiles.map((file) => ({
+        code: "DEPENDENCY_IMPACT_INCOMPLETE",
+        severity: "warning" as const,
+        message:
+          "Known references could not be inspected because this owned RDF file is malformed.",
+        file,
+      })),
+    ],
+    projectValidity: status.projectValidity,
+    validationComplete: status.validationComplete,
+    administration: { kind: "remove", details },
+  };
+}
+
+export async function dependencyRename(options: {
+  project?: string;
+  cwd?: string;
+  from: string;
+  to: string;
+  apply?: boolean;
+  acceptedPreview?: string;
+}): Promise<Result> {
+  try {
+    checkAcceptedPreview(options.acceptedPreview);
+    if (options.acceptedPreview && !options.apply)
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "--accepted-preview requires --apply for dependency rename.",
+      );
+    const prepared = await prepareDependencyRename(options);
+    if (!options.apply) return dependencyPreview(prepared, "preview");
+    if (!options.acceptedPreview)
+      return previewConflict(
+        prepared,
+        "PREVIEW_REQUIRED",
+        "Review the dependency rename and retry with --apply --accepted-preview.",
+      );
+    if (options.acceptedPreview !== prepared.plan.preview.fingerprint)
+      return previewConflict(
+        prepared,
+        "PREVIEW_CHANGED",
+        "The dependency changed after the rename preview. Review the new preview and retry.",
+      );
+    return await publishPreparedDependency(prepared);
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+export async function dependencyRemove(options: {
+  project?: string;
+  cwd?: string;
+  id: string;
+  confirm?: boolean;
+  acceptedPreview?: string;
+}): Promise<Result> {
+  try {
+    checkAcceptedPreview(options.acceptedPreview);
+    if (options.acceptedPreview && !options.confirm)
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "--accepted-preview requires --confirm for dependency removal.",
+      );
+    const prepared = await prepareDependencyRemove(options);
+    if (!options.confirm) return dependencyPreview(prepared, "preview");
+    if (!options.acceptedPreview)
+      return previewConflict(
+        prepared,
+        "PREVIEW_REQUIRED",
+        "Review the dependency removal and retry with --confirm --accepted-preview.",
+      );
+    if (options.acceptedPreview !== prepared.plan.preview.fingerprint)
+      return previewConflict(
+        prepared,
+        "PREVIEW_CHANGED",
+        "The dependency changed after the removal preview. Review the new preview and retry.",
       );
     return await publishPreparedDependency(prepared);
   } catch (error) {
@@ -4051,14 +4854,24 @@ async function resolveDependencySource(
   const dependency = dependencyFor(dependencyId, options.kind, source, primary, closure);
   return { dependency, closure };
 }
-function dependencyPreview(prepared: PreparedDependency, status: "preview" | "conflict"): Result {
+export function dependencyPreview(
+  prepared: PreparedDependency,
+  status: "preview" | "conflict",
+): Result {
+  const adminDetails = prepared.administration?.details ?? {};
   return {
     ...ok(
       {
         applied: false,
+        ...(prepared.administration
+          ? { operation: `dependency.${prepared.administration.kind}` }
+          : {}),
         id: prepared.id,
-        dependency: prepared.dependency,
-        primarySelector: `dep:${prepared.id}/${prepared.dependency.primary}`,
+        ...(prepared.administration?.kind === "remove" ? {} : { dependency: prepared.dependency }),
+        ...(prepared.administration?.kind === "remove"
+          ? {}
+          : { primarySelector: `dep:${prepared.id}/${prepared.dependency.primary}` }),
+        ...adminDetails,
         projectValidity: prepared.projectValidity,
         validationComplete: prepared.validationComplete,
         preview: prepared.plan.preview,
@@ -4153,12 +4966,21 @@ function preserveManualAttachments(existing: Dependency, refreshed: Dependency):
 export async function publishPreparedDependency(prepared: PreparedDependency): Promise<Result> {
   try {
     const diagnostics = await publishPlan(prepared.root, prepared.plan);
+    const adminDetails = prepared.administration?.details ?? {};
     return ok(
       {
         applied: true,
+        ...(prepared.administration
+          ? { operation: `dependency.${prepared.administration.kind}` }
+          : {}),
         id: prepared.id,
-        primarySelector: `dep:${prepared.id}/${prepared.dependency.primary}`,
-        dependency: prepared.dependency,
+        ...(prepared.administration?.kind === "remove"
+          ? { removed: true }
+          : {
+              primarySelector: `dep:${prepared.id}/${prepared.dependency.primary}`,
+              dependency: prepared.dependency,
+            }),
+        ...adminDetails,
         projectValidity: prepared.projectValidity,
         validationComplete: prepared.validationComplete,
         preview: prepared.plan.preview,

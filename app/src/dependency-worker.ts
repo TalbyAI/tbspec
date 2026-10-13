@@ -5,10 +5,13 @@ import {
   dependencyClear,
   dependencyInspect,
   dependencyList,
+  dependencyPreview,
   dependencySelect,
   dependencyShow,
   type PreparedDependency,
   prepareDependencyAdd,
+  prepareDependencyRemove,
+  prepareDependencyRename,
   prepareDependencySupportClear,
   prepareDependencySupportSet,
   prepareDependencyUpdate,
@@ -31,6 +34,8 @@ export type DependencyWorkerOperation =
   | "update-preview"
   | "support-set-preview"
   | "support-clear-preview"
+  | "rename-preview"
+  | "remove-preview"
   | "apply"
   | "cancel";
 export interface DependencyWorkerRequest {
@@ -44,6 +49,8 @@ export interface DependencyWorkerRequest {
   ref?: string;
   resource?: string;
   id?: string;
+  from?: string;
+  to?: string;
   ontologyIri?: string;
   kind?: "ontology" | "model" | "design";
   target?: string;
@@ -148,6 +155,29 @@ async function preview(request: DependencyWorkerRequest): Promise<Result> {
         ...(request.ref ? { ref: request.ref } : {}),
         signal: controller.signal,
       });
+    } else if (request.operation === "rename-preview") {
+      if (!request.from || !request.to)
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "Dependency rename requires both current and new IDs.",
+        );
+      prepared = await prepareDependencyRename({
+        project: request.project,
+        from: request.from,
+        to: request.to,
+      });
+    } else if (request.operation === "remove-preview") {
+      if (!request.id)
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "Dependency removal requires an ID.",
+        );
+      prepared = await prepareDependencyRemove({
+        project: request.project,
+        id: request.id,
+      });
     } else {
       if (!request.id || !request.target || !request.role || !request.resource)
         throw new ProjectError(
@@ -245,21 +275,13 @@ async function preview(request: DependencyWorkerRequest): Promise<Result> {
       hasBytes,
       timer,
     });
-    const result = ok(
-      {
-        id: prepared.id,
-        dependency: prepared.dependency,
-        primarySelector: `dep:${prepared.id}/${prepared.dependency.primary}`,
-        projectValidity: prepared.projectValidity,
-        validationComplete: prepared.validationComplete,
-        applied: false,
-        preview: prepared.plan.preview,
-        handle,
-        instanceId: request.instanceId,
-        expiresAt: new Date(expires).toISOString(),
-      },
-      prepared.diagnostics,
-    );
+    const result = dependencyPreview(prepared, "preview");
+    result.data = {
+      ...((result.data ?? {}) as Record<string, unknown>),
+      handle,
+      instanceId: request.instanceId,
+      expiresAt: new Date(expires).toISOString(),
+    };
     result.status = "preview";
     return result;
   } finally {
@@ -286,7 +308,7 @@ async function apply(request: DependencyWorkerRequest): Promise<Result> {
   const accepted = request.accept ?? [];
   if (
     !Array.isArray(accepted) ||
-    accepted.some((item) => !["apply", "accept-impact"].includes(item)) ||
+    accepted.some((item) => !["apply", "accept-impact", "confirm"].includes(item)) ||
     new Set(accepted).size !== accepted.length
   )
     throw new ProjectError(
@@ -412,6 +434,8 @@ async function handle(request: DependencyWorkerRequest): Promise<Result> {
       case "update-preview":
       case "support-set-preview":
       case "support-clear-preview":
+      case "rename-preview":
+      case "remove-preview":
         return await preview(request);
       case "apply":
         return await apply(request);

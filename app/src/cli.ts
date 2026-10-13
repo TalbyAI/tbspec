@@ -10,6 +10,8 @@ import {
   dependencyClear,
   dependencyInspect,
   dependencyList,
+  dependencyRemove,
+  dependencyRename,
   dependencySelect,
   dependencyShow,
   dependencySupportClear,
@@ -216,11 +218,14 @@ async function dispatch(): Promise<Result> {
         "ARGUMENT_INVALID",
         "Only dependency update accepts --accept-impact.",
       );
-    if ((options.has("--apply") && action !== "update") || options.has("--confirm"))
+    if (
+      (options.has("--apply") && action !== "update" && action !== "rename") ||
+      (options.has("--confirm") && action !== "remove")
+    )
       throw new ProjectError(
         "invalid_arguments",
         "ARGUMENT_INVALID",
-        "--apply applies only to dependency update; --confirm does not apply to dependencies.",
+        "--apply applies only to dependency update or rename; --confirm applies only to dependency removal.",
       );
     const mutationOptions = [
       "--source",
@@ -229,6 +234,7 @@ async function dispatch(): Promise<Result> {
       "--kind",
       "--accepted-preview",
       "--apply",
+      "--confirm",
       "--accept-impact",
       "--target",
       "--role",
@@ -282,6 +288,47 @@ async function dispatch(): Promise<Result> {
         id: positional[1] ?? "",
         apply: options.has("--apply"),
         acceptImpact: options.has("--accept-impact"),
+        ...(value("--accepted-preview") ? { acceptedPreview: value("--accepted-preview") } : {}),
+      });
+    if (
+      action === "rename" &&
+      positional.length === 3 &&
+      ![
+        "--source",
+        "--ref",
+        "--resource",
+        "--kind",
+        "--accept-impact",
+        "--confirm",
+        "--target",
+        "--role",
+      ].some((flag) => options.has(flag))
+    )
+      return dependencyRename({
+        project: selectedProject,
+        from: positional[1] ?? "",
+        to: positional[2] ?? "",
+        apply: options.has("--apply"),
+        ...(value("--accepted-preview") ? { acceptedPreview: value("--accepted-preview") } : {}),
+      });
+    if (
+      action === "remove" &&
+      positional.length === 2 &&
+      ![
+        "--source",
+        "--ref",
+        "--resource",
+        "--kind",
+        "--apply",
+        "--accept-impact",
+        "--target",
+        "--role",
+      ].some((flag) => options.has(flag))
+    )
+      return dependencyRemove({
+        project: selectedProject,
+        id: positional[1] ?? "",
+        confirm: options.has("--confirm"),
         ...(value("--accepted-preview") ? { acceptedPreview: value("--accepted-preview") } : {}),
       });
     if (
@@ -351,7 +398,7 @@ async function dispatch(): Promise<Result> {
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "Use dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]; dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] --accepted-preview <fingerprint>; dependency update <id> [--apply --accepted-preview <fingerprint> --accept-impact]; dependency support set <id> --target <dep:id/file> --role shacl|design --source <source> --resource <exact-file> --accepted-preview <fingerprint>; dependency support clear <id> --target <dep:id/file> --role shacl|design --resource <dep:id/support-file>; dependency list; dependency show <id>; dependency check [<id>]; dependency select <ontology-iri> <id>; or dependency clear <ontology-iri>.",
+      "Use dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]; dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] --accepted-preview <fingerprint>; dependency update <id> [--apply --accepted-preview <fingerprint> --accept-impact]; dependency rename <old-id> <new-id> [--apply --accepted-preview <fingerprint>]; dependency remove <id> [--confirm --accepted-preview <fingerprint>]; dependency support set <id> --target <dep:id/file> --role shacl|design --source <source> --resource <exact-file> --accepted-preview <fingerprint>; dependency support clear <id> --target <dep:id/file> --role shacl|design --resource <dep:id/support-file>; dependency list; dependency show <id>; dependency check [<id>]; dependency select <ontology-iri> <id>; or dependency clear <ontology-iri>.",
     );
   }
   if (command === "view") {

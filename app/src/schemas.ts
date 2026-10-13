@@ -1046,6 +1046,80 @@ export function editManifestSelectors(text: string, replacements: Record<string,
   return result;
 }
 
+/** Remove only the ontology and design choices owned by one dependency. */
+export function removeDependencyChoices(text: string, dependencyId: string): string {
+  id(dependencyId);
+  const before = parseManifest(text);
+  const ontologyChoices = { ...((before.ontology_choices ?? {}) as Record<string, string>) };
+  const removedOntologies = Object.keys(ontologyChoices).filter(
+    (ontologyIri) => ontologyChoices[ontologyIri] === dependencyId,
+  );
+  let changed = text;
+  for (const ontologyIri of removedOntologies) changed = editOntologyChoice(changed, ontologyIri);
+
+  const designChoices = { ...((before.design_choices ?? {}) as Record<string, string>) };
+  const ownsSelector = (value: string) =>
+    value === `dep:${dependencyId}` || value.startsWith(`dep:${dependencyId}/`);
+  const removedDesigns = Object.entries(designChoices)
+    .filter(([, value]) => typeof value === "string" && ownsSelector(value))
+    .map(([ontologyIri]) => ontologyIri);
+  if (removedDesigns.length) {
+    const lines = (changed.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? []).filter(Boolean);
+    const content = (line: string) => line.replace(/(?:\r\n|\n|\r)$/, "");
+    const ending = (line: string) => line.slice(content(line).length);
+    const removed = new Set(removedDesigns);
+    let table = "";
+    changed = lines
+      .flatMap((line) => {
+        const body = content(line);
+        const header = /^\s*(\[\[|\[)\s*([^\]]+?)\s*(\]\]|\])\s*(?:#.*)?$/.exec(body);
+        if (header) {
+          table = header[2]?.replaceAll('"', "").trim() ?? "";
+          return [line];
+        }
+        if (table !== "design_choices") return [line];
+        const assignment = /^([\t ]*(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*")[\t ]*=[\t ]*)(.*)$/.exec(
+          body,
+        );
+        if (!assignment) return [line];
+        const key = assignment[1]?.slice(0, assignment[1].indexOf("=")).trim().replaceAll('"', "");
+        const raw = assignment[2] ?? "";
+        const comment = trailingTomlComment(raw);
+        const valueText = (comment < 0 ? raw : raw.slice(0, comment)).trim();
+        let value: unknown;
+        try {
+          value = (parse(`value = ${valueText}`) as Row).value;
+        } catch {
+          return [line];
+        }
+        if (!key || !removed.has(key) || typeof value !== "string" || !ownsSelector(value))
+          return [line];
+        if (comment < 0) return [];
+        return [`${body.slice(0, body.search(/\S|$/))}${raw.slice(comment)}${ending(line)}`];
+      })
+      .join("");
+  }
+
+  const after = parseManifest(changed);
+  const expected = structuredClone(before) as Row;
+  for (const ontologyIri of removedOntologies) delete ontologyChoices[ontologyIri];
+  if (Object.keys(ontologyChoices).length || before.ontology_choices !== undefined)
+    expected.ontology_choices = ontologyChoices;
+  else delete expected.ontology_choices;
+  for (const ontologyIri of removedDesigns) delete designChoices[ontologyIri];
+  if (Object.keys(designChoices).length || before.design_choices !== undefined)
+    expected.design_choices = designChoices;
+  else delete expected.design_choices;
+  if (canonical(after) !== canonical(expected))
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Dependency-choice removal changed unrelated configuration; no write is permitted.",
+      "tbspec.toml",
+    );
+  return changed;
+}
+
 export function editManifestView(text: string, view: Row, remove = false): string {
   const before = parseManifest(text);
   const existing = (before.views ?? []) as Row[];

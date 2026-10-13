@@ -66,6 +66,7 @@ export function DependenciesPanel({ session, onApplied }: Props) {
   const [ref, setRef] = useState("");
   const [resource, setResource] = useState("");
   const [dependencyId, setDependencyId] = useState("");
+  const [renameIds, setRenameIds] = useState<Record<string, string>>({});
   const [kind, setKind] = useState<"ontology" | "model" | "design">("ontology");
   const [supportRole, setSupportRole] = useState<"shacl" | "design">("shacl");
   const [supportTargets, setSupportTargets] = useState<Record<string, string>>({});
@@ -141,7 +142,7 @@ export function DependenciesPanel({ session, onApplied }: Props) {
   }, [loadDependencies, session]);
 
   async function runAcquisition(
-    path: "inspect" | "add" | "update" | "support/set" | "support/clear",
+    path: "inspect" | "add" | "update" | "rename" | "remove" | "support/set" | "support/clear",
     body: Record<string, unknown>,
   ) {
     const operation = operationId();
@@ -208,7 +209,7 @@ export function DependenciesPanel({ session, onApplied }: Props) {
     if (typeof fingerprint !== "string") return;
     const acceptance = previewDetails.impact?.acceptance ?? [];
     if (acceptance.includes("accept-impact") && !acceptImpact) return;
-    const accepted: string[] = acceptance.filter((flag) => flag === "apply");
+    const accepted: string[] = acceptance.filter((flag) => flag === "apply" || flag === "confirm");
     if (acceptance.includes("accept-impact")) accepted.push("accept-impact");
     setBusy(true);
     setError("");
@@ -462,8 +463,14 @@ export function DependenciesPanel({ session, onApplied }: Props) {
             )}
           </h3>
           <p>
-            The preview contains exact acquired bytes, closure signatures, source bindings, and
-            diagnostic impact. Applying uses these staged bytes without fetching again.
+            {String((preview.preview as { operation?: unknown } | undefined)?.operation ?? "") ===
+            "dependency.rename"
+              ? "Review every selector, choice, lock path, and selector-derived graph identity change. Snapshot RDF bytes and declared graph identities stay unchanged."
+              : String(
+                    (preview.preview as { operation?: unknown } | undefined)?.operation ?? "",
+                  ) === "dependency.remove"
+                ? "Review direct and downstream owned or locked references and the resulting project validity. Confirmation removes this addition only and preserves retained source references."
+                : "The preview contains exact acquired bytes, closure signatures, source bindings, and diagnostic impact. Applying uses these staged bytes without fetching again."}
           </p>
           <pre>{JSON.stringify(preview, null, 2)}</pre>
           {(
@@ -489,7 +496,11 @@ export function DependenciesPanel({ session, onApplied }: Props) {
             }
             onClick={() => void applyPreview()}
           >
-            Apply reviewed change
+            {(
+              preview.preview as { impact?: { acceptance?: string[] } } | undefined
+            )?.impact?.acceptance?.includes("confirm")
+              ? "Confirm dependency removal"
+              : "Apply reviewed change"}
           </button>
           <button type="button" disabled={busy} onClick={() => void discardPreview()}>
             Discard preview
@@ -549,6 +560,42 @@ export function DependenciesPanel({ session, onApplied }: Props) {
               >
                 Preview update
               </button>
+              {!item.sources.some((source) => source.kind === "bundle") && (
+                <>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const to = renameIds[item.id]?.trim();
+                      if (to)
+                        void runAcquisition("rename", {
+                          from: item.id,
+                          to,
+                        });
+                    }}
+                  >
+                    <label htmlFor={`dependency-rename-${item.id}`}>Rename dependency ID</label>
+                    <input
+                      id={`dependency-rename-${item.id}`}
+                      value={renameIds[item.id] ?? ""}
+                      onChange={(event) =>
+                        setRenameIds((current) => ({ ...current, [item.id]: event.target.value }))
+                      }
+                      placeholder="new-dependency-id"
+                      autoComplete="off"
+                    />
+                    <button type="submit" disabled={busy || !renameIds[item.id]?.trim()}>
+                      Preview rename
+                    </button>
+                  </form>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void runAcquisition("remove", { id: item.id })}
+                  >
+                    Preview remove {item.id}
+                  </button>
+                </>
+              )}
               <label>
                 Support target
                 <select
