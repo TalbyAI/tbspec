@@ -24,6 +24,13 @@ import { type InspectionCommand, inspectProject } from "./inspection.ts";
 import { exits, failure, ok, ProjectError, type Result } from "./output.ts";
 import { initializeProject } from "./project.ts";
 import { listQueries, queryRemove, queryRun, querySave, showQuery } from "./query.ts";
+import {
+  collectGarbage,
+  listReferences,
+  redirectReferences,
+  refactorIri,
+  removeReferences,
+} from "./repair.ts";
 import { inspectImpact, moveResource, removeResource } from "./resource-lifecycle.ts";
 import { applicationVersion } from "./runtime.ts";
 import { listViews, showView, viewOperation } from "./views.ts";
@@ -36,6 +43,7 @@ let initialized = false;
 async function dispatch(): Promise<Result> {
   const positional: string[] = [];
   const options = new Map<string, string | true>();
+  const repeatedValues = new Map<string, string[]>();
   const schemas: string[] = [];
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
@@ -74,6 +82,8 @@ async function dispatch(): Promise<Result> {
         "--accept-impact",
         "--target",
         "--role",
+        "--all",
+        "--dangling",
       ].includes(argument)
     )
       throw new ProjectError(
@@ -81,7 +91,7 @@ async function dispatch(): Promise<Result> {
         "ARGUMENT_INVALID",
         `Unknown option: ${argument}. Use tbspec --help.`,
       );
-    if (options.has(argument) && argument !== "--schema")
+    if (options.has(argument) && !["--schema", "--file", "--resource"].includes(argument))
       throw new ProjectError(
         "invalid_arguments",
         "ARGUMENT_INVALID",
@@ -121,6 +131,11 @@ async function dispatch(): Promise<Result> {
         );
       options.set(argument, value);
       if (argument === "--schema") schemas.push(value);
+      if (argument === "--file" || argument === "--resource") {
+        const values = repeatedValues.get(argument) ?? [];
+        values.push(value);
+        repeatedValues.set(argument, values);
+      }
     } else options.set(argument, true);
   }
   const command = positional.shift() ?? "";
@@ -143,6 +158,9 @@ async function dispatch(): Promise<Result> {
       "resource",
       "view",
       "design",
+      "refactor",
+      "references",
+      "gc",
     ].includes(command)
   )
     throw new ProjectError(
@@ -212,6 +230,119 @@ async function dispatch(): Promise<Result> {
   const selectedProject = typeof project === "string" ? project : undefined;
   const value = (flag: string) =>
     typeof options.get(flag) === "string" ? (options.get(flag) as string) : undefined;
+  const values = (flag: string) => repeatedValues.get(flag) ?? [];
+  const rejectOptions = (allowed: string[]) => {
+    const unexpected = [...options.keys()].filter(
+      (flag) => !["--json", "--project", "--help", ...allowed].includes(flag),
+    );
+    if (unexpected.length)
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        `Unsupported option for this operation: ${unexpected[0]}.`,
+      );
+  };
+  if (
+    values("--file").length > 1 &&
+    !(command === "references" && ["redirect", "remove"].includes(positional[0] ?? ""))
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "This operation accepts at most one --file option.",
+    );
+  if (values("--resource").length > 1 && command !== "gc")
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "This operation accepts at most one --resource option.",
+    );
+  if (command === "refactor") {
+    rejectOptions(["--apply"]);
+    if (positional[0] !== "iri" || positional.length !== 3)
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "Use refactor iri <old-iri> <new-iri> [--apply].",
+      );
+    return refactorIri({
+      project: selectedProject,
+      oldIri: positional[1] ?? "",
+      newIri: positional[2] ?? "",
+      apply: options.has("--apply"),
+    });
+  }
+  if (command === "references") {
+    const action = positional[0];
+    if (action === "list" && positional.length === 1) {
+      rejectOptions(["--target", "--dangling"]);
+      if (options.has("--all"))
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "Reference listing uses --target or --dangling; --all applies only to repair scope.",
+        );
+      return listReferences({
+        project: selectedProject,
+        ...(value("--target") ? { target: value("--target") } : {}),
+        ...(options.has("--dangling") ? { dangling: true } : {}),
+      });
+    }
+    if (action === "redirect" && positional.length === 3) {
+      rejectOptions(["--file", "--all", "--apply"]);
+      if (options.has("--all") === values("--file").length > 0)
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "Choose one or more --file paths or --all.",
+        );
+      return redirectReferences({
+        project: selectedProject,
+        targetIri: positional[1] ?? "",
+        newIri: positional[2] ?? "",
+        ...(values("--file").length ? { files: values("--file") } : {}),
+        ...(options.has("--all") ? { all: true } : {}),
+        apply: options.has("--apply"),
+      });
+    }
+    if (action === "remove" && positional.length === 2) {
+      rejectOptions(["--file", "--all", "--apply"]);
+      if (options.has("--all") === values("--file").length > 0)
+        throw new ProjectError(
+          "invalid_arguments",
+          "ARGUMENT_INVALID",
+          "Choose one or more --file paths or --all.",
+        );
+      return removeReferences({
+        project: selectedProject,
+        targetIri: positional[1] ?? "",
+        ...(values("--file").length ? { files: values("--file") } : {}),
+        ...(options.has("--all") ? { all: true } : {}),
+        apply: options.has("--apply"),
+      });
+    }
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Use references list [--target <iri> | --dangling]; references redirect <old-iri> <new-iri> (--file <path> ... | --all) [--apply]; or references remove <target-iri> (--file <path> ... | --all) [--apply].",
+    );
+  }
+  if (command === "gc") {
+    rejectOptions(["--resource", "--all", "--apply", "--confirm"]);
+    if (positional.length || (options.has("--all") && values("--resource").length > 0))
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        "Use gc [--resource <path> ... | --all] [--apply --confirm].",
+      );
+    return collectGarbage({
+      project: selectedProject,
+      ...(values("--resource").length ? { resources: values("--resource") } : {}),
+      ...(options.has("--all") ? { all: true } : {}),
+      apply: options.has("--apply"),
+      confirm: options.has("--confirm"),
+    });
+  }
   if (command === "dependency") {
     const action = positional[0];
     if (options.has("--accept-impact") && action !== "update")
@@ -567,7 +698,8 @@ async function dispatch(): Promise<Result> {
       (command === "design" && positional[0] === "remove") ||
       (command === "view" && positional[0] === "remove") ||
       (command === "config" && positional[0] === "model-type" && positional[1] === "remove") ||
-      (command === "query" && positional[0] === "remove")
+      (command === "query" && positional[0] === "remove") ||
+      command === "gc"
     )
   )
     throw new ProjectError(
@@ -590,12 +722,15 @@ async function dispatch(): Promise<Result> {
   if (
     options.has("--apply") &&
     !(command === "resource" && positional[0] === "move") &&
-    !(command === "dependency" && positional[0] === "update")
+    !(command === "dependency" && positional[0] === "update") &&
+    !(command === "refactor" && positional[0] === "iri") &&
+    !(command === "references" && ["redirect", "remove"].includes(positional[0] ?? "")) &&
+    command !== "gc"
   )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "--apply applies only to resource move or dependency update.",
+      "--apply applies only to resource, dependency, refactor, reference repair, or garbage collection operations.",
     );
   if (
     options.has("--ref") &&
@@ -614,12 +749,13 @@ async function dispatch(): Promise<Result> {
       command === "dependency" &&
       positional[0] === "support" &&
       ["set", "clear"].includes(positional[1] ?? "")
-    )
+    ) &&
+    !(command === "gc")
   )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "--resource applies only to dependency inspect/add or support set/clear.",
+      "--resource applies only to dependency inspect/add, support set/clear, or garbage collection.",
     );
   if (options.has("--kind") && !(command === "dependency" && positional[0] === "add"))
     throw new ProjectError(
@@ -628,12 +764,41 @@ async function dispatch(): Promise<Result> {
       "--kind applies only to dependency add.",
     );
   if (
+    options.has("--all") &&
+    !(
+      command === "gc" ||
+      (command === "references" && ["redirect", "remove"].includes(positional[0] ?? ""))
+    )
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--all applies only to reference repair or garbage collection.",
+    );
+  if (
+    options.has("--file") &&
+    !(command === "references" && ["redirect", "remove"].includes(positional[0] ?? "")) &&
+    !(command === "query" && ["save", "run"].includes(positional[0] ?? ""))
+  )
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--file applies only to query or reference repair.",
+    );
+  if (options.has("--dangling") && !(command === "references" && positional[0] === "list"))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--dangling applies only to references list.",
+    );
+  if (
     options.has("--target") &&
     !(
       command === "dependency" &&
       positional[0] === "support" &&
       ["set", "clear"].includes(positional[1] ?? "")
-    )
+    ) &&
+    !(command === "references" && positional[0] === "list")
   )
     throw new ProjectError(
       "invalid_arguments",
@@ -663,7 +828,8 @@ async function dispatch(): Promise<Result> {
   const queryOptions = ["--file", "--parameters", "--saved", "--graph", "--bindings"];
   if (
     queryOptions.some((flag) => options.has(flag)) &&
-    (command !== "query" || options.has("--help"))
+    (command !== "query" || options.has("--help")) &&
+    !(command === "references" && options.has("--file"))
   )
     throw new ProjectError(
       "invalid_arguments",
@@ -675,7 +841,9 @@ async function dispatch(): Promise<Result> {
     (options.has("--saved") && queryAction !== "run") ||
     (options.has("--graph") && queryAction !== "run") ||
     (options.has("--bindings") && queryAction !== "run") ||
-    (options.has("--file") && !["save", "run"].includes(queryAction ?? ""))
+    (options.has("--file") &&
+      !["save", "run"].includes(queryAction ?? "") &&
+      command !== "references")
   )
     throw new ProjectError(
       "invalid_arguments",

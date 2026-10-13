@@ -1258,6 +1258,51 @@ export async function startWebServer(
           );
           return;
         }
+        if (request.method === "GET" && url.pathname === "/api/project/v1/references") {
+          const targets = url.searchParams.getAll("target");
+          const dangling = url.searchParams.getAll("dangling");
+          if (
+            [...url.searchParams.keys()].some((key) => !["target", "dangling"].includes(key)) ||
+            targets.length > 1 ||
+            dangling.length > 1 ||
+            (dangling.length === 1 && dangling[0] !== "true") ||
+            (targets.length === 1 && dangling.length === 1)
+          )
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "Reference listing accepts one target or dangling=true.",
+            );
+          respond(
+            response,
+            await inspect("status", undefined, {
+              mode: "preview",
+              session: credential ?? "",
+              referenceList: {
+                ...(targets[0] ? { target: targets[0] } : {}),
+                ...(dangling.length ? { dangling: true } : {}),
+              },
+            }),
+          );
+          return;
+        }
+        if (request.method === "GET" && url.pathname === "/api/project/v1/repair/gc") {
+          if (url.searchParams.size)
+            throw new ProjectError(
+              "invalid_arguments",
+              "ARGUMENT_INVALID",
+              "GC candidate listing takes no query parameters.",
+            );
+          respond(
+            response,
+            await inspect("status", undefined, {
+              mode: "preview",
+              session: credential ?? "",
+              garbageList: true,
+            }),
+          );
+          return;
+        }
         if (request.method === "GET" && url.pathname === "/api/project/v1/designs") {
           if (url.searchParams.size)
             throw new ProjectError(
@@ -1563,6 +1608,87 @@ export async function startWebServer(
             );
             return;
           }
+          const repairRoute = url.pathname.match(
+            /^\/api\/project\/v1\/repair\/(refactor\/iri|references\/redirect|references\/remove|gc)$/,
+          );
+          if (repairRoute) {
+            const body = await jsonBody(request);
+            const route = repairRoute[1];
+            const stringArray = (value: unknown): value is string[] =>
+              Array.isArray(value) && value.every((item) => typeof item === "string");
+            let repair: NonNullable<AuthoringRequest["repair"]>;
+            if (route === "refactor/iri") {
+              if (
+                Object.keys(body).some((key) => !["oldIri", "newIri"].includes(key)) ||
+                typeof body.oldIri !== "string" ||
+                typeof body.newIri !== "string"
+              )
+                throw new ProjectError(
+                  "invalid_arguments",
+                  "ARGUMENT_INVALID",
+                  "IRI refactoring requires oldIri and newIri.",
+                );
+              repair = { operation: "refactor", oldIri: body.oldIri, newIri: body.newIri };
+            } else if (route === "references/redirect" || route === "references/remove") {
+              const fields = route.endsWith("redirect")
+                ? ["targetIri", "newIri", "files", "all"]
+                : ["targetIri", "files", "all"];
+              if (
+                Object.keys(body).some((key) => !fields.includes(key)) ||
+                typeof body.targetIri !== "string" ||
+                (route.endsWith("redirect") && typeof body.newIri !== "string") ||
+                (body.files !== undefined && !stringArray(body.files)) ||
+                (body.all !== undefined && body.all !== true) ||
+                (body.all === true && body.files !== undefined) ||
+                (body.all !== true && (!stringArray(body.files) || body.files.length === 0))
+              )
+                throw new ProjectError(
+                  "invalid_arguments",
+                  "ARGUMENT_INVALID",
+                  "Reference repair requires exact files or all=true.",
+                );
+              repair = route.endsWith("redirect")
+                ? {
+                    operation: "redirect",
+                    targetIri: body.targetIri,
+                    newIri: body.newIri as string,
+                    ...(stringArray(body.files) ? { files: body.files } : {}),
+                    ...(body.all === true ? { all: true } : {}),
+                  }
+                : {
+                    operation: "remove",
+                    targetIri: body.targetIri,
+                    ...(stringArray(body.files) ? { files: body.files } : {}),
+                    ...(body.all === true ? { all: true } : {}),
+                  };
+            } else {
+              if (
+                Object.keys(body).some((key) => !["resources", "all"].includes(key)) ||
+                (body.resources !== undefined && !stringArray(body.resources)) ||
+                (body.all !== undefined && body.all !== true) ||
+                (body.all === true && body.resources !== undefined)
+              )
+                throw new ProjectError(
+                  "invalid_arguments",
+                  "ARGUMENT_INVALID",
+                  "GC accepts candidate paths or all=true.",
+                );
+              repair = {
+                operation: "gc",
+                ...(stringArray(body.resources) ? { resources: body.resources } : {}),
+                ...(body.all === true ? { all: true } : {}),
+              };
+            }
+            respond(
+              response,
+              await inspect("status", undefined, {
+                mode: "preview",
+                session: credential ?? "",
+                repair,
+              }),
+            );
+            return;
+          }
           const lifecycleRoute = url.pathname.match(
             /^\/api\/project\/v1\/resources\/(remove|move)$/,
           );
@@ -1693,8 +1819,15 @@ export async function startWebServer(
           const action = url.pathname.match(
             /^\/api\/project\/v1\/(ontology|model|design|shapes|model\/schema)\/(create|import|select|clear|add|remove)$/,
           );
-          const cancellation = url.pathname === "/api/project/v1/resource/cancel";
-          if (action || url.pathname === "/api/project/v1/resource/apply" || cancellation) {
+          const repairApply = url.pathname === "/api/project/v1/repair/apply";
+          const repairCancel = url.pathname === "/api/project/v1/repair/cancel";
+          const cancellation = url.pathname === "/api/project/v1/resource/cancel" || repairCancel;
+          if (
+            action ||
+            url.pathname === "/api/project/v1/resource/apply" ||
+            repairApply ||
+            cancellation
+          ) {
             const body = await jsonBody(request);
             if (!action) {
               if (
@@ -1716,13 +1849,14 @@ export async function startWebServer(
                 throw new ProjectError(
                   "invalid_arguments",
                   "ARGUMENT_INVALID",
-                  "Import application requires schemaVersion 1, handle, fingerprint and accepted flags.",
+                  "Preview application requires schemaVersion 1, handle, fingerprint and accepted flags.",
                 );
               respond(
                 response,
                 await inspect("status", undefined, {
                   mode: cancellation ? "cancel" : "apply",
                   session: credential ?? "",
+                  repairApply: repairApply || repairCancel,
                   fingerprint: body.fingerprint as string | undefined,
                   handle: body.handle,
                   accept: body.accept as string[] | undefined,
