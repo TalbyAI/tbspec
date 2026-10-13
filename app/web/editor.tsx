@@ -9,7 +9,7 @@ import {
   ReactFlow,
   useNodesState,
 } from "@xyflow/react";
-import { type SetStateAction, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type SetStateAction, useEffect, useMemo, useState } from "react";
 import type { EditingOptions, EditorData, EditorTerm, Triple } from "../src/editing.ts";
 import type { Diagnostic, Result } from "../src/output.ts";
 import { pPlan, proc } from "../src/process.ts";
@@ -27,7 +27,89 @@ const processAssociationFields = new Set([
   `${pPlan}isOutputVarOf`,
 ]);
 const processCondition = `${proc}condition`;
+const rdfsLabel = "http://www.w3.org/2000/01/rdf-schema#label";
 const key = (term: EditorTerm) => JSON.stringify(term);
+export interface CanvasDesignChoices {
+  nodes: Record<string, string>;
+  relationships: Record<string, string>;
+}
+interface CanvasDesignRule {
+  iri: string;
+  targetConcept?: string;
+  appearance: Record<string, { kind?: string; value?: string }>;
+}
+interface CanvasDesignData {
+  effectivePresentation?: {
+    nodes: Record<string, CanvasDesignRule>;
+    relationships: Record<string, CanvasDesignRule>;
+  };
+  designRuleOptions?: {
+    nodes: Record<string, CanvasDesignRule[]>;
+    relationships: Record<string, CanvasDesignRule[]>;
+  };
+}
+function displayRuleValue(value: unknown) {
+  return value && typeof value === "object" && "value" in value
+    ? String(value.value)
+    : typeof value === "string"
+      ? value
+      : "";
+}
+function safeColor(value: unknown, fallback: string) {
+  const candidate = displayRuleValue(value);
+  return /^#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?$/.test(candidate) ? candidate : fallback;
+}
+function safeEnum(value: unknown, values: string[]) {
+  const candidate = displayRuleValue(value);
+  return values.includes(candidate) ? candidate : undefined;
+}
+function safeNumber(value: unknown, fallback: number, minimum: number, maximum: number) {
+  const number = Number(displayRuleValue(value));
+  return Number.isFinite(number) && number >= minimum && number <= maximum ? number : fallback;
+}
+function canvasRule(
+  rule: CanvasDesignRule | undefined,
+  choices: CanvasDesignRule[] | undefined,
+  selected: string | undefined,
+) {
+  if (selected) return choices?.find((candidate) => candidate.iri === selected);
+  if (choices?.length === 1) return choices[0];
+  return rule;
+}
+function canvasTupleKey(triple: Triple) {
+  const endpoint = (term: EditorTerm) => (term.kind === "iri" ? term.value : term);
+  return JSON.stringify([
+    endpoint(triple.subject),
+    triple.predicate.value,
+    endpoint(triple.object),
+  ]);
+}
+function localName(iri: string) {
+  const tail = iri.slice(
+    Math.max(iri.lastIndexOf("#"), iri.lastIndexOf("/"), iri.lastIndexOf(":")) + 1,
+  );
+  return tail || iri;
+}
+function canvasLabel(term: EditorTerm, rule: CanvasDesignRule | undefined, triples: Triple[]) {
+  if (term.kind !== "iri") return text(term);
+  const appearance = rule?.appearance ?? {};
+  const mode = safeEnum(appearance.labelMode, ["property", "local-name", "iri", "text", "none"]);
+  if (mode === "none") return "";
+  if (mode === "iri") return term.value;
+  if (mode === "local-name") return localName(term.value);
+  if (mode === "text") return displayRuleValue(appearance.labelText);
+  const predicate = displayRuleValue(appearance.labelProperty) || rdfsLabel;
+  const labels = triples
+    .filter(
+      (triple) =>
+        triple.subject.value === term.value &&
+        triple.predicate.value === predicate &&
+        triple.object.kind === "literal",
+    )
+    .map((triple) => triple.object.value)
+    .sort();
+  return labels[0] ?? text(term);
+}
 type ElementDeletionReview = {
   handle: string;
   projectValidity: string;
@@ -68,9 +150,12 @@ function ExactEdge({
   label,
   markerEnd,
   selected,
+  labelStyle,
 }: EdgeProps) {
   const offset = 50 + Number(data?.offset ?? 0) * 24;
   const loop = data?.loop;
+  const visual = data?.visualStyle as CSSProperties | undefined;
+  const visualLabel = data?.visualLabelStyle as CSSProperties | undefined;
   const path = loop
     ? `M ${sourceX} ${sourceY} C ${sourceX + offset} ${sourceY - 90}, ${targetX + offset} ${targetY + 90}, ${targetX} ${targetY}`
     : `M ${sourceX} ${sourceY} C ${sourceX + offset} ${sourceY}, ${targetX - offset} ${targetY}, ${targetX} ${targetY}`;
@@ -78,8 +163,13 @@ function ExactEdge({
     <BaseEdge
       path={path}
       label={label}
+      labelStyle={{ ...labelStyle, ...visualLabel }}
       markerEnd={markerEnd}
-      style={{ stroke: selected ? "#9f4c1a" : "#5e766b", strokeWidth: selected ? 3 : 1.5 }}
+      style={{
+        stroke: selected ? "#9f4c1a" : "#5e766b",
+        strokeWidth: selected ? 3 : 1.5,
+        ...visual,
+      }}
       interactionWidth={24}
     />
   );
@@ -182,6 +272,8 @@ export function GraphEditor({
   onDraftChange,
   onBusyChange,
   disabled,
+  designChoices,
+  onTemporaryDesignChoice,
 }: {
   selector: string;
   call: (path: string, body?: Record<string, unknown>) => Promise<Result>;
@@ -190,6 +282,8 @@ export function GraphEditor({
   onDraftChange: () => void;
   onBusyChange: (busy: boolean) => void;
   disabled: boolean;
+  designChoices: CanvasDesignChoices;
+  onTemporaryDesignChoice: (kind: "node" | "relationship", element: string, rule: string) => void;
 }) {
   const [data, setData] = useState<EditorData>();
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
@@ -258,6 +352,11 @@ export function GraphEditor({
       active = false;
     };
   }, [selector, call, onBusyChange]);
+  const designData = data?.designResolution as CanvasDesignData | undefined;
+  const designDiagnostics = diagnostics.filter(
+    (diagnostic) =>
+      diagnostic.code.startsWith("DESIGN_RULE_") || diagnostic.code === "DESIGN_CONFLICT",
+  );
   const projection = useMemo(() => {
     const terms = new Map<string, EditorTerm>();
     const edges: Edge[] = [];
@@ -291,6 +390,97 @@ export function GraphEditor({
       edges,
     };
   }, [data]);
+  const canvasNodes = useMemo(
+    () =>
+      nodes.map((node) => {
+        const term = JSON.parse(node.id) as EditorTerm;
+        if (term.kind !== "iri") return node;
+        const candidates = designData?.designRuleOptions?.nodes[term.value];
+        const rule = canvasRule(
+          designData?.effectivePresentation?.nodes[term.value],
+          candidates,
+          designChoices.nodes[term.value],
+        );
+        const appearance = rule?.appearance ?? {};
+        const shape = safeEnum(appearance.nodeShape, [
+          "rectangle",
+          "rounded-rectangle",
+          "ellipse",
+          "diamond",
+        ]);
+        const line = safeEnum(appearance.lineStyle, ["solid", "dashed", "dotted"]);
+        const weight = safeNumber(appearance.fontWeight, 400, 100, 900);
+        const style: Node["style"] = {
+          ...node.style,
+          backgroundColor: safeColor(appearance.fillColor, "#ffffff"),
+          color: safeColor(appearance.textColor, "#172536"),
+          borderColor: safeColor(appearance.strokeColor, "#526477"),
+          borderWidth: safeNumber(appearance.strokeWidth, 1, 0, 100),
+          borderStyle: line ?? "solid",
+          borderRadius: shape === "ellipse" ? "50%" : shape === "rounded-rectangle" ? 12 : 3,
+          ...(shape === "diamond" ? { clipPath: "polygon(50% 0, 100% 50%, 50% 100%, 0 50%)" } : {}),
+          fontFamily:
+            safeEnum(appearance.fontFamily, ["system-ui", "sans-serif", "serif", "monospace"]) ??
+            "system-ui",
+          fontSize: safeNumber(appearance.fontSize, 14, 1, 200),
+          fontWeight: [100, 200, 300, 400, 500, 600, 700, 800, 900].includes(weight) ? weight : 400,
+          fontStyle: safeEnum(appearance.fontStyle, ["normal", "italic"]) ?? "normal",
+        };
+        return {
+          ...node,
+          data: { label: canvasLabel(term, rule, data?.triples ?? []) },
+          style,
+        };
+      }),
+    [data, designChoices.nodes, designData, nodes],
+  );
+  const canvasEdges = useMemo(
+    () =>
+      projection.edges.map((edge) => {
+        const triple = JSON.parse(edge.id) as Triple;
+        const ruleKey = canvasTupleKey(triple);
+        const candidates = designData?.designRuleOptions?.relationships[ruleKey];
+        const rule = canvasRule(
+          designData?.effectivePresentation?.relationships[ruleKey],
+          candidates,
+          designChoices.relationships[ruleKey],
+        );
+        const appearance = rule?.appearance ?? {};
+        const line = safeEnum(appearance.lineStyle, ["solid", "dashed", "dotted"]);
+        const stroke = safeColor(appearance.strokeColor, "#5e766b");
+        const weight = safeNumber(appearance.fontWeight, 400, 100, 900);
+        const arrow = safeEnum(appearance.arrowHead, ["none", "arrow"]);
+        return {
+          ...edge,
+          label: canvasLabel(triple.predicate, rule, data?.triples ?? []),
+          markerEnd: arrow === "none" ? undefined : { type: MarkerType.ArrowClosed, color: stroke },
+          data: {
+            ...edge.data,
+            visualStyle: {
+              stroke,
+              strokeWidth: safeNumber(appearance.strokeWidth, 1.5, 0, 100),
+              strokeDasharray: line === "dashed" ? "6 4" : line === "dotted" ? "2 4" : undefined,
+            },
+            visualLabelStyle: {
+              fill: safeColor(appearance.textColor, "#172536"),
+              fontFamily:
+                safeEnum(appearance.fontFamily, [
+                  "system-ui",
+                  "sans-serif",
+                  "serif",
+                  "monospace",
+                ]) ?? "system-ui",
+              fontSize: safeNumber(appearance.fontSize, 12, 1, 200),
+              fontWeight: [100, 200, 300, 400, 500, 600, 700, 800, 900].includes(weight)
+                ? weight
+                : 400,
+              fontStyle: safeEnum(appearance.fontStyle, ["normal", "italic"]) ?? "normal",
+            },
+          },
+        };
+      }),
+    [data, designChoices.relationships, designData, projection.edges],
+  );
   const selectableResources = useMemo(() => {
     const terms = new Map<string, EditorTerm>();
     for (const triple of data?.triples ?? [])
@@ -676,11 +866,89 @@ export function GraphEditor({
           <>
             {mode === "canvas" && (
               <>
-                <p>Complete source graph · Positions are temporary · Pan and zoom to explore</p>
+                <p>
+                  Complete source graph · Positions and design-rule choices are temporary until
+                  saved in a view · Pan and zoom to explore
+                </p>
+                {designDiagnostics.length > 0 && (
+                  <ul className="canvas-warnings" aria-label="Complete graph design warnings">
+                    {designDiagnostics.map((diagnostic) => (
+                      <li key={JSON.stringify(diagnostic)}>
+                        <strong>{diagnostic.code}</strong> {diagnostic.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {!!Object.values(designData?.designRuleOptions?.nodes ?? {}).some(
+                  (rules) => rules.length > 1,
+                ) && (
+                  <fieldset aria-label="Temporary node design rule choices">
+                    <legend>Temporary node design-rule choices</legend>
+                    {Object.entries(designData?.designRuleOptions?.nodes ?? {})
+                      .filter(([, rules]) => rules.length > 1)
+                      .map(([element, rules]) => (
+                        <label key={element}>
+                          {element}
+                          <select
+                            aria-label={`Complete graph node design rule ${element}`}
+                            value={
+                              rules.some((rule) => rule.iri === designChoices.nodes[element])
+                                ? designChoices.nodes[element]
+                                : ""
+                            }
+                            onChange={(event) =>
+                              onTemporaryDesignChoice("node", element, event.target.value)
+                            }
+                          >
+                            <option value="">Generic appearance</option>
+                            {rules.map((rule) => (
+                              <option key={rule.iri} value={rule.iri}>
+                                {rule.targetConcept ?? "Exact target"} · {rule.iri}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                  </fieldset>
+                )}
+                {!!Object.values(designData?.designRuleOptions?.relationships ?? {}).some(
+                  (rules) => rules.length > 1,
+                ) && (
+                  <fieldset aria-label="Temporary relationship design rule choices">
+                    <legend>Temporary relationship design-rule choices</legend>
+                    {Object.entries(designData?.designRuleOptions?.relationships ?? {})
+                      .filter(([, rules]) => rules.length > 1)
+                      .map(([element, rules]) => (
+                        <label key={element}>
+                          {element}
+                          <select
+                            aria-label={`Complete graph relationship design rule ${element}`}
+                            value={
+                              rules.some(
+                                (rule) => rule.iri === designChoices.relationships[element],
+                              )
+                                ? designChoices.relationships[element]
+                                : ""
+                            }
+                            onChange={(event) =>
+                              onTemporaryDesignChoice("relationship", element, event.target.value)
+                            }
+                          >
+                            <option value="">Generic appearance</option>
+                            {rules.map((rule) => (
+                              <option key={rule.iri} value={rule.iri}>
+                                {rule.targetConcept ?? "Exact predicate"} · {rule.iri}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                  </fieldset>
+                )}
                 <div className="rdf-canvas">
                   <ReactFlow
-                    nodes={nodes}
-                    edges={projection.edges}
+                    nodes={canvasNodes}
+                    edges={canvasEdges}
                     edgeTypes={edgeTypes}
                     onNodesChange={onNodesChange}
                     onNodeClick={(_, node) => {

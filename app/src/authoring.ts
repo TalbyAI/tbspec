@@ -3,6 +3,7 @@ import { basename, extname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { DataFactory, Store, Writer } from "n3";
 import { digest, graphSignature } from "./canonical.ts";
+import { prepareDesignChoice } from "./design-choice.ts";
 import { equalRevision, fileBytes, revision, verifyReads } from "./filesystem.ts";
 import { captureInspection, type Resource } from "./inspection.ts";
 import { type Diagnostic, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
@@ -22,6 +23,10 @@ export interface AuthoringOptions {
     | "ontology.import"
     | "model.create"
     | "model.import"
+    | "design.create"
+    | "design.import"
+    | "design.select"
+    | "design.clear"
     | "shapes.create"
     | "model.schema.add"
     | "model.schema.remove";
@@ -65,6 +70,14 @@ const builtInTypes: Record<string, { kinds: string[]; businessType?: string }> =
 export async function prepareResource(options: AuthoringOptions): Promise<PreparedResource> {
   if (options.command === "shapes.create" || options.command.startsWith("model.schema."))
     return prepareSupport(options);
+  if (options.command === "design.select" || options.command === "design.clear")
+    return prepareDesignChoice({
+      project: options.project,
+      cwd: options.cwd,
+      action: options.command.endsWith("select") ? "select" : "clear",
+      conceptIri: options.path,
+      ...(options.command.endsWith("select") && options.source ? { design: options.source } : {}),
+    });
   const root = await discoverProject(options);
   const path = portablePath(options.path);
   if (
@@ -223,6 +236,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
     return { ...graph, store, selector: expanded };
   }
   const model = options.command.startsWith("model.");
+  const design = options.command.startsWith("design.");
   const family = Object.hasOwn(builtInTypes, options.type ?? "")
     ? builtInTypes[options.type ?? ""]
     : undefined;
@@ -236,7 +250,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "Model options do not apply to ontologies.",
+      "Model options do not apply to this resource.",
     );
   const importRequested = options.command.endsWith(".import");
   if ((!importRequested && options.source) || (importRequested && !options.source))
@@ -257,7 +271,7 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
       "ARGUMENT_INVALID",
       "--profile applies only to data model creation.",
     );
-  let declaration = owlOntology;
+  let declaration = design ? `${metadata}VisualDesignModel` : owlOntology;
   const available = new Store();
   const associations: Resource["associations"] = [];
   if (model) {
@@ -514,7 +528,11 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
       );
     if (
       source.kind !== "unclassified" &&
-      (model ? !source.kind.endsWith("model") : source.kind !== "ontology")
+      (design
+        ? source.kind !== "design"
+        : model
+          ? !source.kind.endsWith("model")
+          : source.kind !== "ontology")
     )
       throw new ProjectError(
         "invalid",
@@ -533,11 +551,47 @@ export async function prepareResource(options: AuthoringOptions): Promise<Prepar
     }
     store = new Store(source.store.getQuads(null, null, null, null));
     // Relocate only managed root metadata. Business terms and unknown statements retain their IRIs.
+    if (design) {
+      const rules = new Map<string, string>();
+      const names = new Set<string>();
+      for (const [index, term] of store
+        .getObjects(source.graphIri, `${metadata}rule`, null)
+        .filter((candidate) => candidate.termType === "NamedNode")
+        .entries()) {
+        const local = term.value.startsWith(`${source.graphIri}#`)
+          ? term.value.slice(source.graphIri.length + 1)
+          : "";
+        const name =
+          local && !names.has(local)
+            ? local
+            : `Rule-${digest(term.value).slice(7, 19)}-${index + 1}`;
+        names.add(name);
+        rules.set(term.value, `${iri}#${name}`);
+      }
+      const relocated = new Store();
+      for (const statement of store) {
+        const subject =
+          statement.subject.termType === "NamedNode" && statement.subject.value === source.graphIri
+            ? namedNode(iri)
+            : statement.subject.termType === "NamedNode" && rules.has(statement.subject.value)
+              ? namedNode(rules.get(statement.subject.value) as string)
+              : statement.subject;
+        const object =
+          statement.object.termType === "NamedNode" && statement.object.value === source.graphIri
+            ? namedNode(iri)
+            : statement.object.termType === "NamedNode" && rules.has(statement.object.value)
+              ? namedNode(rules.get(statement.object.value) as string)
+              : statement.object;
+        relocated.addQuad(quad(subject, statement.predicate, object));
+      }
+      store = relocated;
+    }
     for (const statement of store.getQuads(source.graphIri, null, null, null)) {
       const managedType =
         statement.predicate.value === rdfType &&
         [
           owlOntology,
+          `${metadata}VisualDesignModel`,
           ...Object.values(modelDeclarations).map((kind) => `${metadata}${kind}`),
           `${metadata}DataModel`,
         ].includes(statement.object.value);

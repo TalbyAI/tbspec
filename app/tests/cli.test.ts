@@ -842,6 +842,7 @@ test("help/version, argument errors and recursive llms produce exactly one envel
     ["dependency", "--help"],
     ["llms", "projects"],
     ["llms", "projects", "init"],
+    ["llms", "views", "designs"],
     ["llms", "safety", "recovery"],
   ]) {
     const result = invoke(args, cwd);
@@ -849,6 +850,11 @@ test("help/version, argument errors and recursive llms produce exactly one envel
     assert.equal(result.envelope.status, "ok");
     assert.equal(result.stderr, "");
   }
+  const designHelp = invoke(["llms", "views", "designs"], cwd);
+  assert.equal(designHelp.status, 0, designHelp.stderr);
+  assert.match(JSON.stringify(designHelp.envelope.data), /design import/);
+  assert.match(JSON.stringify(designHelp.envelope.data), /nearest inherited dependency/);
+  assert.match(JSON.stringify(designHelp.envelope.data), /presentation graph/);
   for (const args of [
     ["unknown"],
     ["init", "--base-iri"],

@@ -766,6 +766,109 @@ export function editOntologyChoice(
     );
   return changed;
 }
+
+export function editDesignChoice(text: string, conceptIri: string, design?: string): string {
+  const before = parseManifest(text);
+  if (!absoluteIri(conceptIri))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Concept IRI must be absolute.",
+    );
+  if (design !== undefined) selector(design);
+  const choices = { ...((before.design_choices ?? {}) as Record<string, string>) };
+  if (design === undefined) delete choices[conceptIri];
+  else choices[conceptIri] = design;
+  const currentChoices = (before.design_choices ?? {}) as Record<string, string>;
+  if (isDeepStrictEqual(currentChoices, choices)) return text;
+
+  const lines = (text.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? []).filter(Boolean);
+  const content = (line: string) => line.replace(/(?:\r\n|\n|\r)$/, "");
+  const ending = (line: string) => line.slice(content(line).length);
+  const newline = text.includes("\r\n") ? "\r\n" : text.includes("\r") ? "\r" : "\n";
+  const header = /^\s*\[\s*(?:design_choices|"design_choices"|'design_choices')\s*\]\s*(?:#.*)?$/;
+  const start = lines.findIndex((line) => header.test(content(line)));
+  const stop =
+    start < 0
+      ? -1
+      : lines.findIndex((line, index) => index > start && /^\s*\[/.test(content(line)));
+  const end = stop < 0 ? lines.length : stop;
+  const keyFor = (line: string): string | undefined => {
+    const match = /^\s*(?:"((?:[^"\\]|\\.)*)"|'([^'\r\n]*)')\s*=/.exec(content(line));
+    if (!match) return undefined;
+    try {
+      return match[1] === undefined ? match[2] : JSON.parse(`"${match[1]}"`);
+    } catch {
+      return undefined;
+    }
+  };
+  const keyIndex =
+    start < 0
+      ? -1
+      : lines.findIndex(
+          (line, index) => index > start && index < end && keyFor(line) === conceptIri,
+        );
+  let changed: string;
+  if (start < 0) {
+    if (design === undefined) return text;
+    if (before.design_choices !== undefined)
+      throw new ProjectError(
+        "invalid",
+        "MANIFEST_INVALID",
+        "Cannot locate design_choices for a safe surgical edit.",
+        "tbspec.toml",
+      );
+    const separator = text.length && !/(?:\r\n|\r|\n)$/.test(text) ? newline : "";
+    changed = `${text}${separator}[design_choices]${newline}${JSON.stringify(conceptIri)} = ${JSON.stringify(design)}${newline}`;
+  } else if (keyIndex >= 0) {
+    const line = lines[keyIndex] ?? "";
+    const body = content(line);
+    if (design === undefined) {
+      const marker = trailingTomlComment(body);
+      lines.splice(
+        keyIndex,
+        1,
+        ...(marker >= 0
+          ? [`${body.slice(0, body.search(/\S|$/))}${body.slice(marker)}${ending(line)}`]
+          : []),
+      );
+    } else {
+      const assignment = /^(\s*(?:"(?:[^"\\]|\\.)*"|'[^'\r\n]*')\s*=\s*)(.*)$/.exec(body);
+      if (!assignment)
+        throw new ProjectError(
+          "invalid",
+          "MANIFEST_INVALID",
+          "Cannot locate the design choice assignment for a safe edit.",
+          "tbspec.toml",
+        );
+      const value = assignment[2] ?? "";
+      const marker = trailingTomlComment(value);
+      const suffix = marker >= 0 ? value.slice(marker) : (/[\t ]*$/.exec(value)?.[0] ?? "");
+      lines[keyIndex] = `${assignment[1]}${JSON.stringify(design)}${suffix}${ending(line)}`;
+    }
+    changed = lines.join("");
+  } else {
+    if (design === undefined) return text;
+    const block = lines.slice(start, end);
+    if (ending(block.at(-1) ?? "") === "") block[block.length - 1] = `${block.at(-1)}${newline}`;
+    block.push(`${JSON.stringify(conceptIri)} = ${JSON.stringify(design)}${newline}`);
+    changed = [...lines.slice(0, start), ...block, ...lines.slice(end)].join("");
+  }
+
+  const after = parseManifest(changed);
+  const expected = { ...before };
+  if (Object.keys(choices).length || before.design_choices !== undefined)
+    expected.design_choices = choices;
+  else delete expected.design_choices;
+  if (canonical(after) !== canonical(expected))
+    throw new ProjectError(
+      "invalid",
+      "MANIFEST_INVALID",
+      "Design-choice edit changed unrelated configuration; no write is permitted.",
+      "tbspec.toml",
+    );
+  return changed;
+}
 export function editBaseIri(text: string, baseIri: string): string {
   const before = parseManifest(text);
   if (!absoluteIri(baseIri) || !/[#/]$/.test(baseIri))

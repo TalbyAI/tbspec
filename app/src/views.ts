@@ -40,6 +40,7 @@ export interface ViewPosition {
   x: string;
   y: string;
 }
+export type ViewAppearancePatch = Record<string, unknown>;
 export interface SynchronizedStatementRemoval {
   file: string;
   statement: RdfjsQuad;
@@ -57,6 +58,8 @@ export interface ViewOptions {
   members?: string[];
   relationships?: ViewTuple[];
   positions?: ViewPosition[];
+  nodeAppearances?: ViewAppearancePatch[];
+  relationshipAppearances?: ViewAppearancePatch[];
   confirm?: boolean;
   acceptedPreview?: string;
 }
@@ -732,6 +735,273 @@ function updatePositions(
     );
 }
 
+const nodeAppearanceFields = new Set([
+  "nodeShape",
+  "fillColor",
+  "strokeColor",
+  "textColor",
+  "strokeWidth",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "fontStyle",
+  "lineStyle",
+  "labelMode",
+  "labelProperty",
+  "labelText",
+  "chosenRule",
+  "group",
+]);
+const relationshipAppearanceFields = new Set([
+  "strokeColor",
+  "textColor",
+  "strokeWidth",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "fontStyle",
+  "lineStyle",
+  "edgeRouting",
+  "arrowHead",
+  "labelMode",
+  "labelProperty",
+  "labelText",
+  "chosenRule",
+]);
+const appearanceEnums: Record<string, string[]> = {
+  nodeShape: ["rectangle", "rounded-rectangle", "ellipse", "diamond"],
+  fontFamily: ["system-ui", "sans-serif", "serif", "monospace"],
+  fontStyle: ["normal", "italic"],
+  lineStyle: ["solid", "dashed", "dotted"],
+  edgeRouting: ["straight", "bezier", "step"],
+  arrowHead: ["none", "arrow"],
+  labelMode: ["property", "local-name", "iri", "text", "none"],
+};
+const colorPattern = /^#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?$/;
+const numericPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+function appearanceTerm(field: string, value: unknown, file: string): Quad_Object | null {
+  if (value === null) return null;
+  if (field === "chosenRule" || field === "labelProperty") {
+    if (typeof value !== "string" || !absoluteIri(value))
+      throw new ProjectError(
+        "invalid_arguments",
+        "PRESENTATION_INVALID",
+        `${field} must be an absolute IRI.`,
+        file,
+      );
+    return namedNode(value);
+  }
+  if (field === "labelText" && value && typeof value === "object" && !Array.isArray(value)) {
+    const candidate = value as Record<string, unknown>;
+    if (
+      Object.keys(candidate).some((key) => !["value", "language"].includes(key)) ||
+      typeof candidate.value !== "string" ||
+      (candidate.language !== undefined && typeof candidate.language !== "string")
+    )
+      throw new ProjectError(
+        "invalid_arguments",
+        "PRESENTATION_INVALID",
+        "labelText requires a string value and optional language.",
+        file,
+      );
+    if (candidate.language !== undefined) {
+      try {
+        Intl.getCanonicalLocales(candidate.language);
+      } catch {
+        throw new ProjectError(
+          "invalid_arguments",
+          "PRESENTATION_INVALID",
+          "labelText language must be a valid language tag.",
+          file,
+        );
+      }
+      return literal(candidate.value, candidate.language);
+    }
+    return literal(candidate.value, namedNode(`${xsd}string`));
+  }
+  if (typeof value !== "string")
+    throw new ProjectError(
+      "invalid_arguments",
+      "PRESENTATION_INVALID",
+      `${field} must be a string or null.`,
+      file,
+    );
+  if (appearanceEnums[field] && !appearanceEnums[field]?.includes(value))
+    throw new ProjectError(
+      "invalid_arguments",
+      "PRESENTATION_INVALID",
+      `${field} has an unsupported value.`,
+      file,
+    );
+  if (["fillColor", "strokeColor", "textColor"].includes(field) && !colorPattern.test(value))
+    throw new ProjectError(
+      "invalid_arguments",
+      "PRESENTATION_INVALID",
+      `${field} must be a hexadecimal color.`,
+      file,
+    );
+  if (["strokeWidth", "fontSize", "fontWeight"].includes(field)) {
+    const numeric = Number(value);
+    const valid =
+      numericPattern.test(value) &&
+      Number.isFinite(numeric) &&
+      (field !== "fontWeight" || /^[+-]?\d+$/.test(value));
+    if (
+      !valid ||
+      (field === "strokeWidth" && numeric < 0) ||
+      (field === "fontSize" && numeric <= 0) ||
+      (field === "fontWeight" && ![100, 200, 300, 400, 500, 600, 700, 800, 900].includes(numeric))
+    )
+      throw new ProjectError(
+        "invalid_arguments",
+        "PRESENTATION_INVALID",
+        `${field} is outside its supported numeric range.`,
+        file,
+      );
+    return literal(value, namedNode(`${xsd}${field === "fontWeight" ? "integer" : "double"}`));
+  }
+  if (field === "group" && !value.trim())
+    throw new ProjectError(
+      "invalid_arguments",
+      "PRESENTATION_INVALID",
+      "group must be nonempty.",
+      file,
+    );
+  return literal(value, namedNode(`${xsd}string`));
+}
+
+function applyAppearancePatch(
+  store: Store,
+  record: Quad_Subject,
+  patch: ViewAppearancePatch,
+  allowed: Set<string>,
+  file: string,
+) {
+  for (const [field, value] of Object.entries(patch)) {
+    if (["element", "subject", "predicate", "object"].includes(field)) continue;
+    if (!allowed.has(field))
+      throw new ProjectError(
+        "invalid_arguments",
+        "PRESENTATION_INVALID",
+        `Appearance field ${field} is not supported here.`,
+        file,
+      );
+    const term = appearanceTerm(field, value, file);
+    for (const statement of store.getQuads(record, `${t}${field}`, null, null))
+      store.removeQuad(statement);
+    if (term) store.addQuad(record, namedNode(`${t}${field}`), term);
+  }
+}
+
+function updateNodeAppearances(
+  store: Store,
+  root: string,
+  members: Set<string>,
+  appearances: ViewAppearancePatch[] | undefined,
+  file: string,
+) {
+  const seen = new Set<string>();
+  for (const appearance of appearances ?? []) {
+    if (
+      !appearance ||
+      typeof appearance !== "object" ||
+      Array.isArray(appearance) ||
+      typeof appearance.element !== "string" ||
+      !absoluteIri(appearance.element) ||
+      !members.has(appearance.element) ||
+      seen.has(appearance.element)
+    )
+      throw new ProjectError(
+        "invalid_arguments",
+        "PRESENTATION_INVALID",
+        "Node appearance requires a unique selected element IRI.",
+        file,
+      );
+    seen.add(appearance.element);
+    const records = store
+      .getObjects(root, `${t}nodePresentation`, null)
+      .filter(
+        (value) =>
+          value.termType !== "Literal" &&
+          store
+            .getObjects(value as Quad_Subject, `${t}element`, null)
+            .some(
+              (element) => element.termType === "NamedNode" && element.value === appearance.element,
+            ),
+      );
+    if (records.length > 1)
+      viewFailure("Node has duplicate presentation records.", "PRESENTATION_INVALID", file);
+    const changes = Object.keys(appearance).some((key) => key !== "element");
+    if (!records.length && !changes) continue;
+    let record = records[0] as Quad_Subject | undefined;
+    if (!record) {
+      record = blankNode();
+      store.addQuad(namedNode(root), namedNode(`${t}nodePresentation`), record);
+      store.addQuad(record, namedNode(`${t}element`), namedNode(appearance.element));
+    }
+    applyAppearancePatch(store, record, appearance, nodeAppearanceFields, file);
+  }
+}
+
+function updateRelationshipAppearances(
+  store: Store,
+  root: string,
+  selected: Set<string>,
+  appearances: ViewAppearancePatch[] | undefined,
+  file: string,
+) {
+  const seen = new Set<string>();
+  for (const appearance of appearances ?? []) {
+    const tuple = {
+      subject: appearance?.subject,
+      predicate: appearance?.predicate,
+      object: appearance?.object,
+    };
+    const key = tupleKey(tuple as ViewTuple);
+    if (
+      !appearance ||
+      typeof appearance !== "object" ||
+      Array.isArray(appearance) ||
+      !absoluteIri(String(tuple.subject ?? "")) ||
+      !absoluteIri(String(tuple.predicate ?? "")) ||
+      !absoluteIri(String(tuple.object ?? "")) ||
+      !selected.has(key) ||
+      seen.has(key)
+    )
+      throw new ProjectError(
+        "invalid_arguments",
+        "PRESENTATION_INVALID",
+        "Relationship appearance must identify one selected exact tuple.",
+        file,
+      );
+    seen.add(key);
+    const records = store
+      .getObjects(root, `${t}relationshipPresentation`, null)
+      .filter(
+        (value) => value.termType !== "Literal" && tupleKey(tupleFrom(value, store, file)) === key,
+      );
+    if (records.length > 1)
+      viewFailure("Relationship has duplicate presentation records.", "PRESENTATION_INVALID", file);
+    const changes = Object.keys(appearance).some(
+      (field) => !["subject", "predicate", "object"].includes(field),
+    );
+    if (!records.length && !changes) continue;
+    let record = records[0] as Quad_Subject | undefined;
+    if (!record) {
+      addRecord(store, root, `${t}relationshipPresentation`, tuple as ViewTuple);
+      record = store
+        .getObjects(root, `${t}relationshipPresentation`, null)
+        .find(
+          (value) =>
+            value.termType !== "Literal" && tupleKey(tupleFrom(value, store, file)) === key,
+        ) as Quad_Subject | undefined;
+    }
+    if (!record) throw new Error("Relationship appearance record was not created.");
+    applyAppearancePatch(store, record, appearance, relationshipAppearanceFields, file);
+  }
+}
+
 function setRelationshipPresentation(
   store: Store,
   root: string,
@@ -867,7 +1137,21 @@ async function editView(options: ViewOptions): Promise<PreparedResource> {
     options.positions,
     presentationPath,
   );
+  updateNodeAppearances(
+    presentationStore,
+    presentationRoot,
+    requested,
+    options.nodeAppearances,
+    presentationPath,
+  );
   setRelationshipPresentation(presentationStore, presentationRoot, selectedKeys, presentationPath);
+  updateRelationshipAppearances(
+    presentationStore,
+    presentationRoot,
+    selectedKeys,
+    options.relationshipAppearances,
+    presentationPath,
+  );
   const viewBytes = await rdfBytes(viewStore);
   const presentationBytes = await rdfBytes(presentationStore);
   const proposed = {
@@ -906,6 +1190,8 @@ async function editView(options: ViewOptions): Promise<PreparedResource> {
       utf8Compare(tupleKey(left), tupleKey(right)),
     ),
     positions: options.positions,
+    nodeAppearances: options.nodeAppearances ?? [],
+    relationshipAppearances: options.relationshipAppearances ?? [],
     viewRevision: options.viewRevision,
     presentationRevision: options.presentationRevision,
   });
@@ -1164,8 +1450,14 @@ async function synchronizeViews(
       presentation.resource.file,
     ]),
   );
+  const isWinningDesignTie = (diagnostic: (typeof baseline.diagnostics)[number]) =>
+    diagnostic.code === "DESIGN_CONFLICT" &&
+    (diagnostic.details?.identity as { kind?: unknown } | undefined)?.kind === "collision";
   const broken = baseline.diagnostics.find(
-    (diagnostic) => candidateFiles.has(diagnostic.file ?? "") && diagnostic.severity === "error",
+    (diagnostic) =>
+      candidateFiles.has(diagnostic.file ?? "") &&
+      diagnostic.severity === "error" &&
+      !isWinningDesignTie(diagnostic),
   );
   if (broken)
     throw new ProjectError(

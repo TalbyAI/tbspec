@@ -153,6 +153,24 @@ section {
 .model-type button {
   font-size: 0.8rem;
 }
+.view-canvas {
+  height: 28rem;
+  margin: 1rem 0;
+  border: 1px solid #d9e0dc;
+  border-radius: 5px;
+  background: #fff;
+}
+.view-node-label {
+  display: grid;
+  gap: 0.25rem;
+  overflow-wrap: anywhere;
+}
+.view-node-label small {
+  opacity: 0.75;
+}
+.canvas-warnings {
+  color: #70440d;
+}
 .empty {
   padding: 4rem 1rem;
   text-align: center;

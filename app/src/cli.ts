@@ -18,6 +18,7 @@ import {
   dependencySupportSet,
   dependencyUpdate,
 } from "./dependencies.ts";
+import { listDesigns, showDesign } from "./designs.ts";
 import { guidance, help } from "./guidance.ts";
 import { type InspectionCommand, inspectProject } from "./inspection.ts";
 import { exits, failure, ok, ProjectError, type Result } from "./output.ts";
@@ -141,6 +142,7 @@ async function dispatch(): Promise<Result> {
       "impact",
       "resource",
       "view",
+      "design",
     ].includes(command)
   )
     throw new ProjectError(
@@ -156,12 +158,12 @@ async function dispatch(): Promise<Result> {
     );
   if (
     ["--iri", "--type", "--profile", "--schema"].some((flag) => options.has(flag)) &&
-    !["ontology", "model"].includes(command)
+    !["ontology", "model", "design"].includes(command)
   )
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "Resource options apply only to ontology/model authoring.",
+      "--iri applies only to ontology, model, or design authoring; model options apply only to models.",
     );
   if (
     (options.has("--port") || options.has("--background")) &&
@@ -456,6 +458,70 @@ async function dispatch(): Promise<Result> {
       "Use view list [--source <selector>]; view show <view-selector>; view create <path> --source <selector> [--protocol <selector>]; or view remove <view-selector> [--confirm --accepted-preview <digest>].",
     );
   }
+  if (command === "design") {
+    const action = positional[0];
+    const allowedOptions =
+      action === "create" || action === "import"
+        ? ["--iri", "--accepted-preview"]
+        : action === "remove"
+          ? ["--confirm", "--accepted-preview"]
+          : action === "select" || action === "clear"
+            ? ["--accepted-preview"]
+            : [];
+    const unsupported = [...options.keys()].filter(
+      (flag) => !["--project", "--json", "--help", ...allowedOptions].includes(flag),
+    );
+    if (unsupported.length)
+      throw new ProjectError(
+        "invalid_arguments",
+        "ARGUMENT_INVALID",
+        `Option ${unsupported[0]} does not apply to design ${action ?? "commands"}.`,
+      );
+    if (action === "list" && positional.length === 1 && !options.has("--iri"))
+      return listDesigns({ project: selectedProject });
+    if (action === "show" && positional.length === 2 && !options.has("--iri"))
+      return showDesign({ project: selectedProject, selector: positional[1] ?? "" });
+    if (action === "remove" && positional.length === 2)
+      return removeResource({
+        project: selectedProject,
+        kind: "design",
+        selector: positional[1] ?? "",
+        confirm: options.has("--confirm"),
+        acceptedPreview: value("--accepted-preview"),
+      });
+    if (action === "select" && positional.length === 3)
+      return authorResource({
+        project: selectedProject,
+        command: "design.select",
+        path: positional[1] ?? "",
+        source: positional[2],
+        acceptedPreview: value("--accepted-preview"),
+      });
+    if (action === "clear" && positional.length === 2)
+      return authorResource({
+        project: selectedProject,
+        command: "design.clear",
+        path: positional[1] ?? "",
+        acceptedPreview: value("--accepted-preview"),
+      });
+    if (
+      (action === "create" && positional.length === 2) ||
+      (action === "import" && positional.length === 3)
+    )
+      return authorResource({
+        project: selectedProject,
+        command: `design.${action}` as "design.create" | "design.import",
+        path: positional[action === "import" ? 2 : 1] ?? "",
+        ...(action === "import" ? { source: positional[1] } : {}),
+        iri: value("--iri"),
+        acceptedPreview: value("--accepted-preview"),
+      });
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "Use design list; design show <selector>; design create <path> [--iri <iri>]; design import <source-selector> <path> [--iri <new-iri>]; design remove <owned-path> [--confirm]; design select <concept-iri> <selector>; or design clear <concept-iri>.",
+    );
+  }
   const schemaOperation = command === "model" && positional[0] === "schema";
   if (
     schemaOperation &&
@@ -470,6 +536,8 @@ async function dispatch(): Promise<Result> {
     options.has("--accepted-preview") &&
     !(
       (command === "shapes" && positional[0] === "create") ||
+      (command === "design" &&
+        ["create", "import", "remove", "select", "clear"].includes(positional[0] ?? "")) ||
       ((command === "ontology" || command === "model") &&
         ["create", "import"].includes(positional[0] ?? "")) ||
       (schemaOperation && ["add", "remove"].includes(positional[1] ?? "")) ||
@@ -496,6 +564,7 @@ async function dispatch(): Promise<Result> {
       (command === "model" && positional[0] === "schema" && positional[1] === "remove") ||
       ((command === "ontology" || command === "model" || command === "shapes") &&
         positional[0] === "remove") ||
+      (command === "design" && positional[0] === "remove") ||
       (command === "view" && positional[0] === "remove") ||
       (command === "config" && positional[0] === "model-type" && positional[1] === "remove") ||
       (command === "query" && positional[0] === "remove")
@@ -709,12 +778,12 @@ async function dispatch(): Promise<Result> {
     const kind = positional[0];
     if (
       positional.length !== 2 ||
-      !["ontology", "model", "shapes", "model-type"].includes(kind ?? "")
+      !["ontology", "model", "design", "shapes", "model-type"].includes(kind ?? "")
     )
       throw new ProjectError(
         "invalid_arguments",
         "ARGUMENT_INVALID",
-        "Use impact <ontology|model|shapes|model-type> <exact-selector-or-name>.",
+        "Use impact <ontology|model|design|shapes|model-type> <exact-selector-or-name>.",
       );
     return inspectImpact({
       project: selectedProject,

@@ -70,9 +70,25 @@ export interface Validation extends Record<string, unknown> {
   validity: "valid" | "invalid";
   validationComplete: boolean;
   resources: { selector: string; state: "passed" | "failed" | "partial"; checks: Check[] }[];
+  effectivePresentation?: {
+    nodes: Record<string, { iri: string; appearance: Record<string, Row> }>;
+    relationships: Record<string, { iri: string; appearance: Record<string, Row> }>;
+  };
+  designRuleOptions?: {
+    nodes: Record<
+      string,
+      { iri: string; targetConcept: string; appearance: Record<string, Row> }[]
+    >;
+    relationships: Record<
+      string,
+      { iri: string; targetConcept: string; appearance: Record<string, Row> }[]
+    >;
+  };
 }
 export interface InspectionData extends Record<string, unknown> {
   resources?: Validation["resources"];
+  effectivePresentation?: Validation["effectivePresentation"];
+  designRuleOptions?: Validation["designRuleOptions"];
   items?: Resource[];
   resource?: Resource;
   sourceText?: string;

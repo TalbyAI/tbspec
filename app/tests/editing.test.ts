@@ -1009,6 +1009,74 @@ test("source relationship preparation refuses malformed or stale required views 
   }
 });
 
+test("source RDF edits remain available when a structurally valid view has a tied design rule", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-view-sync-design-tie-"));
+  await initializeProject({ directory: root });
+  const metadata = "https://talby.ai/ontology/tbspec#";
+  const owl = "http://www.w3.org/2002/07/owl#";
+  const sourcePath = join(root, "source.ttl");
+  const sourceText =
+    `<urn:source> a <${owl}Ontology> .\n` + `<urn:item> a <${owl}Class>; <urn:label> "Before" .\n`;
+  await writeFile(sourcePath, sourceText);
+  for (const name of ["one", "two"])
+    await writeFile(
+      join(root, `design-${name}.ttl`),
+      `<urn:design:${name}> a <${metadata}VisualDesignModel>; <${metadata}rule> <urn:rule:${name}> .\n` +
+        `<urn:rule:${name}> a <${metadata}NodeVisualRule>; <${metadata}targetConcept> <${owl}Class> .\n`,
+    );
+  await mkdir(join(root, "views"));
+  await writeFile(
+    join(root, "views/one.ttl"),
+    `<urn:view> a <${metadata}ViewModel>; <${metadata}sourceGraph> <urn:source>; <${metadata}member> <urn:item> .\n`,
+  );
+  await writeFile(
+    join(root, "views/one.presentation.ttl"),
+    `<urn:presentation> a <${metadata}PresentationGraph>; <${metadata}forView> <urn:view>; ` +
+      `<${metadata}nodePresentation> [ <${metadata}element> <urn:item>; <${metadata}x> 1; <${metadata}y> 2 ] .\n`,
+  );
+  await associateView(root, "views/one.ttl", "views/one.presentation.ttl", "source.ttl");
+
+  const editor = await showEditor({ project: root, selector: "source.ttl" });
+  assert.ok(editor.data);
+  assert.equal(editor.data.resource.ownership, "project");
+  assert.equal(editor.data.resource.file, "source.ttl");
+  assert.ok(editor.diagnostics.some((diagnostic) => diagnostic.code === "DESIGN_CONFLICT"));
+  const label = editor.data.triples.find(
+    (triple) => triple.subject.value === "urn:item" && triple.object.value === "Before",
+  );
+  assert.ok(label);
+  const viewPath = join(root, "views/one.ttl");
+  const presentationPath = join(root, "views/one.presentation.ttl");
+  const originalView = await readFile(viewPath);
+  const originalPresentation = await readFile(presentationPath);
+  const saved = await editGraph({
+    project: root,
+    selector: "source.ttl",
+    revision: editor.data.resource.revision,
+    edits: [
+      {
+        action: "replace",
+        before: label,
+        after: { ...label, object: { ...label.object, value: "After" } },
+      },
+    ],
+  });
+
+  assert.equal(saved.status, "ok", JSON.stringify(saved));
+  assert.ok(
+    saved.diagnostics.some(
+      (diagnostic) => diagnostic.code === "DESIGN_CONFLICT" && diagnostic.severity === "error",
+    ),
+    "the winning-rule tie remains an error diagnostic while unrelated RDF edits stay available",
+  );
+  assert.ok((await readFile(sourcePath, "utf8")).includes('"After"'));
+  assert.deepEqual(await readFile(viewPath), originalView);
+  assert.deepEqual(await readFile(presentationPath), originalPresentation);
+  const view = await showView({ project: root, selector: "views/one.ttl" });
+  assert.ok(view.data, JSON.stringify(view));
+  assert.deepEqual(view.data.members, ["urn:item"]);
+});
+
 test("raw Turtle edits leave view files byte-identical and report broken selections", async () => {
   const root = await mkdtemp(join(tmpdir(), "tb-view-raw-"));
   await initializeProject({ directory: root, baseIri: "urn:view-raw:/" });

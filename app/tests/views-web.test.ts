@@ -77,6 +77,34 @@ test("authenticated views keep independent membership and presentation and inclu
   );
 
   const one = (await call("view?selector=views/one.ttl")).envelope.data;
+  const sourceBytesBeforeAppearanceEdit = await readFile(join(root, "source.ttl"));
+  const rejectedAppearance = await call("view/edit", {
+    selector: "views/one.ttl",
+    viewRevision: one.resource.revision,
+    presentationRevision: one.presentation.resource.revision,
+    members: ["urn:a", "urn:b"],
+    relationships: [],
+    nodeAppearances: [{ element: "urn:a", backgroundImage: "url(https://example.test/x)" }],
+  });
+  assert.equal(rejectedAppearance.status, 400, JSON.stringify(rejectedAppearance));
+  const rejectedNumber = await call("view/edit", {
+    selector: "views/one.ttl",
+    viewRevision: one.resource.revision,
+    presentationRevision: one.presentation.resource.revision,
+    members: ["urn:a", "urn:b"],
+    relationships: [],
+    nodeAppearances: [{ element: "urn:a", fontSize: 15.5 }],
+  });
+  assert.equal(rejectedNumber.status, 400, JSON.stringify(rejectedNumber));
+  const rejectedFractionalWeight = await call("view/edit", {
+    selector: "views/one.ttl",
+    viewRevision: one.resource.revision,
+    presentationRevision: one.presentation.resource.revision,
+    members: ["urn:a", "urn:b"],
+    relationships: [],
+    nodeAppearances: [{ element: "urn:a", fontWeight: "500.5" }],
+  });
+  assert.equal(rejectedFractionalWeight.status, 400, JSON.stringify(rejectedFractionalWeight));
   const selected = await apply("view/edit", {
     selector: "views/one.ttl",
     viewRevision: one.resource.revision,
@@ -86,6 +114,24 @@ test("authenticated views keep independent membership and presentation and inclu
     positions: [
       { element: "urn:a", x: "-1.5", y: "2.25" },
       { element: "urn:b", x: "8", y: "9" },
+    ],
+    nodeAppearances: [
+      {
+        element: "urn:a",
+        fillColor: "#abcdef80",
+        group: "Primary",
+        fontSize: "15.5",
+        fontWeight: "500",
+      },
+    ],
+    relationshipAppearances: [
+      {
+        subject: "urn:a",
+        predicate: "urn:p",
+        object: "urn:a",
+        strokeWidth: "2.5",
+        edgeRouting: "straight",
+      },
     ],
   });
   assert.equal(selected.envelope.status, "ok", JSON.stringify(selected));
@@ -113,6 +159,63 @@ test("authenticated views keep independent membership and presentation and inclu
       (triple: { object: { value: string } }) => triple.object.value === "2.25",
     ),
   );
+  assert.ok(
+    oneAfter.presentation.triples.some(
+      (triple: { predicate: { value: string }; object: { value: string } }) =>
+        triple.predicate.value === `${metadata}fillColor` && triple.object.value === "#abcdef80",
+    ),
+  );
+  assert.ok(
+    oneAfter.presentation.triples.some(
+      (triple: { predicate: { value: string }; object: { value: string } }) =>
+        triple.predicate.value === `${metadata}group` && triple.object.value === "Primary",
+    ),
+  );
+  assert.ok(
+    oneAfter.presentation.triples.some(
+      (triple: { predicate: { value: string }; object: { value: string } }) =>
+        triple.predicate.value === `${metadata}fontSize` && triple.object.value === "15.5",
+    ),
+  );
+  assert.ok(
+    oneAfter.presentation.triples.some(
+      (triple: { predicate: { value: string }; object: { value: string } }) =>
+        triple.predicate.value === `${metadata}fontWeight` && triple.object.value === "500",
+    ),
+  );
+  assert.ok(
+    oneAfter.presentation.triples.some(
+      (triple: { predicate: { value: string }; object: { value: string } }) =>
+        triple.predicate.value === `${metadata}strokeWidth` && triple.object.value === "2.5",
+    ),
+  );
+  assert.ok(
+    oneAfter.presentation.triples.some(
+      (triple: { predicate: { value: string }; object: { value: string } }) =>
+        triple.predicate.value === `${metadata}edgeRouting` && triple.object.value === "straight",
+    ),
+  );
+  assert.deepEqual(await readFile(join(root, "source.ttl")), sourceBytesBeforeAppearanceEdit);
+  const staleWrite = await call("view/edit", {
+    selector: "views/one.ttl",
+    viewRevision: one.resource.revision,
+    presentationRevision: one.presentation.resource.revision,
+    members: ["urn:a", "urn:b"],
+    relationships: [{ subject: "urn:a", predicate: "urn:p", object: "urn:a" }],
+    positions: [
+      { element: "urn:a", x: "-1.5", y: "2.25" },
+      { element: "urn:b", x: "8", y: "9" },
+    ],
+    nodeAppearances: [{ element: "urn:a", fillColor: "#ff0000" }],
+  });
+  assert.equal(staleWrite.status, 409, JSON.stringify(staleWrite));
+  const afterStaleWrite = (await call("view?selector=views/one.ttl")).envelope.data;
+  assert.ok(
+    afterStaleWrite.presentation.triples.some(
+      (triple: { predicate: { value: string }; object: { value: string } }) =>
+        triple.predicate.value === `${metadata}fillColor` && triple.object.value === "#abcdef80",
+    ),
+  );
   const two = (await call("view?selector=views/two.ttl")).envelope.data;
   const secondSelection = await apply("view/edit", {
     selector: "views/two.ttl",
@@ -121,6 +224,7 @@ test("authenticated views keep independent membership and presentation and inclu
     members: ["urn:b", "urn:c"],
     relationships: [{ subject: "urn:b", predicate: "urn:q", object: "urn:c" }],
     positions: [{ element: "urn:b", x: "7.5", y: "-8.25" }],
+    nodeAppearances: [{ element: "urn:b", fillColor: "#ffccaa" }],
   });
   assert.equal(secondSelection.envelope.status, "ok", JSON.stringify(secondSelection));
   const oneCurrent = (await call("view?selector=views/one.ttl")).envelope.data;
@@ -151,6 +255,19 @@ test("authenticated views keep independent membership and presentation and inclu
     twoAfter.presentation.triples.some(
       (triple: { object: { value: string } }) => triple.object.value === "-8.25",
     ),
+  );
+  assert.ok(
+    twoAfter.presentation.triples.some(
+      (triple: { predicate: { value: string }; object: { value: string } }) =>
+        triple.predicate.value === `${metadata}fillColor` && triple.object.value === "#ffccaa",
+    ),
+  );
+  assert.equal(
+    (await call("view?selector=views/one.ttl")).envelope.data.presentation.triples.some(
+      (triple: { predicate: { value: string }; object: { value: string } }) =>
+        triple.predicate.value === `${metadata}fillColor` && triple.object.value === "#abcdef80",
+    ),
+    true,
   );
 
   const lockedGraph = await call("graph?selector=dep%3Atbspec-state-machine");
