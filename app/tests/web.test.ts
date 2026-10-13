@@ -672,11 +672,11 @@ test("a failed inspection worker recovers without restarting sessions or clearin
     import { startWebServer } from ${JSON.stringify(new URL("../src/server.ts", import.meta.url).href)};
     import { controlRequest } from ${JSON.stringify(new URL("../src/web.ts", import.meta.url).href)};
     const OriginalWorker = threads.Worker;
-    let first = true;
+    let injectedInspectionFailure = false;
     threads.Worker = class extends OriginalWorker {
       constructor(...args) {
-        if (first) {
-          first = false;
+        if (String(args[0]).includes("/inspection-worker.") && !injectedInspectionFailure) {
+          injectedInspectionFailure = true;
           super('const { parentPort } = require("node:worker_threads"); parentPort.postMessage({ready: true}); parentPort.on("message", () => { throw new Error("Inspection failure"); });', { eval: true, execArgv: [] });
         } else super(args[0], { ...args[1], execArgv: [] });
       }
@@ -701,6 +701,7 @@ test("a failed inspection worker recovers without restarting sessions or clearin
       await writeFile(join(staging, "staged-0"), "abandoned preview");
       const inspect = async () => (await fetch(new URL("api/project/v1/config", server.record.baseUrl), { headers })).json();
       assert.equal((await inspect()).status, "unavailable");
+      assert.equal(injectedInspectionFailure, true);
       assert.equal((await controlRequest(server.record, "status")).state, "running");
       const lock = join(root, ".tbspec/operation.lock");
       await writeFile(lock, "retained ownership");

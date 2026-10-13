@@ -53,6 +53,7 @@ export interface ViewOptions {
   selector?: string;
   source?: string;
   protocol?: string;
+  sourceRevision?: Revision;
   viewRevision?: Revision;
   presentationRevision?: Revision;
   members?: string[];
@@ -75,6 +76,7 @@ interface ViewWorkspace {
 interface ViewData extends Record<string, unknown> {
   resource: Resource;
   source: string;
+  sourceRevision: Revision;
   members: string[];
   relationships: ViewTuple[];
   presentation: { selector: string; resource: Resource; triples: InspectionData["triples"] };
@@ -341,6 +343,7 @@ async function showViewFrom(
   const data: ViewData = {
     resource: view.resource,
     source: sourceSelector,
+    sourceRevision: source.resource.revision,
     members,
     relationships: relationships(view.store, view.resource.graphIri, path),
     presentation: {
@@ -579,7 +582,7 @@ function assertRevision(value: unknown, expected: Revision, file: string) {
     throw new ProjectError(
       "conflict",
       "REVISION_CONFLICT",
-      "View or presentation changed. Review current selections.",
+      "Source, view, or presentation changed. Review current selections.",
       file,
     );
 }
@@ -1037,6 +1040,7 @@ async function editView(options: ViewOptions): Promise<PreparedResource> {
     String(shown.data.presentation.resource.file),
   );
   const source = await graphAt(current, shown.data.source);
+  assertRevision(options.sourceRevision, source.resource.revision, String(source.resource.file));
   const sourceStore = source.store;
   const viewStore = (await graphAt(current, path)).store;
   const presentationPath = String(shown.data.presentation.resource.selector);
@@ -1088,6 +1092,7 @@ async function editView(options: ViewOptions): Promise<PreparedResource> {
     (tuple) => !removedMembers.has(tuple.subject) && !removedMembers.has(tuple.object),
   );
   const selectedKeys = new Set(selected.map(tupleKey));
+  const currentRelationshipKeys = new Set(shown.data.relationships.map(tupleKey));
   const priorMembers = new Set(currentMembers);
   for (const member of options.members)
     if (!currentMembers.has(member)) {
@@ -1152,7 +1157,12 @@ async function editView(options: ViewOptions): Promise<PreparedResource> {
     options.relationshipAppearances,
     presentationPath,
   );
-  const viewBytes = await rdfBytes(viewStore);
+  const unchangedSelection =
+    currentMembers.size === requested.size &&
+    [...currentMembers].every((member) => requested.has(member)) &&
+    currentRelationshipKeys.size === selectedKeys.size &&
+    [...currentRelationshipKeys].every((relationship) => selectedKeys.has(relationship));
+  const viewBytes = unchangedSelection ? beforeViews : await rdfBytes(viewStore);
   const presentationBytes = await rdfBytes(presentationStore);
   const proposed = {
     ...current.snapshot,
@@ -1180,7 +1190,7 @@ async function editView(options: ViewOptions): Promise<PreparedResource> {
     );
   }
   const writes = [
-    { file: path, bytes: viewBytes },
+    ...(unchangedSelection ? [] : [{ file: path, bytes: viewBytes }]),
     { file: String(shown.data.presentation.resource.file), bytes: presentationBytes },
   ];
   const plan = preparePlan(current.snapshot, "view.edit", writes, {
@@ -1194,6 +1204,7 @@ async function editView(options: ViewOptions): Promise<PreparedResource> {
     relationshipAppearances: options.relationshipAppearances ?? [],
     viewRevision: options.viewRevision,
     presentationRevision: options.presentationRevision,
+    sourceRevision: options.sourceRevision,
   });
   return {
     root: current.root,

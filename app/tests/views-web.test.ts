@@ -80,6 +80,7 @@ test("authenticated views keep independent membership and presentation and inclu
   const sourceBytesBeforeAppearanceEdit = await readFile(join(root, "source.ttl"));
   const rejectedAppearance = await call("view/edit", {
     selector: "views/one.ttl",
+    sourceRevision: one.sourceRevision,
     viewRevision: one.resource.revision,
     presentationRevision: one.presentation.resource.revision,
     members: ["urn:a", "urn:b"],
@@ -89,6 +90,7 @@ test("authenticated views keep independent membership and presentation and inclu
   assert.equal(rejectedAppearance.status, 400, JSON.stringify(rejectedAppearance));
   const rejectedNumber = await call("view/edit", {
     selector: "views/one.ttl",
+    sourceRevision: one.sourceRevision,
     viewRevision: one.resource.revision,
     presentationRevision: one.presentation.resource.revision,
     members: ["urn:a", "urn:b"],
@@ -98,6 +100,7 @@ test("authenticated views keep independent membership and presentation and inclu
   assert.equal(rejectedNumber.status, 400, JSON.stringify(rejectedNumber));
   const rejectedFractionalWeight = await call("view/edit", {
     selector: "views/one.ttl",
+    sourceRevision: one.sourceRevision,
     viewRevision: one.resource.revision,
     presentationRevision: one.presentation.resource.revision,
     members: ["urn:a", "urn:b"],
@@ -107,6 +110,7 @@ test("authenticated views keep independent membership and presentation and inclu
   assert.equal(rejectedFractionalWeight.status, 400, JSON.stringify(rejectedFractionalWeight));
   const selected = await apply("view/edit", {
     selector: "views/one.ttl",
+    sourceRevision: one.sourceRevision,
     viewRevision: one.resource.revision,
     presentationRevision: one.presentation.resource.revision,
     members: ["urn:a", "urn:b"],
@@ -198,6 +202,7 @@ test("authenticated views keep independent membership and presentation and inclu
   assert.deepEqual(await readFile(join(root, "source.ttl")), sourceBytesBeforeAppearanceEdit);
   const staleWrite = await call("view/edit", {
     selector: "views/one.ttl",
+    sourceRevision: one.sourceRevision,
     viewRevision: one.resource.revision,
     presentationRevision: one.presentation.resource.revision,
     members: ["urn:a", "urn:b"],
@@ -219,6 +224,7 @@ test("authenticated views keep independent membership and presentation and inclu
   const two = (await call("view?selector=views/two.ttl")).envelope.data;
   const secondSelection = await apply("view/edit", {
     selector: "views/two.ttl",
+    sourceRevision: two.sourceRevision,
     viewRevision: two.resource.revision,
     presentationRevision: two.presentation.resource.revision,
     members: ["urn:b", "urn:c"],
@@ -230,6 +236,7 @@ test("authenticated views keep independent membership and presentation and inclu
   const oneCurrent = (await call("view?selector=views/one.ttl")).envelope.data;
   const removeLocalMember = await apply("view/edit", {
     selector: "views/one.ttl",
+    sourceRevision: oneCurrent.sourceRevision,
     viewRevision: oneCurrent.resource.revision,
     presentationRevision: oneCurrent.presentation.resource.revision,
     members: ["urn:a"],
@@ -286,6 +293,7 @@ test("authenticated views keep independent membership and presentation and inclu
   const lockedView = (await call("view?selector=views/locked.ttl")).envelope.data;
   const lockedEdited = await apply("view/edit", {
     selector: "views/locked.ttl",
+    sourceRevision: lockedView.sourceRevision,
     viewRevision: lockedView.resource.revision,
     presentationRevision: lockedView.presentation.resource.revision,
     members: [lockedMember],

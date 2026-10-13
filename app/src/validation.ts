@@ -176,6 +176,21 @@ export async function validateInspection(input: {
     );
     validation.resources = validation.resources.filter((row) => selection.has(row.selector));
   }
+  const diagnosticIdentityKey = (selector: string, code: string, identity: unknown) =>
+    JSON.stringify([selector, code, identity]);
+  const knownDiagnosticIdentities = new Set(
+    diagnostics.flatMap((diagnostic) =>
+      diagnostic.selector === undefined
+        ? []
+        : [
+            diagnosticIdentityKey(
+              diagnostic.selector,
+              diagnostic.code,
+              diagnostic.details?.identity,
+            ),
+          ],
+    ),
+  );
   function rowFor(resource: Resource) {
     let row = rows.get(resource.selector);
     if (!row) {
@@ -192,17 +207,20 @@ export async function validateInspection(input: {
     message: string,
     identity: Row = { kind: "file" },
   ) {
+    const identityKey = diagnosticIdentityKey(resource.selector, code, identity);
     if (
       ["file", "setting", "association", "collision"].includes(String(identity.kind)) &&
+      knownDiagnosticIdentities.has(identityKey) &&
       diagnostics.some(
-        (d) =>
-          d.selector === resource.selector &&
-          d.code === code &&
-          d.check?.kind === kind &&
-          JSON.stringify(d.details?.identity) === JSON.stringify(identity),
+        (diagnostic) =>
+          diagnostic.selector === resource.selector &&
+          diagnostic.code === code &&
+          diagnostic.check?.kind === kind &&
+          JSON.stringify(diagnostic.details?.identity) === JSON.stringify(identity),
       )
     )
       return;
+    knownDiagnosticIdentities.add(identityKey);
     diagnostics.push({
       code,
       severity: "error",
@@ -216,15 +234,9 @@ export async function validateInspection(input: {
       if (existing.kind === kind && existing.state === "passed") existing.state = "failed";
   }
   function warn(resource: Resource, code: string, message: string, identity: Row) {
-    if (
-      diagnostics.some(
-        (diagnostic) =>
-          diagnostic.selector === resource.selector &&
-          diagnostic.code === code &&
-          JSON.stringify(diagnostic.details?.identity) === JSON.stringify(identity),
-      )
-    )
-      return;
+    const identityKey = diagnosticIdentityKey(resource.selector, code, identity);
+    if (knownDiagnosticIdentities.has(identityKey)) return;
+    knownDiagnosticIdentities.add(identityKey);
     diagnostics.push({
       code,
       severity: "warning",

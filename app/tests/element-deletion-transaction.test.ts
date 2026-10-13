@@ -53,6 +53,7 @@ test("element deletion restores source, view and presentation bytes when coupled
     project: root,
     action: "edit",
     selector: "views/main.ttl",
+    sourceRevision: view.data.sourceRevision,
     viewRevision: view.data.resource.revision,
     presentationRevision: view.data.presentation.resource.revision,
     members: ["urn:deleted", "urn:keep"],

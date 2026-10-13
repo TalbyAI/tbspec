@@ -234,6 +234,7 @@ test("deletion impact distinguishes synchronized own-source views from unchanged
   const own = (await call("view?selector=views/own-source.ttl")).result.data;
   const ownEdited = await apply("view/edit", {
     selector: "views/own-source.ttl",
+    sourceRevision: own.sourceRevision,
     viewRevision: own.resource.revision,
     presentationRevision: own.presentation.resource.revision,
     members: [target, "urn:keep"],
@@ -248,6 +249,7 @@ test("deletion impact distinguishes synchronized own-source views from unchanged
   const other = (await call("view?selector=views/other-source.ttl")).result.data;
   const otherEdited = await apply("view/edit", {
     selector: "views/other-source.ttl",
+    sourceRevision: other.sourceRevision,
     viewRevision: other.resource.revision,
     presentationRevision: other.presentation.resource.revision,
     members: [target, "urn:other-value"],
@@ -427,6 +429,7 @@ test("deletion synchronizes every source view and preserves unrelated membership
   const first = (await call("view?selector=views/first.ttl")).result.data;
   const firstSelected = await apply("view/edit", {
     selector: "views/first.ttl",
+    sourceRevision: first.sourceRevision,
     viewRevision: first.resource.revision,
     presentationRevision: first.presentation.resource.revision,
     members: ["urn:deleted", "urn:keep", "urn:other"],
@@ -446,6 +449,7 @@ test("deletion synchronizes every source view and preserves unrelated membership
   const second = (await call("view?selector=views/second.ttl")).result.data;
   const secondSelected = await apply("view/edit", {
     selector: "views/second.ttl",
+    sourceRevision: second.sourceRevision,
     viewRevision: second.resource.revision,
     presentationRevision: second.presentation.resource.revision,
     members: ["urn:deleted", "urn:keep"],

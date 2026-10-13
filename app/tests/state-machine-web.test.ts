@@ -196,6 +196,7 @@ test("authenticated state-machine form operations create exact local transitions
   const emptyView = (await call("view?selector=views/state.ttl")).envelope.data;
   const selectedView = await applyPreview("view/edit", {
     selector: "views/state.ttl",
+    sourceRevision: emptyView.sourceRevision,
     viewRevision: emptyView.resource.revision,
     presentationRevision: emptyView.presentation.resource.revision,
     members: [transition, initial],

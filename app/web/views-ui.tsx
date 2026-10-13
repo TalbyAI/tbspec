@@ -1,6 +1,18 @@
-import { Background, Controls, type Edge, MarkerType, type Node, ReactFlow } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  applyNodeChanges,
+  Background,
+  Controls,
+  type Edge,
+  MarkerType,
+  type Node,
+  type NodeChange,
+  ReactFlow,
+} from "@xyflow/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CanvasLayoutBridge, type LayoutRequest } from "./canvas-layout.tsx";
 import type { CanvasDesignChoices } from "./editor.tsx";
+import type { PositionMap } from "./layout.ts";
+import { usablePosition } from "./layout.ts";
 import { loadViewsWorkspace } from "./views-workspace.ts";
 
 interface Term {
@@ -27,6 +39,7 @@ interface ViewTuple {
 interface ViewData {
   resource: { selector: string; graphIri: string | null; revision: Revision };
   source: string;
+  sourceRevision: Revision;
   members: string[];
   relationships: ViewTuple[];
   presentation: {
@@ -68,6 +81,15 @@ interface Pending {
   accept: string[];
   route: string;
   preview: { changes: { file: string; action: string }[] };
+}
+interface ViewLayoutBackup {
+  positions: PositionMap;
+  members: string[];
+  relationships: ViewTuple[];
+}
+interface CanvasMeasurement {
+  width: number;
+  height: number;
 }
 const metadata = "https://talby.ai/ontology/tbspec#";
 const rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
@@ -219,12 +241,35 @@ export function ViewsPanel({
   const [members, setMembers] = useState<string[]>([]);
   const [relationships, setRelationships] = useState<ViewTuple[]>([]);
   const [positions, setPositions] = useState<Record<string, { x: string; y: string }>>({});
+  const [layoutRequest, setLayoutRequest] = useState<LayoutRequest>({
+    id: 0,
+    active: false,
+    mode: "missing",
+  });
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const [canvasMeasurements, setCanvasMeasurements] = useState<Record<string, CanvasMeasurement>>(
+    {},
+  );
+  const [layoutMessage, setLayoutMessage] = useState("");
+  const [layoutDuration, setLayoutDuration] = useState<number>();
+  const [layoutBackup, setLayoutBackup] = useState<ViewLayoutBackup>();
+  const [layoutPreviewReady, setLayoutPreviewReady] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [explorationTarget, setExplorationTarget] = useState<string>();
+  const [focusRequest, setFocusRequest] = useState<{ id: string; sequence: number }>();
+  const pendingMissing = useRef("");
   const [nodeAppearanceEdits, setNodeAppearanceEdits] = useState<
     Record<string, Record<string, AppearanceValue | null>>
   >({});
+  const [expandedNodeAppearance, setExpandedNodeAppearance] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [relationshipAppearanceEdits, setRelationshipAppearanceEdits] = useState<
     Record<string, Record<string, AppearanceValue | null>>
   >({});
+  const [expandedRelationshipAppearance, setExpandedRelationshipAppearance] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [nodeAppearances, setNodeAppearances] = useState<
     Record<string, Record<string, AppearanceValue>>
   >({});
@@ -261,6 +306,7 @@ export function ViewsPanel({
   const [pending, setPending] = useState<Pending>();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [layoutReady, setLayoutReady] = useState(false);
 
   const call = useCallback(
     async (route: string, body?: Record<string, unknown>) => {
@@ -292,6 +338,18 @@ export function ViewsPanel({
 
   const show = useCallback(
     async (selector: string) => {
+      pendingMissing.current = "";
+      setLayoutReady(false);
+      setLayoutRequest((current) => ({ ...current, active: false }));
+      setLayoutBusy(false);
+      setLayoutBackup(undefined);
+      setLayoutPreviewReady(false);
+      setLayoutMessage("");
+      setSearchText("");
+      setExplorationTarget(undefined);
+      setFocusRequest(undefined);
+      setExpandedNodeAppearance(new Set());
+      setExpandedRelationshipAppearance(new Set());
       const result = await call(`view?selector=${encodeURIComponent(selector)}`);
       const selectedView = result.data as unknown as ViewData;
       setSelected(selector);
@@ -538,6 +596,7 @@ export function ViewsPanel({
           problem instanceof Error ? problem.message : "Design rules could not be resolved.",
         ]);
       }
+      setLayoutReady(true);
     },
     [call, temporaryChoicesBySource],
   );
@@ -587,7 +646,89 @@ export function ViewsPanel({
       }),
     [sourceTriples],
   );
-  const canvasNodes = useMemo<Node[]>(
+  const neighborMembers = useMemo(() => {
+    if (!explorationTarget) return new Set<string>();
+    const neighbors = new Set<string>();
+    for (const tuple of relationships) {
+      if (tuple.subject === explorationTarget) neighbors.add(tuple.object);
+      if (tuple.object === explorationTarget) neighbors.add(tuple.subject);
+    }
+    return neighbors;
+  }, [explorationTarget, relationships]);
+  const memberLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const member of members) {
+      const local = applyLocalEdits(nodeAppearances[member], nodeAppearanceEdits[member]);
+      const selectedRule = displayAppearance(local.chosenRule);
+      const rule = selectedRule
+        ? (nodeRuleOptions[member]?.find((candidate) => candidate.iri === selectedRule) ??
+          effectiveNodeRules[member])
+        : effectiveNodeRules[member];
+      const fields = appearanceFields(rule, local);
+      const mode = enumValue(fields.labelMode, appearanceOptions.labelMode ?? []) ?? "property";
+      const ruleMode = termAppearance(rule?.appearance ?? {}, "labelMode");
+      const modeChanged =
+        local.labelMode !== undefined &&
+        displayAppearance(local.labelMode) !== String(ruleMode ?? "property");
+      const explicitText = local.labelText ?? (modeChanged ? undefined : fields.labelText);
+      const labelProperty = local.labelProperty ?? (modeChanged ? undefined : fields.labelProperty);
+      const label =
+        mode === "none"
+          ? ""
+          : mode === "iri"
+            ? member
+            : mode === "local-name"
+              ? localName(member)
+              : mode === "text"
+                ? displayAppearance(explicitText)
+                : (sourceTriples
+                    .filter(
+                      (triple) =>
+                        triple.subject.value === member &&
+                        triple.predicate.value ===
+                          (displayAppearance(labelProperty) || rdfsLabel) &&
+                        triple.object.kind === "literal",
+                    )
+                    .sort((left, right) => {
+                      const preferences = navigator.languages ?? [navigator.language];
+                      const leftRank = languageRank(left.object.language, preferences);
+                      const rightRank = languageRank(right.object.language, preferences);
+                      return leftRank - rightRank || compareLiteralTerms(left.object, right.object);
+                    })[0]?.object.value ?? localName(member));
+      labels.set(member, label);
+    }
+    return labels;
+  }, [
+    effectiveNodeRules,
+    members,
+    nodeAppearanceEdits,
+    nodeAppearances,
+    nodeRuleOptions,
+    sourceTriples,
+  ]);
+  const searchMatches = useMemo(() => {
+    const needle = searchText.trim().toLowerCase();
+    if (!needle) return [];
+    return members
+      .filter(
+        (member) =>
+          member.toLowerCase().includes(needle) ||
+          (memberLabels.get(member) ?? "").toLowerCase().includes(needle),
+      )
+      .slice(0, 30);
+  }, [memberLabels, members, searchText]);
+  const membershipUnchanged = useMemo(() => {
+    if (!view) return false;
+    const savedMembers = [...view.members].sort(compareText);
+    const currentMembers = [...members].sort(compareText);
+    const savedRelationships = view.relationships.map(tupleKey).sort(compareText);
+    const currentRelationships = relationships.map(tupleKey).sort(compareText);
+    return (
+      JSON.stringify(savedMembers) === JSON.stringify(currentMembers) &&
+      JSON.stringify(savedRelationships) === JSON.stringify(currentRelationships)
+    );
+  }, [members, relationships, view]);
+  const baseCanvasNodes = useMemo<Node[]>(
     () =>
       members.map((member, index) => {
         const local = applyLocalEdits(nodeAppearances[member], nodeAppearanceEdits[member]);
@@ -600,51 +741,15 @@ export function ViewsPanel({
         const rawPosition = positions[member];
         const x = Number(rawPosition?.x);
         const y = Number(rawPosition?.y);
-        const position =
-          rawPosition && Number.isFinite(x) && Number.isFinite(y)
-            ? { x, y }
-            : { x: (index % 4) * 220, y: Math.floor(index / 4) * 145 };
+        const position = usablePosition(rawPosition)
+          ? { x, y }
+          : { x: (index % 4) * 220, y: Math.floor(index / 4) * 145 };
         const fill = colorValue(fields.fillColor, "#ffffff");
         const stroke = colorValue(fields.strokeColor, "#526477");
         const color = colorValue(fields.textColor, "#172536");
         const shape =
           enumValue(fields.nodeShape, appearanceOptions.nodeShape ?? []) ?? "rounded-rectangle";
-        const mode = enumValue(fields.labelMode, appearanceOptions.labelMode ?? []) ?? "property";
-        const ruleMode = termAppearance(rule?.appearance ?? {}, "labelMode");
-        const localMode = local.labelMode;
-        const modeChanged =
-          localMode !== undefined &&
-          displayAppearance(localMode) !== String(ruleMode ?? "property");
-        const explicitText = local.labelText ?? (modeChanged ? undefined : fields.labelText);
-        const labelProperty =
-          local.labelProperty ?? (modeChanged ? undefined : fields.labelProperty);
-        const text =
-          mode === "none"
-            ? ""
-            : mode === "iri"
-              ? member
-              : mode === "local-name"
-                ? localName(member)
-                : mode === "text"
-                  ? displayAppearance(explicitText)
-                  : (sourceTriples
-                      .filter(
-                        (triple) =>
-                          triple.subject.value === member &&
-                          triple.predicate.value ===
-                            (displayAppearance(labelProperty) || rdfsLabel) &&
-                          triple.object.kind === "literal",
-                      )
-                      .sort((left, right) => {
-                        const leftLang = left.object.language;
-                        const rightLang = right.object.language;
-                        const preferred = navigator.languages ?? [navigator.language];
-                        const leftRank = languageRank(leftLang, preferred);
-                        const rightRank = languageRank(rightLang, preferred);
-                        return (
-                          leftRank - rightRank || compareLiteralTerms(left.object, right.object)
-                        );
-                      })[0]?.object.value ?? localName(member));
+        const text = memberLabels.get(member) ?? localName(member);
         const group = displayAppearance(local.group);
         const style: Node["style"] = {
           backgroundColor: fill,
@@ -661,6 +766,11 @@ export function ViewsPanel({
           fontStyle: enumValue(fields.fontStyle, appearanceOptions.fontStyle ?? []) ?? "normal",
           minWidth: 120,
           padding: 8,
+          ...(member === explorationTarget
+            ? { boxShadow: "0 0 0 4px #c65b26, 0 0 0 8px #f6cfaa", zIndex: 10 }
+            : neighborMembers.has(member)
+              ? { boxShadow: "0 0 0 3px #e4a46f", zIndex: 5 }
+              : {}),
         };
         return {
           id: member,
@@ -683,8 +793,41 @@ export function ViewsPanel({
       effectiveNodeRules,
       nodeRuleOptions,
       positions,
-      sourceTriples,
+      explorationTarget,
+      neighborMembers,
+      memberLabels,
     ],
+  );
+  const canvasNodes = useMemo<Node[]>(
+    () =>
+      baseCanvasNodes.map((node) => {
+        const measurement = canvasMeasurements[node.id];
+        return measurement
+          ? { ...node, measured: { width: measurement.width, height: measurement.height } }
+          : node;
+      }),
+    [baseCanvasNodes, canvasMeasurements],
+  );
+  const handleCanvasNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      const dimensionChanges = changes.filter((change) => change.type === "dimensions");
+      if (dimensionChanges.length === 0) return;
+      const updatedNodes = applyNodeChanges(dimensionChanges, canvasNodes);
+      setCanvasMeasurements((current) => {
+        let next = current;
+        for (const node of updatedNodes) {
+          const width = node.measured?.width;
+          const height = node.measured?.height;
+          if (width === undefined || height === undefined || width <= 0 || height <= 0) continue;
+          const previous = current[node.id];
+          if (previous?.width === width && previous.height === height) continue;
+          if (next === current) next = { ...current };
+          next[node.id] = { width, height };
+        }
+        return next;
+      });
+    },
+    [canvasNodes],
   );
   const canvasEdges = useMemo<Edge[]>(
     () =>
@@ -701,6 +844,9 @@ export function ViewsPanel({
           : effectiveRelationshipRules[key];
         const fields = appearanceFields(rule, local);
         const stroke = colorValue(fields.strokeColor, "#526477");
+        const highlighted =
+          !!explorationTarget &&
+          (tuple.subject === explorationTarget || tuple.object === explorationTarget);
         const mode = enumValue(fields.labelMode, appearanceOptions.labelMode ?? []) ?? "property";
         const ruleMode = termAppearance(rule?.appearance ?? {}, "labelMode");
         const localMode = local.labelMode;
@@ -748,10 +894,10 @@ export function ViewsPanel({
           markerEnd:
             enumValue(fields.arrowHead, appearanceOptions.arrowHead ?? []) === "none"
               ? undefined
-              : { type: MarkerType.Arrow, color: stroke },
+              : { type: MarkerType.Arrow, color: highlighted ? "#c65b26" : stroke },
           style: {
-            stroke,
-            strokeWidth: finiteAppearance(fields.strokeWidth, 1.5, 0, 100),
+            stroke: highlighted ? "#c65b26" : stroke,
+            strokeWidth: highlighted ? 3 : finiteAppearance(fields.strokeWidth, 1.5, 0, 100),
             strokeDasharray:
               enumValue(fields.lineStyle, appearanceOptions.lineStyle ?? []) === "dashed"
                 ? "6 4"
@@ -775,12 +921,127 @@ export function ViewsPanel({
       relationshipAppearanceEdits,
       effectiveRelationshipRules,
       relationshipRuleOptions,
+      explorationTarget,
       sourceTriples,
       vocabularyTriples,
     ],
   );
 
-  async function preview(route: string, body: Record<string, unknown>) {
+  useEffect(() => {
+    if (!view || !layoutReady) return;
+    const missing = members
+      .filter((member) => !usablePosition(positions[member]))
+      .sort(compareText);
+    const signature = JSON.stringify(missing);
+    if (missing.length === 0) {
+      pendingMissing.current = "";
+      return;
+    }
+    if (pendingMissing.current === signature) return;
+    pendingMissing.current = signature;
+    setLayoutMessage("");
+    setLayoutDuration(undefined);
+    setLayoutPreviewReady(false);
+    setLayoutRequest((current) => ({ id: current.id + 1, active: true, mode: "missing" }));
+  }, [layoutReady, members, positions, view]);
+
+  function requestViewLayout(mode: "missing" | "reorganize") {
+    if (mode === "reorganize" && !membershipUnchanged) {
+      setLayoutMessage(
+        "Restore the saved view membership and relationships before reorganizing this presentation.",
+      );
+      return;
+    }
+    if (mode === "reorganize")
+      setLayoutBackup({
+        positions: Object.fromEntries(
+          Object.entries(positions).filter(([, position]) => usablePosition(position)),
+        ),
+        members: [...members],
+        relationships: [...relationships],
+      });
+    setLayoutPreviewReady(false);
+    setLayoutMessage("");
+    setLayoutDuration(undefined);
+    setLayoutRequest((current) => ({ id: current.id + 1, active: true, mode }));
+  }
+
+  function commitViewLayout(
+    next: PositionMap,
+    result: { fallback: boolean; durationMs: number; nodeCount: number },
+  ) {
+    setPositions(next);
+    pendingMissing.current = "";
+    setLayoutBusy(false);
+    setLayoutDuration(result.durationMs);
+    setLayoutPreviewReady(layoutRequest.mode === "reorganize" && !result.fallback);
+    setLayoutMessage(
+      result.fallback
+        ? `Temporary grid shown for ${result.nodeCount} view members after the ELK worker failed.`
+        : `ELK positioned ${result.nodeCount} view members using measured dimensions in ${Math.round(result.durationMs)} ms.`,
+    );
+    setLayoutRequest((current) => ({ ...current, active: false }));
+  }
+
+  function failViewLayout(problem: string) {
+    setLayoutBusy(false);
+    setLayoutPreviewReady(false);
+    setLayoutMessage(problem);
+    setLayoutRequest((current) => ({ ...current, active: false }));
+  }
+
+  function restoreViewLayout(message: string) {
+    const backup = layoutBackup;
+    setLayoutRequest((current) => ({ id: current.id + 1, active: false, mode: current.mode }));
+    setLayoutBusy(false);
+    setLayoutPreviewReady(false);
+    if (backup) setPositions(backup.positions);
+    setLayoutBackup(undefined);
+    setLayoutMessage(message);
+  }
+
+  function cancelViewLayout() {
+    restoreViewLayout(
+      layoutBackup
+        ? "Reorganization cancelled; previous positions restored."
+        : "Layout cancelled; saved positions were kept.",
+    );
+  }
+
+  function reorganizationPositions() {
+    return members.map((element) => ({
+      element,
+      x: positions[element]?.x ?? "",
+      y: positions[element]?.y ?? "",
+    }));
+  }
+
+  function focusMember(member: string) {
+    setExplorationTarget(member);
+    setFocusRequest((current) => ({ id: member, sequence: (current?.sequence ?? 0) + 1 }));
+  }
+
+  async function previewViewLayout() {
+    if (!view || !layoutBackup || !layoutPreviewReady || !membershipUnchanged || busy || pending)
+      return;
+    await preview(
+      "view/edit",
+      {
+        selector: view.resource.selector,
+        sourceRevision: view.sourceRevision,
+        viewRevision: view.resource.revision,
+        presentationRevision: view.presentation.resource.revision,
+        members: [...view.members],
+        relationships: [...view.relationships],
+        positions: reorganizationPositions(),
+        nodeAppearances: [],
+        relationshipAppearances: [],
+      },
+      true,
+    );
+  }
+
+  async function preview(route: string, body: Record<string, unknown>, reorganization = false) {
     setBusy(true);
     setMessage("");
     try {
@@ -790,6 +1051,8 @@ export function ViewsPanel({
           result.diagnostics.map((item) => `${item.code}: ${item.message}`).join(" ") ||
             "Project preview was not prepared.",
         );
+        if (reorganization)
+          restoreViewLayout("Layout preview became stale; previous positions were restored.");
         return;
       }
       const plan = result.data.preview as Pending["preview"] & {
@@ -805,6 +1068,8 @@ export function ViewsPanel({
       });
     } catch (problem) {
       setMessage(problem instanceof Error ? problem.message : "View preview failed.");
+      if (reorganization)
+        restoreViewLayout("Layout preview failed; previous positions were restored.");
     } finally {
       setBusy(false);
     }
@@ -831,6 +1096,8 @@ export function ViewsPanel({
         return;
       }
       setPending(undefined);
+      setLayoutBackup(undefined);
+      setLayoutPreviewReady(false);
       await refresh();
       if (design) await showDesign(design.resource.selector);
       if (selected && !pending.accept.includes("confirm")) {
@@ -855,6 +1122,8 @@ export function ViewsPanel({
     try {
       await call("resource/cancel", { schemaVersion: 1, handle: pending.handle });
       setPending(undefined);
+      if (layoutBackup && pending.route === "view/edit")
+        restoreViewLayout("Layout preview cancelled; previous positions were restored.");
     } catch (problem) {
       setMessage(problem instanceof Error ? problem.message : "Preview could not be cancelled.");
     } finally {
@@ -999,7 +1268,7 @@ export function ViewsPanel({
             id={controlId}
             aria-label={`${kind} chosenRule ${key}`}
             value={value}
-            disabled={busy || !!pending}
+            disabled={busy || !!pending || layoutBusy || layoutRequest.active}
             onChange={(event) => editAppearance(kind, key, field, event.target.value)}
           >
             <option value="">Use winning design rule</option>
@@ -1017,7 +1286,7 @@ export function ViewsPanel({
             id={controlId}
             aria-label={`${kind} ${field} ${key}`}
             value={value}
-            disabled={busy || !!pending}
+            disabled={busy || !!pending || layoutBusy || layoutRequest.active}
             onChange={(event) => editAppearance(kind, key, field, event.target.value)}
           >
             <option value="">Use design or default</option>
@@ -1032,7 +1301,7 @@ export function ViewsPanel({
             id={controlId}
             aria-label={`${kind} ${field} ${key}`}
             value={value}
-            disabled={busy || !!pending}
+            disabled={busy || !!pending || layoutBusy || layoutRequest.active}
             onChange={(event) => editAppearance(kind, key, field, event.target.value)}
           />
         )}
@@ -1394,6 +1663,113 @@ export function ViewsPanel({
                 ))}
               </ul>
             )}
+            <section className="canvas-explorer" aria-label="View canvas explorer">
+              <label>
+                Search view labels and full IRIs
+                <input
+                  aria-label="Search view members"
+                  value={searchText}
+                  onChange={(event) => setSearchText(event.target.value)}
+                  placeholder="Search every member, including off-screen nodes"
+                />
+              </label>
+              {searchText.trim() && searchMatches.length === 0 && (
+                <p role="status">No matching view members.</p>
+              )}
+              {searchMatches.length > 0 && (
+                <ul className="canvas-search-results" aria-label="Matching view members">
+                  {searchMatches.map((member) => (
+                    <li key={member}>
+                      <button type="button" onClick={() => focusMember(member)}>
+                        {memberLabels.get(member) ?? localName(member)} · <code>{member}</code>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="canvas-layout-actions">
+                <button
+                  type="button"
+                  disabled={
+                    busy ||
+                    !!pending ||
+                    layoutBusy ||
+                    layoutRequest.active ||
+                    members.length === 0 ||
+                    !membershipUnchanged
+                  }
+                  onClick={() => requestViewLayout("reorganize")}
+                >
+                  Preview view reorganization
+                </button>
+                {(layoutBackup || layoutBusy || layoutRequest.active) && (
+                  <button type="button" disabled={busy} onClick={cancelViewLayout}>
+                    {layoutBackup ? "Cancel reorganization" : "Cancel layout"}
+                  </button>
+                )}
+                {layoutPreviewReady && (
+                  <button
+                    type="button"
+                    disabled={busy || !!pending || !membershipUnchanged}
+                    onClick={() => void previewViewLayout()}
+                  >
+                    Review layout changes
+                  </button>
+                )}
+                {!layoutBusy && layoutMessage.toLowerCase().includes("retry") && (
+                  <button
+                    type="button"
+                    disabled={busy || !!pending || layoutRequest.active}
+                    onClick={() => requestViewLayout("reorganize")}
+                  >
+                    Retry ELK layout
+                  </button>
+                )}
+                <span role="status" aria-live="polite">
+                  {layoutBusy || layoutRequest.active
+                    ? `ELK is arranging ${members.length} measured view members in a browser worker…`
+                    : layoutMessage ||
+                      (layoutDuration === undefined
+                        ? ""
+                        : `Last layout took ${Math.round(layoutDuration)} ms.`)}
+                </span>
+              </div>
+              {explorationTarget && members.includes(explorationTarget) && (
+                <section
+                  className="canvas-neighborhood"
+                  aria-label="Selected view member relationships"
+                >
+                  <section>
+                    <h5>Incoming exact relationships</h5>
+                    <ul className="neighborhood-list" aria-label="Incoming view relationships">
+                      {relationships
+                        .filter((tuple) => tuple.object === explorationTarget)
+                        .map((tuple) => (
+                          <li key={tupleKey(tuple)}>
+                            <button type="button" onClick={() => focusMember(tuple.subject)}>
+                              {tupleLabel(tuple)}
+                            </button>
+                          </li>
+                        ))}
+                    </ul>
+                  </section>
+                  <section>
+                    <h5>Outgoing exact relationships</h5>
+                    <ul className="neighborhood-list" aria-label="Outgoing view relationships">
+                      {relationships
+                        .filter((tuple) => tuple.subject === explorationTarget)
+                        .map((tuple) => (
+                          <li key={tupleKey(tuple)}>
+                            <button type="button" onClick={() => focusMember(tuple.object)}>
+                              {tupleLabel(tuple)}
+                            </button>
+                          </li>
+                        ))}
+                    </ul>
+                  </section>
+                </section>
+              )}
+            </section>
             <div className="view-canvas">
               <ReactFlow
                 nodes={canvasNodes}
@@ -1402,7 +1778,26 @@ export function ViewsPanel({
                 nodesDraggable={false}
                 nodesConnectable={false}
                 elementsSelectable={false}
+                onlyRenderVisibleElements={false}
+                onNodesChange={handleCanvasNodesChange}
+                onNodeClick={(_, node) => focusMember(node.id)}
               >
+                <CanvasLayoutBridge
+                  request={layoutRequest}
+                  revision={JSON.stringify([
+                    view.resource.revision,
+                    view.sourceRevision,
+                    view.presentation.resource.revision,
+                  ])}
+                  previous={positions}
+                  focus={focusRequest}
+                  onStart={() => {
+                    setLayoutBusy(true);
+                    setLayoutMessage("");
+                  }}
+                  onResult={commitViewLayout}
+                  onFailure={failViewLayout}
+                />
                 <Background />
                 <Controls />
               </ReactFlow>
@@ -1418,7 +1813,7 @@ export function ViewsPanel({
                   <input
                     aria-label={`${member} x coordinate`}
                     value={positions[member]?.x ?? ""}
-                    disabled={busy || !!pending}
+                    disabled={busy || !!pending || layoutBusy || layoutRequest.active}
                     onChange={(event) =>
                       setPositions((current) => ({
                         ...current,
@@ -1432,7 +1827,7 @@ export function ViewsPanel({
                   <input
                     aria-label={`${member} y coordinate`}
                     value={positions[member]?.y ?? ""}
-                    disabled={busy || !!pending}
+                    disabled={busy || !!pending || layoutBusy || layoutRequest.active}
                     onChange={(event) =>
                       setPositions((current) => ({
                         ...current,
@@ -1450,37 +1845,65 @@ export function ViewsPanel({
               Blank values remove this view’s override and return to its effective design/default.
             </p>
             {members.map((member) => (
-              <details key={member}>
+              <details
+                key={member}
+                onToggle={(event) => {
+                  const open = event.currentTarget.open;
+                  setExpandedNodeAppearance((current) => {
+                    const next = new Set(current);
+                    if (open) next.add(member);
+                    else next.delete(member);
+                    return next;
+                  });
+                }}
+              >
                 <summary>
                   <code>{member}</code>
                 </summary>
-                <div className="form-row">
-                  {nodeAppearanceFields.map((field) => appearanceControl("node", member, field))}
-                </div>
+                {expandedNodeAppearance.has(member) && (
+                  <div className="form-row">
+                    {nodeAppearanceFields.map((field) => appearanceControl("node", member, field))}
+                  </div>
+                )}
               </details>
             ))}
           </fieldset>
           <fieldset>
             <legend>Exact relationship appearance overrides</legend>
             {relationships.map((tuple) => (
-              <details key={tupleKey(tuple)}>
+              <details
+                key={tupleKey(tuple)}
+                onToggle={(event) => {
+                  const open = event.currentTarget.open;
+                  setExpandedRelationshipAppearance((current) => {
+                    const next = new Set(current);
+                    const key = tupleKey(tuple);
+                    if (open) next.add(key);
+                    else next.delete(key);
+                    return next;
+                  });
+                }}
+              >
                 <summary>
                   <code>{tupleLabel(tuple)}</code>
                 </summary>
-                <div className="form-row">
-                  {edgeAppearanceFields.map((field) =>
-                    appearanceControl("edge", tupleKey(tuple), field),
-                  )}
-                </div>
+                {expandedRelationshipAppearance.has(tupleKey(tuple)) && (
+                  <div className="form-row">
+                    {edgeAppearanceFields.map((field) =>
+                      appearanceControl("edge", tupleKey(tuple), field),
+                    )}
+                  </div>
+                )}
               </details>
             ))}
           </fieldset>
           <button
             type="button"
-            disabled={busy || !!pending}
+            disabled={busy || !!pending || layoutBusy || layoutRequest.active}
             onClick={() =>
               void preview("view/edit", {
                 selector: view.resource.selector,
+                sourceRevision: view.sourceRevision,
                 viewRevision: view.resource.revision,
                 presentationRevision: view.presentation.resource.revision,
                 members,
@@ -1507,7 +1930,7 @@ export function ViewsPanel({
           </button>
           <button
             type="button"
-            disabled={busy || !!pending}
+            disabled={busy || !!pending || layoutBusy || layoutRequest.active}
             onClick={() => void preview("views/remove", { selector: view.resource.selector })}
           >
             Preview removal
