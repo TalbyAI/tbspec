@@ -101,6 +101,18 @@ test("design CLI lists reusable designs and creates an inspectable owned design"
     ),
   );
 
+  const selectedLocked = invoke(
+    ["design", "select", "http://www.w3.org/2002/07/owl#Class", "dep:tbspec-data-design"],
+    root,
+  );
+  assert.equal(selectedLocked.envelope.status, "ok", JSON.stringify(selectedLocked.envelope));
+  assert.equal(
+    invoke(["config", "show"], root).envelope.data.designChoices[
+      "http://www.w3.org/2002/07/owl#Class"
+    ],
+    "dep:tbspec-data-design/source/data.design.ttl",
+  );
+
   const created = invoke(
     ["design", "create", "designs/custom.ttl", "--iri", "urn:custom-design"],
     root,

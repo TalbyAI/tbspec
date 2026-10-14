@@ -6,12 +6,37 @@ import test from "node:test";
 import { canonical, digest, graphSignature, hash, sortedSet } from "../src/canonical.ts";
 import { initializeProject, readProject, setProjectBaseIri } from "../src/project.ts";
 import {
+  editDesignChoice,
+  editManifestSelectors,
+  editModelType,
   editOntologyChoice,
   interpretationSignature,
   parseLock,
   parseManifest,
+  removeDependencyChoices,
+  removeModelType,
   writeToml,
 } from "../src/schemas.ts";
+
+test("manifest editors preserve unrelated TOML floats and datetimes", () => {
+  const custom =
+    "# keep custom values\r\n[custom]\r\nratio = 1.5\r\npositive = inf\r\nnegative = -inf\r\nundefined = nan\r\ndate = 2026-10-14\r\ntime = 13:45:11\r\nstamp = 2026-10-14T13:45:11Z\r\n";
+  const text =
+    'schema_version = 1\r\n[model_types.custom]\r\nontology = "ontology.ttl"\r\nenabled = true\r\n[ontology_choices]\r\n"urn:ontology" = "chosen"\r\n[design_choices]\r\n"urn:concept" = "dep:chosen"\r\n' +
+    custom;
+  for (const edit of [
+    () => editOntologyChoice(text, "urn:ontology", "other"),
+    () => editDesignChoice(text, "urn:concept", "design.ttl"),
+    () => editModelType(text, "custom", { ontology: "ontology.ttl", enabled: false }),
+    () => removeModelType(text, "custom"),
+    () => editManifestSelectors(text, { "ontology.ttl": "moved.ttl" }),
+    () => removeDependencyChoices(text, "chosen"),
+  ]) {
+    const changed = edit();
+    assert.ok(changed.endsWith(custom));
+    assert.deepEqual(parseManifest(changed).custom, parseManifest(text).custom);
+  }
+});
 
 test("canonical signature golden vectors retain UTF-8, null, integer and escape semantics", () => {
   assert.equal(

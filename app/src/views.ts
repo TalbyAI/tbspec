@@ -372,18 +372,44 @@ export async function listViews(options: {
   try {
     const current = await workspace(options);
     const source = options.source ? selectorFor(options.source, current) : undefined;
+    const diagnostics = [...current.diagnostics];
     const items = current.views
-      .filter((row) => !source || selectorFor(String(row.source), current) === source)
-      .map((row) => ({
-        selector: String(row.view),
-        source: selectorFor(String(row.source), current),
-        presentation: String(row.presentation),
-        ...(typeof row.protocol === "string" ? { protocol: row.protocol } : {}),
-      }))
+      .flatMap((row) => {
+        const rawSource = String(row.source);
+        let sourceSelector = rawSource;
+        try {
+          sourceSelector = selectorFor(rawSource, current);
+        } catch (error) {
+          if (!(error instanceof ProjectError) || error.diagnostic.code !== "RESOURCE_MISSING")
+            throw error;
+          if (
+            !diagnostics.some(
+              (diagnostic) =>
+                diagnostic.file === String(row.view) &&
+                ["ASSOCIATION_BROKEN", "RESOURCE_MISSING"].includes(diagnostic.code),
+            )
+          )
+            diagnostics.push({
+              ...error.diagnostic,
+              code: "ASSOCIATION_BROKEN",
+              file: String(row.view),
+              selector: rawSource,
+            });
+        }
+        if (source && sourceSelector !== source) return [];
+        return [
+          {
+            selector: String(row.view),
+            source: sourceSelector,
+            presentation: String(row.presentation),
+            ...(typeof row.protocol === "string" ? { protocol: row.protocol } : {}),
+          },
+        ];
+      })
       .sort((left, right) => utf8Compare(left.selector, right.selector));
     return {
-      ...ok({ items }, current.diagnostics),
-      status: current.diagnostics.some((d) => d.severity === "error") ? "invalid" : "ok",
+      ...ok({ items }, diagnostics),
+      status: diagnostics.some((d) => d.severity === "error") ? "invalid" : "ok",
     };
   } catch (error) {
     return failure(error);
@@ -1397,7 +1423,15 @@ async function synchronizeViews(
 }> {
   if (!source.graphIri || (!changes.length && !removedMember))
     return { writes: [], paths: [], removedStatements: [] };
-  const matchSource = (value: string) => selectorFor(value, current) === source.selector;
+  const matchSource = (value: string) => {
+    try {
+      return selectorFor(value, current) === source.selector;
+    } catch (error) {
+      if (error instanceof ProjectError && error.diagnostic.code === "RESOURCE_MISSING")
+        return false;
+      throw error;
+    }
+  };
   const candidates: { row: Row; view: ParsedGraph; presentation: ParsedGraph }[] = [];
   for (const row of current.views) {
     const viewPath = String(row.view);

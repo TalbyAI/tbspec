@@ -1,5 +1,6 @@
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { Term } from "@rdfjs/types";
 import { DataFactory, Writer as N3Writer, Store } from "n3";
 import { utf8Compare } from "./canonical.ts";
 import { compareDiagnosticImpact } from "./diagnostic-impact.ts";
@@ -159,11 +160,140 @@ async function parseCapturedGraph(snapshot: CapturedRepair, path: string): Promi
   );
 }
 
-function storeIdentity(store: Store): string[] {
-  return store
-    .getQuads(null, null, null, null)
-    .map((quad) => JSON.stringify([quad.subject, quad.predicate, quad.object]))
-    .sort(utf8Compare);
+export function rdfGraphsAreIsomorphic(left: Store, right: Store): boolean {
+  const leftQuads = left.getQuads(null, null, null, null);
+  const rightQuads = right.getQuads(null, null, null, null);
+  if (leftQuads.length !== rightQuads.length) return false;
+
+  const blankNodes = (quads: typeof leftQuads) =>
+    [
+      ...new Set(
+        quads.flatMap((quad) =>
+          [quad.subject, quad.object]
+            .filter((term) => term.termType === "BlankNode")
+            .map((term) => term.value),
+        ),
+      ),
+    ].sort(utf8Compare);
+  const leftNodes = blankNodes(leftQuads);
+  const rightNodes = blankNodes(rightQuads);
+  if (leftNodes.length !== rightNodes.length) return false;
+  const exactIdentity = (quads: typeof leftQuads) =>
+    quads
+      .map((quad) => JSON.stringify([quad.subject, quad.predicate, quad.object]))
+      .sort(utf8Compare);
+  const leftExact = exactIdentity(leftQuads);
+  const rightExact = exactIdentity(rightQuads);
+  if (leftExact.every((quad, index) => quad === rightExact[index])) return true;
+  if (!leftNodes.length) return false;
+
+  const encodeTerm = (term: Term, mapping: Map<string, string>) =>
+    term.termType === "BlankNode"
+      ? [term.termType, mapping.get(term.value)]
+      : term.termType === "Literal"
+        ? [term.termType, term.value, term.language, term.datatype.value]
+        : [term.termType, term.value];
+  const identity = (quads: typeof leftQuads, mapping: Map<string, string>) =>
+    quads
+      .map((quad) =>
+        JSON.stringify([
+          encodeTerm(quad.subject, mapping),
+          encodeTerm(quad.predicate, mapping),
+          encodeTerm(quad.object, mapping),
+        ]),
+      )
+      .sort(utf8Compare);
+  const refine = (leftMarks: Map<string, string>, rightMarks: Map<string, string>) => {
+    let leftColors = new Map(leftNodes.map((node) => [node, leftMarks.get(node) ?? "_"]));
+    let rightColors = new Map(rightNodes.map((node) => [node, rightMarks.get(node) ?? "_"]));
+    while (true) {
+      const descriptions = (node: string, colors: Map<string, string>, quads: typeof leftQuads) => {
+        const nearby: string[] = [];
+        for (const quad of quads) {
+          const predicate = quad.predicate.value;
+          if (quad.subject.termType === "BlankNode" && quad.subject.value === node)
+            nearby.push(JSON.stringify(["subject", predicate, encodeTerm(quad.object, colors)]));
+          if (quad.object.termType === "BlankNode" && quad.object.value === node)
+            nearby.push(JSON.stringify(["object", predicate, encodeTerm(quad.subject, colors)]));
+        }
+        return JSON.stringify([colors.get(node), nearby.sort(utf8Compare)]);
+      };
+      const leftDescriptions = leftNodes.map((node) => descriptions(node, leftColors, leftQuads));
+      const rightDescriptions = rightNodes.map((node) =>
+        descriptions(node, rightColors, rightQuads),
+      );
+      const allDescriptions = [...new Set([...leftDescriptions, ...rightDescriptions])].sort(
+        utf8Compare,
+      );
+      const colorByDescription = new Map(
+        allDescriptions.map((description, index) => [description, `c${index}`]),
+      );
+      const nextLeft = new Map(
+        leftNodes.map((node, index) => [
+          node,
+          colorByDescription.get(leftDescriptions[index] ?? "") ?? "",
+        ]),
+      );
+      const nextRight = new Map(
+        rightNodes.map((node, index) => [
+          node,
+          colorByDescription.get(rightDescriptions[index] ?? "") ?? "",
+        ]),
+      );
+      const counts = (colors: Map<string, string>) => {
+        const result = new Map<string, number>();
+        for (const color of colors.values()) result.set(color, (result.get(color) ?? 0) + 1);
+        return result;
+      };
+      const leftCounts = counts(nextLeft);
+      const rightCounts = counts(nextRight);
+      if (
+        leftCounts.size !== rightCounts.size ||
+        [...leftCounts].some(([color, count]) => rightCounts.get(color) !== count)
+      )
+        return undefined;
+      if (leftCounts.size === new Set([...leftColors.values(), ...rightColors.values()]).size)
+        return { left: nextLeft, right: nextRight };
+      leftColors = nextLeft;
+      rightColors = nextRight;
+    }
+  };
+
+  const search = (leftMarks: Map<string, string>, rightMarks: Map<string, string>): boolean => {
+    const colors = refine(leftMarks, rightMarks);
+    if (!colors) return false;
+    const members = (mapping: Map<string, string>) => {
+      const result = new Map<string, string[]>();
+      for (const [node, color] of mapping) result.set(color, [...(result.get(color) ?? []), node]);
+      return result;
+    };
+    const leftByColor = members(colors.left);
+    const rightByColor = members(colors.right);
+    const ambiguous = [...leftByColor]
+      .filter(([, nodes]) => nodes.length > 1)
+      .sort((leftClass, rightClass) => leftClass[1].length - rightClass[1].length)[0];
+    if (!ambiguous) {
+      const leftIdentity = identity(leftQuads, colors.left);
+      const rightIdentity = identity(rightQuads, colors.right);
+      return leftIdentity.every((quad, index) => quad === rightIdentity[index]);
+    }
+
+    const [color, nodes] = ambiguous;
+    const leftNode = nodes[0];
+    if (!leftNode) return false;
+    const candidates = rightByColor.get(color) ?? [];
+    for (const rightNode of candidates) {
+      const marker = `m${leftMarks.size}`;
+      const nextLeft = new Map(leftMarks);
+      const nextRight = new Map(rightMarks);
+      nextLeft.set(leftNode, marker);
+      nextRight.set(rightNode, marker);
+      if (search(nextLeft, nextRight)) return true;
+    }
+    return false;
+  };
+
+  return search(new Map(), new Map());
 }
 
 async function writeStore(
@@ -195,7 +325,7 @@ async function writeStore(
     false,
     file,
   );
-  if (JSON.stringify(storeIdentity(parsed)) !== JSON.stringify(storeIdentity(store)))
+  if (!rdfGraphsAreIsomorphic(parsed, store))
     throw new ProjectError(
       "invalid",
       "RDF_ROUNDTRIP",

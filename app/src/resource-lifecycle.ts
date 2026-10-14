@@ -1,7 +1,7 @@
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Quad, Term } from "@rdfjs/types";
-import { type Store, Writer } from "n3";
+import type { Store } from "n3";
 import { utf8Compare } from "./canonical.ts";
 import { compareDiagnosticImpact } from "./diagnostic-impact.ts";
 import { equalRevision, fileBytes, revision, verifyReads } from "./filesystem.ts";
@@ -14,7 +14,7 @@ import {
 } from "./inspection.ts";
 import { failure, ok, ProjectError, type Result } from "./output.ts";
 import { portablePath, safePath } from "./paths.ts";
-import { discoverProject } from "./project.ts";
+import { discoverProject, projectDiscoveryScope } from "./project.ts";
 import { classifyGraph, parseGraph, parseRdf, rdfFormats } from "./rdf.ts";
 import {
   editManifestSelectors,
@@ -300,6 +300,7 @@ async function referencesFor(
   const graphPaths = snapshot.reads
     .filter((read) => read.kind === "file" && rdfFormats[extname(read.path).toLowerCase()])
     .map((read) => read.path);
+  const skippedPaths: string[] = [];
   for (const path of [...new Set(graphPaths)].sort(utf8Compare)) {
     if (!rdfFormats[extname(path).toLowerCase()] || !(await capturedBytes(root, snapshot, path)))
       continue;
@@ -307,6 +308,7 @@ async function referencesFor(
     try {
       store = await parseSnapshotGraph(root, snapshot, path, lock);
     } catch {
+      skippedPaths.push(path);
       continue;
     }
     const selector = Object.entries(lock.dependencies).flatMap(([id, dependency]) =>
@@ -339,14 +341,27 @@ async function referencesFor(
       // The operation's validation diagnostics report malformed configuration separately.
     }
   }
-  return references.sort(
-    (a, b) =>
-      utf8Compare(a.file, b.file) ||
-      utf8Compare(a.targetIri, b.targetIri) ||
-      utf8Compare(a.targetSelector ?? "", b.targetSelector ?? "") ||
-      utf8Compare(a.position, b.position) ||
-      utf8Compare(a.selector ?? "", b.selector ?? ""),
-  );
+  return {
+    references: references.sort(
+      (a, b) =>
+        utf8Compare(a.file, b.file) ||
+        utf8Compare(a.targetIri, b.targetIri) ||
+        utf8Compare(a.targetSelector ?? "", b.targetSelector ?? "") ||
+        utf8Compare(a.position, b.position) ||
+        utf8Compare(a.selector ?? "", b.selector ?? ""),
+    ),
+    skippedPaths: skippedPaths.sort(utf8Compare),
+  };
+}
+
+function referenceCoverageDiagnostics(paths: string[]) {
+  return paths.map((file) => ({
+    code: "REFERENCE_COVERAGE_INCOMPLETE",
+    severity: "error" as const,
+    message: "Reference listing is partial because this graph could not be parsed.",
+    file,
+    details: { coverage: "partial" },
+  }));
 }
 
 function resourceRelations(
@@ -423,32 +438,39 @@ export async function inspectImpact(options: {
         manifest,
       );
     }
-    const references = await referencesFor(
+    const coverage = await referencesFor(
       root,
       snapshot,
       lock,
       targets,
       options.kind === "design" ? [selected] : [],
     );
+    const references = coverage.references;
     const affectedFiles = [
       ...new Set([
         ...affectedResources.map((item) => item.file),
         ...references.map((item) => item.file),
+        ...coverage.skippedPaths,
         ...(options.kind === "model-type" ? ["tbspec.toml"] : []),
       ]),
     ].sort(utf8Compare);
     await verifyReads(root, snapshot.reads);
-    return ok<ImpactInspection>({
-      kind: options.kind,
-      selector: selected,
-      items: references,
-      affectedFiles,
-      targetIris: targets,
-      affectedModels: affectedResources
-        .filter((item) => options.kind === "model-type" || item.selector !== selected)
-        .map((item) => ({ selector: item.selector, file: item.file })),
-      ...(resource ? { resource } : {}),
-    });
+    const result = ok<ImpactInspection>(
+      {
+        kind: options.kind,
+        selector: selected,
+        items: references,
+        affectedFiles,
+        targetIris: targets,
+        affectedModels: affectedResources
+          .filter((item) => options.kind === "model-type" || item.selector !== selected)
+          .map((item) => ({ selector: item.selector, file: item.file })),
+        ...(resource ? { resource } : {}),
+      },
+      referenceCoverageDiagnostics(coverage.skippedPaths),
+    );
+    if (coverage.skippedPaths.length) result.status = "invalid";
+    return result;
   } catch (error) {
     return failure(error) as Result<ImpactInspection>;
   }
@@ -606,13 +628,14 @@ async function prepareRemoval(options: LifecycleOptions): Promise<PreparedResour
   const lock = parseLock(snapshot.files["tbspec.lock"]?.toString("utf8") ?? "");
   const store = await parseSnapshotGraph(root, snapshot, resource.file, lock);
   const targets = referencedEntities(store, resource.graphIri);
-  const references = await referencesFor(
+  const coverage = await referencesFor(
     root,
     snapshot,
     lock,
     targets,
     options.kind === "design" ? [selected] : [],
   );
+  const references = coverage.references;
   const manifest = parseManifest(snapshot.files["tbspec.toml"]?.toString("utf8") ?? "");
   const related = resourceRelations(resources, selected, resource.graphIri, manifest);
   const baseline = await fullStatus(root, snapshot);
@@ -628,6 +651,7 @@ async function prepareRemoval(options: LifecycleOptions): Promise<PreparedResour
       resource.file,
       ...related.map((item) => item.file),
       ...references.map((item) => item.file),
+      ...coverage.skippedPaths,
     ]),
   ];
   const plan = makeImpactPlan(
@@ -644,7 +668,7 @@ async function prepareRemoval(options: LifecycleOptions): Promise<PreparedResour
     lifecycle: true,
     root,
     plan,
-    diagnostics: facts.diagnostics,
+    diagnostics: [...facts.diagnostics, ...referenceCoverageDiagnostics(coverage.skippedPaths)],
     resource: { ...resource, revision: revision(bytes) },
     affectedModels: related.map(({ selector, file }) => ({ selector, file })),
     projectValidity: facts.validity,
@@ -652,51 +676,156 @@ async function prepareRemoval(options: LifecycleOptions): Promise<PreparedResour
   };
 }
 
-async function writeRdfStore(
-  root: string,
-  source: string,
-  destination: string,
-  store: Store,
-  original: Buffer,
-) {
+function xmlRootElement(text: string) {
+  const searchable = text.replace(/<!--[\s\S]*?-->|<\?[\s\S]*?\?>/g, (segment) =>
+    " ".repeat(segment.length),
+  );
+  const root = /<(?![!?/])([A-Za-z_][\w:.-]*)(?:[^'">]|"[^"]*"|'[^']*')*>/s.exec(searchable);
+  if (!root || root.index === undefined) return undefined;
+  const element = text.slice(root.index, root.index + root[0].length);
+  const attributes = /\s+([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/gs;
+  attributes.lastIndex = 1 + (root[1]?.length ?? 0);
+  for (const attribute of element.matchAll(attributes)) {
+    if (attribute[1] !== "xml:base" || attribute.index === undefined) continue;
+    const value = attribute[2] ?? attribute[3] ?? "";
+    const leadingWhitespace = attribute[0].length - attribute[0].trimStart().length;
+    return {
+      index: root.index,
+      text: element,
+      base: {
+        start: attribute.index + leadingWhitespace,
+        end: attribute.index + attribute[0].length,
+        value,
+      },
+    };
+  }
+  return { index: root.index, text: element };
+}
+
+function decodeXmlAttribute(value: string): string {
+  return value.replace(
+    /&(amp|lt|gt|quot|apos|#x[0-9A-Fa-f]+|#[0-9]+);/g,
+    (_match, entity: string) => {
+      if (entity === "amp") return "&";
+      if (entity === "lt") return "<";
+      if (entity === "gt") return ">";
+      if (entity === "quot") return '"';
+      if (entity === "apos") return "'";
+      const point = entity.startsWith("#x")
+        ? Number.parseInt(entity.slice(2), 16)
+        : Number.parseInt(entity.slice(1), 10);
+      return Number.isInteger(point) && point >= 0 && point <= 0x10ffff
+        ? String.fromCodePoint(point)
+        : "";
+    },
+  );
+}
+
+function escapeXmlAttribute(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+}
+
+function sameRdfTerms(left: Store, right: Store) {
+  const identity = (store: Store) =>
+    store
+      .getQuads(null, null, null, null)
+      .map((item) =>
+        JSON.stringify(
+          [item.subject, item.predicate, item.object].map((term) =>
+            term.termType === "Literal"
+              ? [term.termType, term.value, term.language, term.datatype.value]
+              : [term.termType, term.value],
+          ),
+        ),
+      )
+      .sort(utf8Compare);
+  const leftTerms = identity(left);
+  const rightTerms = identity(right);
+  return (
+    leftTerms.length === rightTerms.length &&
+    leftTerms.every((term, index) => term === rightTerms[index])
+  );
+}
+
+function utf8BomLength(bytes: Buffer) {
+  return bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 3 : 0;
+}
+
+async function writeRdfStore(root: string, source: string, destination: string, original: Buffer) {
   const extension = extname(destination).toLowerCase();
-  if (extension === ".nt") {
-    const writer = new Writer({ format: "N-Triples" });
-    writer.addQuads(store.getQuads(null, null, null, null));
-    return new Promise<Buffer>((resolve, reject) =>
-      writer.end((error, text) => (error ? reject(error) : resolve(Buffer.from(text)))),
-    );
+  if (extension === ".nt") return Buffer.from(original);
+  const sourceUrl = pathToFileURL(await safePath(root, source)).href;
+  if (extension === ".ttl") {
+    const sourceText = new TextDecoder("utf-8", { fatal: true }).decode(original);
+    const newline = sourceText.includes("\r\n") ? "\r\n" : "\n";
+    const bomLength = utf8BomLength(original);
+    return Buffer.concat([
+      original.subarray(0, bomLength),
+      Buffer.from(`@base <${sourceUrl}> .${newline}`),
+      original.subarray(bomLength),
+    ]);
   }
   if (extension === ".rdf" || extension === ".owl") {
     const sourceText = new TextDecoder("utf-8", { fatal: true }).decode(original);
-    const rootTag = /<([A-Za-z_][\w:.-]*)(?:\s[^<>]*?)?\s*\/?>/s.exec(sourceText);
-    if (!rootTag || rootTag[1]?.includes("?"))
+    const rootTag = xmlRootElement(sourceText);
+    if (!rootTag)
       throw new ProjectError(
         "invalid",
         "RDF_FORMAT_UNSUPPORTED",
         "RDF/XML cannot be rebased safely for this document.",
         destination,
       );
-    await safePath(root, destination, true);
-    const rootStart = rootTag[0];
-    const baseAttribute = /\bxml:base\s*=\s*(["'])(.*?)\1/s.exec(rootStart);
-    const preservedBase = baseAttribute
-      ? new URL(baseAttribute[2] ?? "", pathToFileURL(await safePath(root, source)).href).href
-      : pathToFileURL(await safePath(root, source)).href;
-    const escapedBase = preservedBase.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
-    const replacement = baseAttribute
-      ? rootStart.replace(baseAttribute[0], `xml:base="${escapedBase}"`)
-      : rootStart.replace(/\s*\/?>(?:\s*)$/, (suffix) => ` xml:base="${escapedBase}"${suffix}`);
-    return Buffer.from(
-      sourceText.slice(0, rootTag.index) +
-        replacement +
-        sourceText.slice(rootTag.index + rootStart.length),
-    );
+    const baseAttribute = rootTag.base;
+    let preservedBase = sourceUrl;
+    if (baseAttribute) {
+      try {
+        preservedBase = new URL(decodeXmlAttribute(baseAttribute.value), sourceUrl).href;
+      } catch (error) {
+        if (error instanceof ProjectError) throw error;
+        throw new ProjectError(
+          "invalid",
+          "RDF_FORMAT_UNSUPPORTED",
+          "RDF/XML xml:base cannot be resolved safely.",
+          destination,
+        );
+      }
+    }
+    const escapedBase = escapeXmlAttribute(preservedBase);
+    let replacement = rootTag.text;
+    if (baseAttribute)
+      replacement =
+        rootTag.text.slice(0, baseAttribute.start) +
+        `xml:base="${escapedBase}"` +
+        rootTag.text.slice(baseAttribute.end);
+    else {
+      const closing = rootTag.text.length - 1;
+      const slash = rootTag.text.slice(0, closing).trimEnd().endsWith("/") ? closing - 1 : closing;
+      const spacing = /\s/.test(rootTag.text[slash - 1] ?? "") ? "" : " ";
+      replacement =
+        rootTag.text.slice(0, slash) +
+        `${spacing}xml:base="${escapedBase}"` +
+        rootTag.text.slice(slash);
+    }
+    const bomLength = utf8BomLength(original);
+    const rootStart = bomLength + Buffer.byteLength(sourceText.slice(0, rootTag.index));
+    const rootEnd = rootStart + Buffer.byteLength(rootTag.text);
+    return Buffer.concat([
+      original.subarray(0, rootStart),
+      Buffer.from(replacement),
+      original.subarray(rootEnd),
+    ]);
   }
-  const writer = new Writer();
-  writer.addQuads(store.getQuads(null, null, null, null));
-  return new Promise<Buffer>((resolve, reject) =>
-    writer.end((error, text) => (error ? reject(error) : resolve(Buffer.from(text)))),
+  throw new ProjectError(
+    "invalid",
+    "RDF_FORMAT_UNSUPPORTED",
+    "The selected graph format cannot be moved safely.",
+    source,
+  );
+}
+
+function excludedProjectPath(path: string) {
+  return [".tbspec", ...projectDiscoveryScope.excluded, ".tbspec/dependencies"].some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
   );
 }
 
@@ -716,12 +845,12 @@ async function prepareMove(options: LifecycleOptions): Promise<PreparedResourceL
       "ARGUMENT_INVALID",
       "Source and destination must differ.",
     );
-  if (destination.startsWith(".tbspec/"))
+  if (excludedProjectPath(source) || excludedProjectPath(destination))
     throw new ProjectError(
       "invalid_arguments",
       "PATH_UNSAFE",
-      "Owned resources cannot move into internal directories.",
-      destination,
+      "Owned resources cannot move into paths excluded from project discovery.",
+      excludedProjectPath(source) ? source : destination,
     );
   const possibleSupportSource =
     source.endsWith(".ttl") && !source.endsWith(".shacl.ttl")
@@ -828,7 +957,29 @@ async function prepareMove(options: LifecycleOptions): Promise<PreparedResourceL
           "Move would collide with an existing graph identity.",
           to,
         );
-    const rewritten = await writeRdfStore(root, path, to, store, bytes);
+    const rewritten = await writeRdfStore(root, path, to, bytes);
+    const format = rdfFormats[extname(to).toLowerCase()];
+    if (!format)
+      throw new ProjectError(
+        "invalid",
+        "RDF_FORMAT_UNSUPPORTED",
+        "The selected graph format cannot be moved safely.",
+        to,
+      );
+    const rewrittenStore = await parseRdf(
+      rewritten,
+      format,
+      pathToFileURL(await safePath(root, to)).href,
+      false,
+      path,
+    );
+    if (!sameRdfTerms(store, rewrittenStore))
+      throw new ProjectError(
+        "invalid",
+        "RDF_ROUNDTRIP",
+        "Move rewrite does not preserve the graph's RDF terms.",
+        to,
+      );
     writes.push({ file: path, bytes: rewritten, to });
     const originalResource = resources.find((item) => item.selector === path);
     if (!originalResource)

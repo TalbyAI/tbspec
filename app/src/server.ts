@@ -7,10 +7,9 @@ import type { AuthoringOptions } from "./authoring.ts";
 import { canonical } from "./canonical.ts";
 import type { ModelTypeConfigurationOptions } from "./configuration.ts";
 import type { DependencyWorkerRequest } from "./dependency-worker.ts";
-import { listDesigns, showDesign } from "./designs.ts";
 import type { EditingOptions, ElementDeletionOptions } from "./editing.ts";
 import type { InspectionCommand } from "./inspection.ts";
-import type { AuthoringRequest, InspectionResponse } from "./inspection-worker.ts";
+import type { AuthoringRequest, InspectionResponse, WorkspaceRead } from "./inspection-worker.ts";
 import { withLock } from "./lock.ts";
 import { exits, failure, hasCode, ok, ProjectError, type Result } from "./output.ts";
 import { token } from "./ownership.ts";
@@ -26,7 +25,7 @@ import {
   runtimeError,
   runtimeProcess,
 } from "./runtime.ts";
-import { listViews, showView, type ViewOptions } from "./views.ts";
+import type { ViewOptions } from "./views.ts";
 
 interface Frame {
   protocolVersion: 1;
@@ -189,27 +188,34 @@ export async function startWebServer(
   const dependencyRequests = new Map<string, (result: Result) => void>();
   const activeDependencyOperations = new Map<string, string>();
   let dependencyWorkerFailed = false;
-  const dependencyWorker = new Worker(
-    new URL(
-      import.meta.url.endsWith(".ts") ? "./dependency-worker.ts" : "./dependency-worker.js",
-      import.meta.url,
-    ),
-    { resourceLimits: { maxOldGenerationSizeMb: 512 } },
-  );
-  const dependencyWorkerReady = new Promise<void>((resolve, reject) => {
-    const failDependencyWorker = () => {
-      dependencyWorkerFailed = true;
-      for (const finish of dependencyRequests.values())
-        finish(
-          failure(
-            new ProjectError("unavailable", "IO_FAILURE", "Dependency worker ended unexpectedly."),
-          ),
-        );
-      dependencyRequests.clear();
-    };
-    dependencyWorker.on(
-      "message",
-      (message: { ready?: boolean; requestId?: string; json?: string }) => {
+  let dependencyWorkerReady = Promise.resolve();
+  let dependencyRecovery: Promise<void> | undefined;
+  function createDependencyWorker(): Worker {
+    dependencyWorkerFailed = false;
+    const current = new Worker(
+      new URL(
+        import.meta.url.endsWith(".ts") ? "./dependency-worker.ts" : "./dependency-worker.js",
+        import.meta.url,
+      ),
+      { resourceLimits: { maxOldGenerationSizeMb: 512 } },
+    );
+    dependencyWorkerReady = new Promise<void>((resolve, reject) => {
+      const failDependencyWorker = () => {
+        if (current !== dependencyWorker) return;
+        dependencyWorkerFailed = true;
+        for (const finish of dependencyRequests.values())
+          finish(
+            failure(
+              new ProjectError(
+                "unavailable",
+                "IO_FAILURE",
+                "Dependency worker ended unexpectedly.",
+              ),
+            ),
+          );
+        dependencyRequests.clear();
+      };
+      current.on("message", (message: { ready?: boolean; requestId?: string; json?: string }) => {
         if (message.ready) {
           resolve();
           return;
@@ -231,21 +237,20 @@ export async function startWebServer(
             ),
           );
         }
-      },
-    );
-    dependencyWorker.once("error", (error) => {
-      failDependencyWorker();
-      reject(error);
-    });
-    dependencyWorker.once("exit", () => {
-      if (record.state !== "stopping") {
+      });
+      current.once("error", (error) => {
+        failDependencyWorker();
+        reject(error);
+      });
+      current.once("exit", () => {
         failDependencyWorker();
         reject(new Error("Dependency worker ended before server shutdown."));
-      }
+      });
     });
-    dependencyWorker.on("error", failDependencyWorker);
-  });
-  // The worker is created once per server instance and remains independent from inspection jobs.
+    void dependencyWorkerReady.catch(() => {});
+    return current;
+  }
+  let dependencyWorker = createDependencyWorker();
   let workerFailed = false;
   let workerReady = Promise.resolve();
   function createWorker(): Worker {
@@ -327,6 +332,7 @@ export async function startWebServer(
     selector?: string,
     authoring?: AuthoringRequest,
     query?: QueryOperation,
+    workspaceRead?: WorkspaceRead,
   ): Promise<Result | InspectionResponse> {
     if (jobs.size >= 1)
       return failure(
@@ -343,7 +349,7 @@ export async function startWebServer(
           new ProjectError(
             "unavailable",
             "IO_FAILURE",
-            authoring
+            authoring || query?.action === "save" || query?.action === "remove"
               ? "Resource worker ended unexpectedly. Inspect project files before any new write; do not automatically retry publication."
               : "Inspection worker ended unexpectedly. Retry the read; retained recovery state is never cleared automatically.",
           ),
@@ -371,6 +377,7 @@ export async function startWebServer(
                 command,
                 selector,
                 authoring: authoring ? { ...authoring, instanceId: record.instanceId } : undefined,
+                workspaceRead,
               }),
           warnings: previewWarnings,
         });
@@ -393,11 +400,30 @@ export async function startWebServer(
     session = "",
   ): Promise<Result> {
     try {
+      if (dependencyWorkerFailed) {
+        dependencyRecovery ??= (async () => {
+          await withLock(root, async () => undefined);
+          await dependencyWorker.terminate();
+          if (record.state !== "running")
+            throw new ProjectError(
+              "unavailable",
+              "IO_FAILURE",
+              "Server stopped during dependency worker recovery.",
+            );
+          dependencyWorker = createDependencyWorker();
+          await dependencyWorkerReady;
+        })();
+        try {
+          await dependencyRecovery;
+        } finally {
+          dependencyRecovery = undefined;
+        }
+      }
       await dependencyWorkerReady;
+      if (record.state !== "running")
+        throw new ProjectError("unavailable", "IO_FAILURE", "Server is stopping.");
       if (dependencyWorkerFailed)
-        return failure(
-          new ProjectError("unavailable", "IO_FAILURE", "Dependency worker is unavailable."),
-        );
+        throw new ProjectError("unavailable", "IO_FAILURE", "Dependency worker is unavailable.");
       if (data.operationId) {
         const owner = activeDependencyOperations.get(data.operationId);
         if (owner !== undefined && owner !== session)
@@ -463,7 +489,11 @@ export async function startWebServer(
         server.close((error) => (error ? reject(error) : resolve())),
       );
       server.closeIdleConnections();
-      await Promise.allSettled([...jobs, ...dependencyJobs]);
+      await Promise.allSettled([
+        ...jobs,
+        ...dependencyJobs,
+        ...(dependencyRecovery ? [dependencyRecovery] : []),
+      ]);
       await worker.terminate();
       await dependencyWorker.terminate();
       previewWarnings.push(...(await cleanupPreviews(root, record.instanceId)));
@@ -1254,7 +1284,10 @@ export async function startWebServer(
             );
           respond(
             response,
-            await listViews({ project: root, ...(sources[0] ? { source: sources[0] } : {}) }),
+            await inspect("status", undefined, undefined, undefined, {
+              operation: "views.list",
+              ...(sources[0] ? { source: sources[0] } : {}),
+            }),
           );
           return;
         }
@@ -1310,7 +1343,10 @@ export async function startWebServer(
               "ARGUMENT_INVALID",
               "Design listing takes no query parameters.",
             );
-          respond(response, await listDesigns({ project: root }));
+          respond(
+            response,
+            await inspect("status", undefined, undefined, undefined, { operation: "designs.list" }),
+          );
           return;
         }
         if (request.method === "GET" && url.pathname === "/api/project/v1/design") {
@@ -1321,7 +1357,13 @@ export async function startWebServer(
               "ARGUMENT_INVALID",
               "Design inspection requires one selector.",
             );
-          respond(response, await showDesign({ project: root, selector: selectors[0] ?? "" }));
+          respond(
+            response,
+            await inspect("status", undefined, undefined, undefined, {
+              operation: "designs.show",
+              selector: selectors[0] ?? "",
+            }),
+          );
           return;
         }
         if (request.method === "GET" && url.pathname === "/api/project/v1/view") {
@@ -1332,7 +1374,13 @@ export async function startWebServer(
               "ARGUMENT_INVALID",
               "View inspection requires one selector.",
             );
-          respond(response, await showView({ project: root, selector: selectors[0] ?? "" }));
+          respond(
+            response,
+            await inspect("status", undefined, undefined, undefined, {
+              operation: "views.show",
+              selector: selectors[0] ?? "",
+            }),
+          );
           return;
         }
         const routes: Record<string, InspectionCommand> = {

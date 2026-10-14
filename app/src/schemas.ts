@@ -6,6 +6,16 @@ import { ProjectError } from "./output.ts";
 import { absoluteIri, id, portablePath } from "./paths.ts";
 
 export type Row = Record<string, unknown>;
+
+// TOML tables have null prototypes; editor-built tables may use ordinary objects.
+function tomlValues(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(tomlValues);
+  if (value && typeof value === "object" && !(value instanceof Date))
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, tomlValues(entry)]),
+    );
+  return value;
+}
 export interface ModelType {
   enabled: boolean;
   ontology: string;
@@ -740,14 +750,14 @@ export function editManifestIri(text: string, oldIri: string, newIri: string): s
   });
   const changedText = result.join("");
   const after = parseManifest(changedText);
-  if (!isDeepStrictEqual(after, expected))
+  if (!isDeepStrictEqual(tomlValues(after), tomlValues(expected)))
     throw new ProjectError(
       "invalid",
       "MANIFEST_INVALID",
       "Cannot safely rewrite the exact IRI in every manifest occurrence; no write is permitted.",
       "tbspec.toml",
     );
-  if (!isDeepStrictEqual(before, expected) && !changed)
+  if (!isDeepStrictEqual(tomlValues(before), tomlValues(expected)) && !changed)
     throw new ProjectError(
       "invalid",
       "MANIFEST_INVALID",
@@ -948,7 +958,7 @@ export function editOntologyChoice(
   if (Object.keys(choices).length || before.ontology_choices !== undefined)
     expected.ontology_choices = choices;
   else delete expected.ontology_choices;
-  if (canonical(after) !== canonical(expected))
+  if (!isDeepStrictEqual(tomlValues(after), tomlValues(expected)))
     throw new ProjectError(
       "invalid",
       "MANIFEST_INVALID",
@@ -1051,7 +1061,7 @@ export function editDesignChoice(text: string, conceptIri: string, design?: stri
   if (Object.keys(choices).length || before.design_choices !== undefined)
     expected.design_choices = choices;
   else delete expected.design_choices;
-  if (canonical(after) !== canonical(expected))
+  if (!isDeepStrictEqual(tomlValues(after), tomlValues(expected)))
     throw new ProjectError(
       "invalid",
       "MANIFEST_INVALID",
@@ -1209,7 +1219,7 @@ export function editModelType(text: string, name: string, row?: Row): string {
   const expected = { ...before };
   if (Object.keys(expectedTypes).length) expected.model_types = expectedTypes;
   else delete expected.model_types;
-  if (canonical(after) !== canonical(expected))
+  if (!isDeepStrictEqual(tomlValues(after), tomlValues(expected)))
     throw new ProjectError(
       "invalid",
       "MANIFEST_INVALID",
@@ -1246,12 +1256,12 @@ export function removeModelType(text: string, name: string): string {
   const stop = end < 0 ? lines.length : end;
   const changed = [...lines.slice(0, start), ...lines.slice(stop)].join("");
   const after = parseManifest(changed);
-  const expected = structuredClone(before) as Row;
+  const expected = parseManifest(text);
   const expectedTypes = { ...modelTypes };
   delete expectedTypes[name];
   if (Object.keys(expectedTypes).length) expected.model_types = expectedTypes;
   else Reflect.deleteProperty(expected, "model_types");
-  if (canonical(after) !== canonical(expected))
+  if (!isDeepStrictEqual(tomlValues(after), tomlValues(expected)))
     throw new ProjectError(
       "invalid",
       "MANIFEST_INVALID",
@@ -1264,7 +1274,7 @@ export function removeModelType(text: string, name: string): string {
 /** Rewrite known manifest selectors while preserving comments, unknown keys and line endings. */
 export function editManifestSelectors(text: string, replacements: Record<string, string>): string {
   const before = parseManifest(text);
-  const expected = structuredClone(before) as Row;
+  const expected = parseManifest(text);
   const fieldsByTable: Record<string, string[]> = {
     associations: ["resource", "support"],
     views: ["view", "presentation", "source", "protocol"],
@@ -1323,14 +1333,18 @@ export function editManifestSelectors(text: string, replacements: Record<string,
   const result = rewritten.join("");
   const after = parseManifest(result);
   // Verify exactly the known selector fields changed. Unknown keys and other settings stay intact.
-  if (canonical(after) !== canonical(expected))
+  if (!isDeepStrictEqual(tomlValues(after), tomlValues(expected)))
     throw new ProjectError(
       "invalid",
       "MANIFEST_INVALID",
       "Cannot surgically update every manifest path reference; edit the affected references manually.",
       "tbspec.toml",
     );
-  if (Object.keys(replacements).length && !changed && canonical(before) !== canonical(expected))
+  if (
+    Object.keys(replacements).length &&
+    !changed &&
+    !isDeepStrictEqual(tomlValues(before), tomlValues(expected))
+  )
     throw new ProjectError(
       "invalid",
       "MANIFEST_INVALID",
@@ -1395,7 +1409,7 @@ export function removeDependencyChoices(text: string, dependencyId: string): str
   }
 
   const after = parseManifest(changed);
-  const expected = structuredClone(before) as Row;
+  const expected = parseManifest(text);
   for (const ontologyIri of removedOntologies) delete ontologyChoices[ontologyIri];
   if (Object.keys(ontologyChoices).length || before.ontology_choices !== undefined)
     expected.ontology_choices = ontologyChoices;
@@ -1404,7 +1418,7 @@ export function removeDependencyChoices(text: string, dependencyId: string): str
   if (Object.keys(designChoices).length || before.design_choices !== undefined)
     expected.design_choices = designChoices;
   else delete expected.design_choices;
-  if (canonical(after) !== canonical(expected))
+  if (!isDeepStrictEqual(tomlValues(after), tomlValues(expected)))
     throw new ProjectError(
       "invalid",
       "MANIFEST_INVALID",
@@ -1460,7 +1474,7 @@ export function editManifestView(text: string, view: Row, remove = false): strin
     const expected = Object.assign(Object.create(Object.getPrototypeOf(before)) as Row, before);
     if (expectedViews.length) expected.views = expectedViews;
     else delete expected.views;
-    if (!isDeepStrictEqual(after, expected))
+    if (!isDeepStrictEqual(tomlValues(after), tomlValues(expected)))
       throw new ProjectError(
         "invalid",
         "MANIFEST_INVALID",

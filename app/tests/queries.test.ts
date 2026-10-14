@@ -7,6 +7,122 @@ import { inspectProject } from "../src/inspection.ts";
 import { initializeProject } from "../src/project.ts";
 import { listQueries, queryRemove, queryRun, querySave, showQuery } from "../src/query.ts";
 
+test("saved query listing isolates broken entries and warns for each", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-query-broken-"));
+  await initializeProject({ directory: root });
+  assert.equal(
+    (await querySave({ project: root, name: "healthy", queryText: "ASK {}" })).status,
+    "ok",
+  );
+  await writeFile(join(root, "queries/orphan.rq"), "ASK {}");
+  await writeFile(join(root, "queries/malformed.rq"), "ASK {}");
+  await writeFile(join(root, "queries/malformed.query.toml"), "not valid TOML =");
+  await writeFile(join(root, "queries/invalid name.rq"), "ASK {}");
+  const listed = await listQueries({ project: root });
+  assert.equal(listed.status, "ok", JSON.stringify(listed));
+  assert.deepEqual(
+    listed.data?.items.map((item) => item.name),
+    ["healthy"],
+  );
+  assert.equal(listed.diagnostics.length, 3);
+  assert.ok(listed.diagnostics.every((diagnostic) => diagnostic.severity === "warning"));
+  assert.ok(listed.diagnostics.every((diagnostic) => diagnostic.file?.startsWith("queries/")));
+  const orphan = listed.diagnostics.find((diagnostic) => diagnostic.details?.name === "orphan");
+  assert.ok(orphan, JSON.stringify(listed));
+  const orphanRevisions = orphan?.details?.expectedRevisions as {
+    query: { state: string; digest?: string };
+    parameters: { state: string; digest?: string };
+  };
+  assert.ok(orphanRevisions, JSON.stringify(orphan));
+  assert.equal(orphanRevisions.query.state, "present");
+  assert.match(orphanRevisions.query.digest ?? "", /^sha256:[a-f0-9]{64}$/);
+  assert.deepEqual(orphanRevisions.parameters, { state: "absent" });
+  const malformed = listed.diagnostics.find(
+    (diagnostic) => diagnostic.details?.name === "malformed",
+  );
+  assert.ok(malformed, JSON.stringify(listed));
+  const malformedRevisions = malformed?.details?.expectedRevisions as {
+    query: { state: string };
+    parameters: { state: string };
+  };
+  assert.ok(malformedRevisions, JSON.stringify(malformed));
+  assert.equal(malformedRevisions.query.state, "present");
+  assert.equal(malformedRevisions.parameters.state, "present");
+});
+
+test("saved query removal previews and deletes either orphaned file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-query-orphan-remove-"));
+  await initializeProject({ directory: root });
+  await mkdir(join(root, "queries"), { recursive: true });
+  for (const extension of ["rq", "query.toml"]) {
+    const file = join(root, `queries/orphan.${extension}`);
+    await writeFile(file, "orphaned content");
+    const reviewed = await listQueries({ project: root });
+    const diagnostic = reviewed.diagnostics.find((item) => item.details?.name === "orphan");
+    const expectedRevisions = diagnostic?.details?.expectedRevisions as {
+      query: { state: "absent" } | { state: "present"; digest: string };
+      parameters: { state: "absent" } | { state: "present"; digest: string };
+    };
+    assert.ok(expectedRevisions, JSON.stringify(reviewed));
+    await writeFile(file, "changed after review");
+    const stale = await queryRemove({
+      project: root,
+      name: "orphan",
+      confirm: true,
+      expectedRevisions,
+    });
+    assert.equal(stale.status, "conflict", JSON.stringify(stale));
+    assert.equal(await readFile(file, "utf8"), "changed after review");
+
+    const refreshed = await listQueries({ project: root });
+    const latest = refreshed.diagnostics.find((item) => item.details?.name === "orphan");
+    const latestRevisions = latest?.details?.expectedRevisions as typeof expectedRevisions;
+    assert.ok(latestRevisions, JSON.stringify(refreshed));
+    const preview = await queryRemove({
+      project: root,
+      name: "orphan",
+      expectedRevisions: latestRevisions,
+    });
+    assert.equal(preview.status, "preview", JSON.stringify(preview));
+    assert.equal(await readFile(file, "utf8"), "changed after review");
+    const removed = await queryRemove({
+      project: root,
+      name: "orphan",
+      confirm: true,
+      expectedRevisions: latestRevisions,
+    });
+    assert.equal(removed.status, "ok", JSON.stringify(removed));
+    await assert.rejects(readFile(file), { code: "ENOENT" });
+  }
+  assert.equal(
+    (await queryRemove({ project: root, name: "orphan" })).diagnostics[0]?.code,
+    "RESOURCE_MISSING",
+  );
+});
+
+test("query listing isolates unsafe filenames on POSIX", {
+  skip: process.platform === "win32",
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), "tbspec-query-unsafe-name-"));
+  await initializeProject({ directory: root });
+  await querySave({ project: root, name: "healthy", queryText: "ASK {}" });
+  await writeFile(join(root, "queries/a:b.rq"), "ASK {}");
+
+  const listed = await listQueries({ project: root });
+
+  assert.equal(listed.status, "ok", JSON.stringify(listed));
+  assert.deepEqual(
+    listed.data?.items.map((item) => item.name),
+    ["healthy"],
+  );
+  assert.ok(
+    listed.diagnostics.some(
+      (diagnostic) => diagnostic.code === "PATH_UNSAFE" && diagnostic.file === "queries/a:b.rq",
+    ),
+    JSON.stringify(listed),
+  );
+});
+
 test("saved queries preserve declaration bytes and expose their parsed parameters", async () => {
   const root = await mkdtemp(join(tmpdir(), "tbspec-query-files-"));
   await initializeProject({ directory: root, baseIri: "urn:queries:/" });

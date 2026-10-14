@@ -18,7 +18,7 @@ import {
 import { captureInspection } from "./inspection.ts";
 import { withLock } from "./lock.ts";
 import { dependencyDistances, resolveOntologyCandidates } from "./ontology-resolution.ts";
-import { failure, ok, ProjectError, type Result } from "./output.ts";
+import { type Diagnostic, failure, ok, ProjectError, type Result } from "./output.ts";
 import { absoluteIri, id, portablePath, safePath } from "./paths.ts";
 import { discoverProject } from "./project.ts";
 import { classifyGraph, parseGraph, parseRdf, rdfFormats } from "./rdf.ts";
@@ -400,10 +400,22 @@ async function readQueryDirectory(root: string) {
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     }
-    const paths = names
-      .filter((name) => name.endsWith(".rq") || name.endsWith(".query.toml"))
-      .map((name) => portablePath(`queries/${name}`))
-      .sort(utf8Compare);
+    const warnings: Diagnostic[] = [];
+    const excluded: string[] = [];
+    const paths: string[] = [];
+    for (const name of names.filter(
+      (name) => name.endsWith(".rq") || name.endsWith(".query.toml"),
+    )) {
+      const candidate = `queries/${name}`;
+      try {
+        paths.push(portablePath(candidate));
+      } catch (error) {
+        if (!(error instanceof ProjectError)) throw error;
+        excluded.push(candidate);
+        warnings.push({ ...error.diagnostic, severity: "warning", file: candidate });
+      }
+    }
+    paths.sort(utf8Compare);
     const files: Record<string, Buffer | null> = {};
     const reads = [] as (
       | { kind: "file"; path: string; revision: Revision }
@@ -419,7 +431,7 @@ async function readQueryDirectory(root: string) {
       files[path] = bytes;
       reads.push({ kind: "file", path, revision: revision(bytes) });
     }
-    const scope = { included: ["queries"], excluded: [] };
+    const scope = { included: ["queries"], excluded };
     reads.push({
       kind: "inventory",
       path: "queries",
@@ -427,7 +439,7 @@ async function readQueryDirectory(root: string) {
       scope,
     });
     await verifyReads(root, reads);
-    return { projectRoot: root, files, reads } satisfies Snapshot;
+    return { projectRoot: root, files, reads, warnings };
   });
 }
 
@@ -445,16 +457,36 @@ export async function listQueries(options: {
         : path.slice("queries/".length, -".query.toml".length);
       names.add(name);
     }
-    const items = [...names].sort(utf8Compare).map((name) => {
-      const query = savedQuerySync(snapshot, name);
-      return {
-        name: query.name,
-        queryFile: query.queryFile,
-        parametersFile: query.parametersFile,
-        parameters: query.parameters,
-      };
-    });
-    return ok({ items });
+    const items: SavedQuery[] = [];
+    const diagnostics: Diagnostic[] = [...snapshot.warnings];
+    for (const name of [...names].sort(utf8Compare)) {
+      try {
+        const query = savedQuerySync(snapshot, name);
+        items.push({
+          name: query.name,
+          queryFile: query.queryFile,
+          parametersFile: query.parametersFile,
+          parameters: query.parameters,
+        });
+      } catch (error) {
+        if (!(error instanceof ProjectError)) throw error;
+        const queryFile = `queries/${name}.rq`;
+        const parametersFile = `queries/${name}.query.toml`;
+        const expectedRevisions = {
+          query: revision(snapshot.files[queryFile] ?? null),
+          parameters: revision(snapshot.files[parametersFile] ?? null),
+        };
+        diagnostics.push(
+          ...error.diagnostics.map((diagnostic) => ({
+            ...diagnostic,
+            severity: "warning" as const,
+            file: diagnostic.file ?? `queries/${name}`,
+            details: { ...diagnostic.details, name, expectedRevisions },
+          })),
+        );
+      }
+    }
+    return ok({ items }, diagnostics);
   } catch (error) {
     return failure(error) as Result<{ items: SavedQuery[] }>;
   }
@@ -469,7 +501,7 @@ function savedQuerySync(snapshot: Snapshot, name: string) {
       "invalid",
       "QUERY_FILE_INVALID",
       "Saved query must include both query and declaration files.",
-      files.queryFile,
+      queryBytes ? files.parametersFile : files.queryFile,
     );
   const queryText = decode(queryBytes, files.queryFile);
   const info = queryInfo(queryText);
@@ -586,11 +618,11 @@ export async function queryRemove(options: {
     const root = await discoverProject(options);
     const snapshot = await querySnapshot(root, [files.queryFile, files.parametersFile]);
     assertExpectedRevisions(snapshot, files, options.expectedRevisions);
-    if (!snapshot.files[files.queryFile] || !snapshot.files[files.parametersFile])
+    if (!snapshot.files[files.queryFile] && !snapshot.files[files.parametersFile])
       throw new ProjectError(
         "unavailable",
         "RESOURCE_MISSING",
-        "Saved query files are incomplete.",
+        "Saved query files are unavailable.",
         files.queryFile,
       );
     const plan = preparePlan(
@@ -599,7 +631,7 @@ export async function queryRemove(options: {
       [
         { file: files.queryFile, bytes: null },
         { file: files.parametersFile, bytes: null },
-      ],
+      ].filter((write) => snapshot.files[write.file] !== null),
       { name: files.name },
     );
     if (!options.confirm)

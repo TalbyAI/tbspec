@@ -14,6 +14,7 @@ import {
   listReferences,
   prepareRefactorIri,
   publishRepair,
+  rdfGraphsAreIsomorphic,
   redirectReferences,
   refactorIri,
   removeReferences,
@@ -63,6 +64,39 @@ async function addLockedReference(root: string, target: string) {
   await writeFile(file, bytes);
   await writeFile(join(root, "tbspec.lock"), writeToml(lock));
 }
+
+test("RDF graph isomorphism ignores blank labels but preserves connectivity", async () => {
+  const original = await parseRdf(
+    Buffer.from(
+      "<urn:a> <urn:link> _:leftA .\n" +
+        "<urn:b> <urn:link> _:leftB .\n" +
+        "_:leftA <urn:next> _:leftB .\n",
+    ),
+    "text/turtle",
+    "urn:isomorphism:test",
+  );
+  const relabeled = await parseRdf(
+    Buffer.from(
+      "<urn:b> <urn:link> _:rightB .\n" +
+        "<urn:a> <urn:link> _:rightA .\n" +
+        "_:rightA <urn:next> _:rightB .\n",
+    ),
+    "text/turtle",
+    "urn:isomorphism:test",
+  );
+  const reversed = await parseRdf(
+    Buffer.from(
+      "<urn:a> <urn:link> _:otherA .\n" +
+        "<urn:b> <urn:link> _:otherB .\n" +
+        "_:otherB <urn:next> _:otherA .\n",
+    ),
+    "text/turtle",
+    "urn:isomorphism:test",
+  );
+
+  assert.equal(rdfGraphsAreIsomorphic(original, relabeled), true);
+  assert.equal(rdfGraphsAreIsomorphic(original, reversed), false);
+});
 
 test("reference inspection separates exact occurrences from demonstrably dangling managed uses", async () => {
   const root = await project();
@@ -436,6 +470,40 @@ test("RDF/XML refactoring preserves QName predicates, blank nodes, language and 
     pathToFileURL(join(root, "other.owl")).href,
   );
   assert.equal(owl.getObjects("urn:repair:owl", "urn:repair:link", null)[0]?.value, newIri);
+});
+
+test("RDF/XML refactoring accepts blank-node label changes after serialization", async () => {
+  const root = await project();
+  const oldIri = "urn:repair:old";
+  const newIri = "urn:repair:new";
+  const source =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:r="urn:repair:">\n' +
+    '  <rdf:Description rdf:about="urn:z"><r:link rdf:nodeID="blankZ"/></rdf:Description>\n' +
+    '  <rdf:Description rdf:about="urn:a"><r:link rdf:nodeID="blankA"/></rdf:Description>\n' +
+    `  <rdf:Description rdf:about="${oldIri}"><rdf:type rdf:resource="http://www.w3.org/2002/07/owl#Ontology"/></rdf:Description>\n` +
+    "</rdf:RDF>\n";
+  await writeFile(join(root, "vocabulary.rdf"), source);
+
+  const preview = await refactorIri({ project: root, oldIri, newIri });
+  assert.equal(preview.status, "preview", JSON.stringify(preview));
+  assert.ok(preview.data);
+  const applied = await refactorIri({
+    project: root,
+    oldIri,
+    newIri,
+    apply: true,
+    acceptedPreview: previewFingerprint(preview),
+  });
+  assert.equal(applied.status, "ok", JSON.stringify(applied));
+  const rewritten = await parseRdf(
+    await readFile(join(root, "vocabulary.rdf")),
+    "application/rdf+xml",
+    pathToFileURL(join(root, "vocabulary.rdf")).href,
+  );
+  assert.ok(
+    rewritten.getQuads(null, null, null, null).some((quad) => quad.subject.value === newIri),
+  );
 });
 
 test("redirect scopes selected files and all; removal deletes only managed statements", async () => {

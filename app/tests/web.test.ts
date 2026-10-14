@@ -141,6 +141,21 @@ test("authenticated HTTP exposes saved query lifecycle and execution", {
     "ok",
   );
   assert.deepEqual((await request("queries")).envelope.data.items, []);
+  const orphanPath = join(root, "queries/orphan.rq");
+  await writeFile(orphanPath, "ASK {}");
+  const inventory = await request("queries");
+  assert.equal(inventory.status, 200);
+  const orphan = inventory.envelope.diagnostics.find(
+    (diagnostic: { details?: { name?: string } }) => diagnostic.details?.name === "orphan",
+  );
+  assert.ok(orphan?.details?.expectedRevisions, JSON.stringify(inventory));
+  const removal = { name: "orphan", expectedRevisions: orphan.details.expectedRevisions };
+  assert.equal((await request("query/remove", removal)).envelope.status, "preview");
+  assert.equal(
+    (await request("query/remove", { ...removal, confirm: true })).envelope.status,
+    "ok",
+  );
+  await assert.rejects(readFile(orphanPath), { code: "ENOENT" });
 });
 
 test("authenticated HTTP stages, applies, lists and shows an acquired directory dependency", {
@@ -659,12 +674,13 @@ test("runtime startup preserves shared read access outside its private directory
   assert.deepEqual(await permissions(), before);
 });
 
-test("a failed inspection worker recovers without restarting sessions or clearing retained locks", {
-  timeout: 30000,
-}, async () => {
-  const root = await privateDirectory(join(tmpdir(), "tbspec-web-worker-recovery-"));
-  await initializeProject({ directory: root });
-  const script = `
+for (const workerKind of ["inspection", "dependency"]) {
+  test(`a failed ${workerKind} worker recovers without restarting sessions or clearing retained locks`, {
+    timeout: 30000,
+  }, async () => {
+    const root = await privateDirectory(join(tmpdir(), "tbspec-web-worker-recovery-"));
+    await initializeProject({ directory: root });
+    const script = `
     import assert from "node:assert/strict";
     import { mkdir, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
     import { syncBuiltinESMExports } from "node:module";
@@ -676,7 +692,7 @@ test("a failed inspection worker recovers without restarting sessions or clearin
     let injectedInspectionFailure = false;
     threads.Worker = class extends OriginalWorker {
       constructor(...args) {
-        if (String(args[0]).includes("/inspection-worker.") && !injectedInspectionFailure) {
+        if (String(args[0]).includes(${JSON.stringify(`/${workerKind}-worker.`)}) && !injectedInspectionFailure) {
           injectedInspectionFailure = true;
           super('const { parentPort } = require("node:worker_threads"); parentPort.postMessage({ready: true}); parentPort.on("message", () => { throw new Error("Inspection failure"); });', { eval: true, execArgv: [] });
         } else super(args[0], { ...args[1], execArgv: [] });
@@ -700,7 +716,7 @@ test("a failed inspection worker recovers without restarting sessions or clearin
       const staging = join(root, ".tbspec/previews", server.record.instanceId, ${JSON.stringify("A".repeat(43))});
       await mkdir(staging, { recursive: true });
       await writeFile(join(staging, "staged-0"), "abandoned preview");
-      const inspect = async () => (await fetch(new URL("api/project/v1/config", server.record.baseUrl), { headers })).json();
+      const inspect = async () => (await fetch(new URL(${JSON.stringify(`api/project/v1/${workerKind === "inspection" ? "config" : "dependencies"}`)}, server.record.baseUrl), { headers })).json();
       assert.equal((await inspect()).status, "unavailable");
       assert.equal(injectedInspectionFailure, true);
       assert.equal((await controlRequest(server.record, "status")).state, "running");
@@ -722,19 +738,146 @@ test("a failed inspection worker recovers without restarting sessions or clearin
       await rmdir(recovery);
       const recovered = await inspect();
       assert.equal(recovered.status, "ok", JSON.stringify(recovered));
-      await assert.rejects(readFile(join(staging, "staged-0")), { code: "ENOENT" });
+      ${workerKind === "inspection" ? 'await assert.rejects(readFile(join(staging, "staged-0")), { code: "ENOENT" });' : 'assert.equal(await readFile(join(staging, "staged-0"), "utf8"), "abandoned preview");'}
       assert.equal(await readFile(registration, "utf8"), original);
+    } finally { await server.stop(); }
+  `;
+    await promisify(execFile)(
+      process.execPath,
+      ["--input-type=module", "--eval", script, await realpath(root)],
+      {
+        timeout: 25000,
+        windowsHide: true,
+      },
+    );
+  });
+}
+
+test("view and design reads use the inspection worker and its capacity guard", {
+  timeout: 30000,
+}, async () => {
+  const root = await privateDirectory(join(tmpdir(), "tbspec-web-view-worker-"));
+  await initializeProject({ directory: root });
+  const script = `
+    import assert from "node:assert/strict";
+    import { syncBuiltinESMExports } from "node:module";
+    import threads from "node:worker_threads";
+    import { startWebServer } from ${JSON.stringify(new URL("../src/server.ts", import.meta.url).href)};
+    import { controlRequest } from ${JSON.stringify(new URL("../src/web.ts", import.meta.url).href)};
+    const OriginalWorker = threads.Worker;
+    threads.Worker = class extends OriginalWorker {
+      constructor(...args) {
+        if (String(args[0]).includes("/inspection-worker.")) {
+          super('const { parentPort } = require("node:worker_threads"); parentPort.postMessage({ready:true}); parentPort.on("message", (request) => setTimeout(() => parentPort.postMessage({status:"ok",json:JSON.stringify({schemaVersion:1,status:"ok",data:{workerRead:request.workspaceRead},diagnostics:[]})}), 250));', { eval: true, execArgv: [] });
+        } else super(args[0], { ...args[1], execArgv: [] });
+      }
+    };
+    syncBuiltinESMExports();
+    const server = await startWebServer(process.argv[1]);
+    try {
+      const link = await controlRequest(server.record, "opening-link", {});
+      const bootstrap = new URL(link.openingLink).hash.slice("#tbspec-bootstrap=".length);
+      const exchanged = await fetch(new URL("api/auth/v1/bootstrap", server.record.baseUrl), {
+        method:"POST", headers:{Origin:new URL(server.record.baseUrl).origin,"Content-Type":"application/json"},
+        body:JSON.stringify({protocolVersion:1,bootstrap}),
+      });
+      const session = (await exchanged.json()).data.sessionToken;
+      const headers = {Authorization:"Bearer " + session,"X-Tbspec-Schema-Version":"1"};
+      const read = async (route) => (await fetch(new URL("api/project/v1/" + route, server.record.baseUrl), {headers})).json();
+      for (const [route, operation] of [["views", "views.list"],["view?selector=view.ttl","views.show"],["designs","designs.list"],["design?selector=design.ttl","designs.show"]]) {
+        const first = read(route);
+        const busy = await read(route);
+        assert.equal(busy.diagnostics[0]?.code,"PROJECT_BUSY",JSON.stringify(busy));
+        assert.equal((await controlRequest(server.record,"status")).state,"running");
+        const completed = await first;
+        assert.equal(completed.data.workerRead.operation,operation,JSON.stringify(completed));
+      }
     } finally { await server.stop(); }
   `;
   await promisify(execFile)(
     process.execPath,
     ["--input-type=module", "--eval", script, await realpath(root)],
-    {
-      timeout: 25000,
-      windowsHide: true,
-    },
+    { timeout: 25000, windowsHide: true },
   );
 });
+
+for (const scenario of ["failure-during-stop", "recovery-during-stop"]) {
+  test(`dependency worker shutdown settles ${scenario}`, { timeout: 30000 }, async () => {
+    const root = await privateDirectory(join(tmpdir(), "tbspec-web-dependency-stop-"));
+    await initializeProject({ directory: root });
+    const script = `
+    import assert from "node:assert/strict";
+    import { readFile } from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    import { join } from "node:path";
+    import threads from "node:worker_threads";
+    import { startWebServer } from ${JSON.stringify(new URL("../src/server.ts", import.meta.url).href)};
+    import { controlRequest } from ${JSON.stringify(new URL("../src/web.ts", import.meta.url).href)};
+    const root = process.argv[1];
+    const scenario = ${JSON.stringify(scenario)};
+    const OriginalWorker = threads.Worker;
+    let created = 0, notifyPosted, notifyRecovery, releaseRecovery;
+    const posted = new Promise(resolve => {notifyPosted=resolve});
+    const recoveryStarted = new Promise(resolve => {notifyRecovery=resolve});
+    const recoveryGate = new Promise(resolve => {releaseRecovery=resolve});
+    threads.Worker = class extends OriginalWorker {
+      constructor(...args) {
+        if (String(args[0]).includes("/dependency-worker.") && created++ === 0) {
+          const code = scenario === "failure-during-stop"
+            ? 'const {parentPort,workerData}=require("node:worker_threads");const fs=require("node:fs");parentPort.postMessage({ready:true});parentPort.once("message",()=>setInterval(()=>{if(JSON.parse(fs.readFileSync(workerData,"utf8")).state==="stopping")throw new Error("shutdown failure");},10));'
+            : 'const {parentPort}=require("node:worker_threads");parentPort.postMessage({ready:true});parentPort.once("message",()=>{throw new Error("recovery failure")});';
+          super(code, {eval:true,execArgv:[],workerData:join(root,".tbspec/runtime/web.json")});
+          this.injected = true;
+        } else super(args[0], {...args[1],execArgv:[]});
+      }
+      postMessage(message) {super.postMessage(message);if(this.injected)notifyPosted();}
+      terminate() {
+        if(this.injected && scenario === "recovery-during-stop") {
+          notifyRecovery();
+          return recoveryGate.then(()=>super.terminate());
+        }
+        return super.terminate();
+      }
+    };
+    syncBuiltinESMExports();
+    const server = await startWebServer(root);
+    try {
+      const link = await controlRequest(server.record,"opening-link",{});
+      const bootstrap = new URL(link.openingLink).hash.slice("#tbspec-bootstrap=".length);
+      const exchanged = await fetch(new URL("api/auth/v1/bootstrap",server.record.baseUrl),{
+        method:"POST",headers:{Origin:new URL(server.record.baseUrl).origin,"Content-Type":"application/json"},
+        body:JSON.stringify({protocolVersion:1,bootstrap}),
+      });
+      const session = (await exchanged.json()).data.sessionToken;
+      const read = async () => (await fetch(new URL("api/project/v1/dependencies",server.record.baseUrl),{
+        headers:{Authorization:"Bearer "+session,"X-Tbspec-Schema-Version":"1"},
+      })).json();
+      const first = read();
+      await posted;
+      let pending = first;
+      if(scenario === "recovery-during-stop") {
+        assert.equal((await first).status,"unavailable");
+        pending=read();
+        await recoveryStarted;
+      }
+      const stopping = server.stop();
+      if(scenario === "recovery-during-stop") {
+        while(JSON.parse(await readFile(join(root,".tbspec/runtime/web.json"),"utf8")).state!=="stopping")
+          await new Promise(resolve=>setTimeout(resolve,10));
+        releaseRecovery();
+      }
+      assert.equal((await pending).status,"unavailable");
+      await stopping;
+      assert.equal(created,1,"shutdown must not create a replacement worker");
+    } finally {releaseRecovery();await server.stop();}
+  `;
+    await promisify(execFile)(
+      process.execPath,
+      ["--input-type=module", "--eval", script, await realpath(root)],
+      { timeout: 25000, windowsHide: true },
+    );
+  });
+}
 
 test("shared writable runtime parents fail ownership without replacing registration", {
   timeout: 30000,

@@ -21,7 +21,7 @@ import {
 import { inspectProject } from "../src/inspection.ts";
 import { initializeProject } from "../src/project.ts";
 import { queryRun } from "../src/query.ts";
-import { interpretationSignature, parseLock, writeToml } from "../src/schemas.ts";
+import { interpretationSignature, parseLock, parseManifest, writeToml } from "../src/schemas.ts";
 import { starterDirectory } from "../src/starters.ts";
 
 test("directory acquisition previews a selected import closure and publishes only after a matching fingerprint", async () => {
@@ -973,4 +973,304 @@ test("acquiring a source-project model retains its source bindings and locked sn
     ),
     inheritedBytes,
   );
+});
+
+test("acquired locked source selections remain resolvable for checks and updates", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "tbspec-dependency-locked-source-record-"));
+  const source = join(parent, "source-project");
+  const consumer = join(parent, "consumer");
+  const left = join(parent, "left");
+  const right = join(parent, "right");
+  await mkdir(left);
+  await mkdir(right);
+  assert.equal((await initializeProject({ directory: source })).status, "ok");
+  assert.equal((await initializeProject({ directory: consumer })).status, "ok");
+  for (const [directory, id, graphIri] of [
+    [left, "left-source", "urn:source-record:left"],
+    [right, "right-source", "urn:source-record:right"],
+  ] as const) {
+    await writeFile(
+      join(directory, "shared.ttl"),
+      `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<${graphIri}> a owl:Ontology .\n`,
+    );
+    const sourcePreview = await dependencyAdd({
+      project: source,
+      source: directory,
+      id,
+      kind: "ontology",
+      resource: "shared.ttl",
+    });
+    assert.equal(sourcePreview.status, "conflict", JSON.stringify(sourcePreview));
+    assert.ok(sourcePreview.data);
+    const sourceAdded = await dependencyAdd({
+      project: source,
+      source: directory,
+      id,
+      kind: "ontology",
+      resource: "shared.ttl",
+      acceptedPreview: (sourcePreview.data.preview as { fingerprint: string }).fingerprint,
+    });
+    assert.equal(sourceAdded.status, "ok", JSON.stringify(sourceAdded));
+  }
+  const sourceLock = parseLock(await readFile(join(source, "tbspec.lock"), "utf8"));
+  const upstream = sourceLock.dependencies["right-source"];
+  assert.ok(upstream);
+  const ontology = upstream.files.find((file) => file.source_resource === "shared.ttl");
+  assert.ok(ontology);
+  const resource = `dep:right-source/${ontology.key}`;
+
+  const preview = await dependencyAdd({
+    project: consumer,
+    source,
+    id: "selected-source",
+    kind: "ontology",
+    resource,
+  });
+  assert.equal(preview.status, "conflict", JSON.stringify(preview));
+  assert.ok(preview.data);
+  const added = await dependencyAdd({
+    project: consumer,
+    source,
+    id: "selected-source",
+    kind: "ontology",
+    resource,
+    acceptedPreview: (preview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(added.status, "ok", JSON.stringify(added));
+
+  const checked = await dependencyCheck({ project: consumer, id: "selected-source" });
+  assert.equal(checked.status, "ok", JSON.stringify(checked));
+  assert.ok(checked.data);
+  assert.equal(
+    (checked.data.items as { state: string }[])[0]?.state,
+    "unchanged",
+    JSON.stringify(checked),
+  );
+  const updated = await dependencyUpdate({ project: consumer, id: "selected-source" });
+  assert.equal(updated.status, "preview", JSON.stringify(updated));
+  const updatedDependency = updated.data?.dependency as
+    | { primary: string; files: { key: string; graph_iri: string }[] }
+    | undefined;
+  assert.ok(updatedDependency);
+  assert.equal(
+    updatedDependency.files.find((file) => file.key === updatedDependency.primary)?.graph_iri,
+    "urn:source-record:right",
+  );
+});
+
+test("disabling model creation preserves bindings for an existing source model", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "tbspec-dependency-disabled-model-"));
+  const source = join(parent, "source-project");
+  const consumer = join(parent, "consumer");
+  assert.equal(
+    (await initializeProject({ directory: source, baseIri: "urn:disabled-model:/" })).status,
+    "ok",
+  );
+  assert.equal((await initializeProject({ directory: consumer })).status, "ok");
+  const created = await authorResource({
+    project: source,
+    command: "model.create",
+    path: "models/process.ttl",
+    type: "process",
+  });
+  assert.equal(created.status, "ok", JSON.stringify(created));
+  const manifest = parseManifest(await readFile(join(source, "tbspec.toml"), "utf8"));
+  const modelTypes = manifest.model_types as Record<string, { enabled?: boolean }>;
+  assert.ok(modelTypes.process);
+  modelTypes.process.enabled = false;
+  await writeFile(join(source, "tbspec.toml"), writeToml(manifest));
+
+  const preview = await dependencyAdd({
+    project: consumer,
+    source,
+    id: "existing-process",
+    kind: "model",
+    resource: "models/process.ttl",
+  });
+  assert.equal(preview.status, "conflict", JSON.stringify(preview));
+  assert.ok(preview.data);
+  const added = await dependencyAdd({
+    project: consumer,
+    source,
+    id: "existing-process",
+    kind: "model",
+    resource: "models/process.ttl",
+    acceptedPreview: (preview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(added.status, "ok", JSON.stringify(added));
+  const lock = parseLock(await readFile(join(consumer, "tbspec.lock"), "utf8"));
+  assert.ok(
+    (
+      (lock.dependencies["existing-process"]?.bindings ?? []) as {
+        model_type?: string;
+        ontologies?: string[];
+      }[]
+    ).some((binding) => binding.model_type === "process" && (binding.ontologies?.length ?? 0) > 0),
+  );
+});
+
+test("source ontology choices resolve reachable transitive files in the chosen dependency", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "tbspec-dependency-transitive-choice-"));
+  const sourceProject = join(parent, "source-project");
+  const left = join(parent, "left");
+  const right = join(parent, "right");
+  const consumer = join(parent, "consumer");
+  await mkdir(left);
+  await mkdir(right);
+  assert.equal((await initializeProject({ directory: sourceProject })).status, "ok");
+  assert.equal((await initializeProject({ directory: consumer })).status, "ok");
+  const sharedIri = "https://example.org/transitive-choice/shared";
+  for (const [directory, value] of [
+    [left, "left"],
+    [right, "right"],
+  ] as const) {
+    await writeFile(
+      join(directory, "primary.ttl"),
+      `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<urn:transitive-choice:${value}> a owl:Ontology; owl:imports <${sharedIri}> .\n`,
+    );
+    await writeFile(
+      join(directory, "shared.ttl"),
+      `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<${sharedIri}> a owl:Ontology; <urn:transitive-choice:value> "${value}" .\n`,
+    );
+  }
+  for (const [directory, id] of [
+    [left, "left-source"],
+    [right, "right-source"],
+  ] as const) {
+    const preview = await dependencyAdd({
+      project: sourceProject,
+      source: directory,
+      id,
+      kind: "ontology",
+      resource: "primary.ttl",
+    });
+    assert.equal(preview.status, "conflict", JSON.stringify(preview));
+    assert.ok(preview.data);
+    const added = await dependencyAdd({
+      project: sourceProject,
+      source: directory,
+      id,
+      kind: "ontology",
+      resource: "primary.ttl",
+      acceptedPreview: (preview.data.preview as { fingerprint: string }).fingerprint,
+    });
+    assert.equal(added.status, "ok", JSON.stringify(added));
+  }
+  const selected = await dependencySelect({
+    project: sourceProject,
+    ontologyIri: sharedIri,
+    id: "right-source",
+  });
+  assert.equal(selected.status, "ok", JSON.stringify(selected));
+  await writeFile(
+    join(sourceProject, "catalog.ttl"),
+    `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<urn:transitive-choice:catalog> a owl:Ontology; owl:imports <${sharedIri}> .\n`,
+  );
+
+  const preview = await dependencyAdd({
+    project: consumer,
+    source: sourceProject,
+    id: "catalog-acquired",
+    kind: "ontology",
+    resource: "catalog.ttl",
+  });
+  assert.equal(preview.status, "conflict", JSON.stringify(preview));
+  assert.ok(preview.data);
+  const added = await dependencyAdd({
+    project: consumer,
+    source: sourceProject,
+    id: "catalog-acquired",
+    kind: "ontology",
+    resource: "catalog.ttl",
+    acceptedPreview: (preview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(added.status, "ok", JSON.stringify(added));
+
+  const lock = parseLock(await readFile(join(consumer, "tbspec.lock"), "utf8"));
+  const acquired = lock.dependencies["catalog-acquired"];
+  assert.ok(acquired);
+  const selectedKey = "source/locked/right-source/source/shared.ttl";
+  assert.ok(acquired.files.some((file) => file.key === selectedKey));
+  assert.ok(
+    acquired.edges.some(
+      (edge) =>
+        edge.from === acquired.primary && edge.relation === "import" && edge.to === selectedKey,
+    ),
+  );
+  assert.match(
+    await readFile(join(consumer, acquired.snapshot_path, selectedKey), "utf8"),
+    /"right"/,
+  );
+
+  const sourceLockPath = join(sourceProject, "tbspec.lock");
+  const sourceLock = parseLock(await readFile(sourceLockPath, "utf8"));
+  const chosenDependency = sourceLock.dependencies["right-source"];
+  assert.ok(chosenDependency);
+  const chosenPrimary = chosenDependency.files.find(
+    (file) => file.key === chosenDependency.primary,
+  );
+  const chosenOntology = chosenDependency.files.find(
+    (file) => file.source_resource === "shared.ttl",
+  );
+  assert.ok(chosenPrimary);
+  assert.ok(chosenOntology);
+  const alternateBytes = Buffer.from(
+    `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<${sharedIri}> a owl:Ontology; <urn:transitive-choice:value> "right alternate" .\n`,
+  );
+  const alternate = {
+    ...chosenOntology,
+    key: "source/shared-alternate.ttl",
+    source_resource: "shared-alternate.ttl",
+    roles: ["closure"],
+    byte_digest: digest(alternateBytes),
+    byte_length: alternateBytes.length,
+    base_iri: pathToFileURL(join(right, "shared-alternate.ttl")).href,
+  };
+  alternate.graph_signature = graphSignature(alternate);
+  chosenDependency.files.push(alternate);
+  chosenDependency.edges.push({
+    context: chosenPrimary.context,
+    from: chosenPrimary.key,
+    relation: "import",
+    to: alternate.key,
+  });
+  chosenDependency.interpretation_signature = interpretationSignature(chosenDependency);
+  const ambiguousSourceLock = writeToml(sourceLock);
+  assert.doesNotThrow(() => parseLock(ambiguousSourceLock));
+  await writeFile(
+    join(sourceProject, chosenDependency.snapshot_path, alternate.key),
+    alternateBytes,
+  );
+  await writeFile(sourceLockPath, ambiguousSourceLock);
+
+  const ambiguousConsumer = join(parent, "ambiguous-consumer");
+  assert.equal((await initializeProject({ directory: ambiguousConsumer })).status, "ok");
+  const unresolved = await dependencyAdd({
+    project: ambiguousConsumer,
+    source: sourceProject,
+    id: "catalog-ambiguous",
+    kind: "ontology",
+    resource: "catalog.ttl",
+  });
+  assert.equal(unresolved.status, "conflict", JSON.stringify(unresolved));
+  assert.ok(
+    unresolved.diagnostics.some((diagnostic) => diagnostic.code === "DEPENDENCY_IRI_UNRESOLVED"),
+    JSON.stringify(unresolved.diagnostics),
+  );
+  const unresolvedDependency = unresolved.data?.dependency as
+    | {
+        primary: string;
+        files: { key: string }[];
+        edges: { from: string; to?: string; target_iri?: string }[];
+      }
+    | undefined;
+  assert.ok(unresolvedDependency);
+  assert.ok(
+    !unresolvedDependency.files.some((file) => file.key.includes("right-source/source/shared")),
+  );
+  const unresolvedImport = unresolvedDependency.edges.find(
+    (edge) => edge.from === unresolvedDependency.primary && edge.target_iri === sharedIri,
+  );
+  assert.ok(unresolvedImport, JSON.stringify(unresolvedDependency.edges));
+  assert.equal(unresolvedImport.to, undefined);
 });

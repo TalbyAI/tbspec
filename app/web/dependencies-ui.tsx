@@ -145,6 +145,22 @@ export function DependenciesPanel({ session, onApplied }: Props) {
     path: "inspect" | "add" | "update" | "rename" | "remove" | "support/set" | "support/clear",
     body: Record<string, unknown>,
   ) {
+    const previousHandle = typeof preview?.handle === "string" ? preview.handle : undefined;
+    if (previousHandle) {
+      setBusy(true);
+      setError("");
+      try {
+        await send("dependencies/cancel", { handle: previousHandle });
+      } catch (problem) {
+        setError(
+          problem instanceof Error
+            ? problem.message
+            : "The previous dependency preview could not be cancelled.",
+        );
+        setBusy(false);
+        return;
+      }
+    }
     const operation = operationId();
     const controller = new AbortController();
     activeOperation.current = operation;

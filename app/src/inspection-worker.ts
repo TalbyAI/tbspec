@@ -12,6 +12,7 @@ import {
   prepareModelTypeConfiguration,
   publishModelTypeConfiguration,
 } from "./configuration.ts";
+import { listDesigns, showDesign } from "./designs.ts";
 import {
   type EditingOptions,
   type ElementDeletionOptions,
@@ -41,7 +42,13 @@ import {
   publishResourceLifecycle,
 } from "./resource-lifecycle.ts";
 import { secureRuntimeDirectory } from "./runtime.ts";
-import { prepareEditWithViews, type ViewOptions } from "./views.ts";
+import { listViews, prepareEditWithViews, showView, type ViewOptions } from "./views.ts";
+
+export type WorkspaceRead =
+  | { operation: "views.list"; source?: string }
+  | { operation: "views.show"; selector: string }
+  | { operation: "designs.list" }
+  | { operation: "designs.show"; selector: string };
 
 export interface InspectionResponse {
   status: Result["status"];
@@ -86,6 +93,7 @@ interface StoredPreview {
 type WorkerRequest =
   | (Parameters<typeof inspectProject>[0] & {
       authoring?: AuthoringRequest;
+      workspaceRead?: WorkspaceRead;
       warnings?: Diagnostic[];
     })
   | { project: string; query: QueryOperation; warnings?: Diagnostic[] };
@@ -109,7 +117,23 @@ async function handle(request: WorkerRequest) {
     const authoring = "authoring" in request ? request.authoring : undefined;
     if ("query" in request)
       result = await queryOperation({ project: request.project, operation: request.query });
-    else if (!authoring) result = await inspectProject(request);
+    else if ("workspaceRead" in request && request.workspaceRead) {
+      const read = request.workspaceRead;
+      switch (read.operation) {
+        case "views.list":
+          result = await listViews({ project: request.project, source: read.source });
+          break;
+        case "views.show":
+          result = await showView({ project: request.project, selector: read.selector });
+          break;
+        case "designs.list":
+          result = await listDesigns({ project: request.project });
+          break;
+        case "designs.show":
+          result = await showDesign({ project: request.project, selector: read.selector });
+          break;
+      }
+    } else if (!authoring) result = await inspectProject(request);
     else if (authoring.impact) {
       result = await inspectImpact({
         project: request.project,

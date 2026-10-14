@@ -4,11 +4,13 @@ import { mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { authorResource } from "../src/authoring.ts";
 import { digest, graphSignature } from "../src/canonical.ts";
 import { configureModelType } from "../src/configuration.ts";
 import type { FileSystem } from "../src/filesystem.ts";
 import { initializeProject, inspectRecovery } from "../src/project.ts";
+import { parseRdf } from "../src/rdf.ts";
 import {
   inspectImpact,
   moveResource,
@@ -101,6 +103,44 @@ test("impact discloses every known IRI occurrence, including ordinary values and
   assert.ok((impact.data.affectedFiles as string[]).includes("data.ttl"));
 });
 
+test("impact and removal preview report incomplete reference coverage", async () => {
+  const root = await project();
+  await authorResource({
+    project: root,
+    command: "ontology.create",
+    path: "vocabulary.ttl",
+    iri: "urn:owned:vocabulary",
+  });
+  await writeFile(join(root, "broken.ttl"), "<urn:broken> <urn:predicate> [ .\n");
+
+  const impact = await inspectImpact({
+    project: root,
+    kind: "ontology",
+    selector: "vocabulary.ttl",
+  });
+  assert.ok(
+    impact.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.code === "REFERENCE_COVERAGE_INCOMPLETE" && diagnostic.file === "broken.ttl",
+    ),
+    JSON.stringify(impact),
+  );
+
+  const removal = await removeResource({
+    project: root,
+    kind: "ontology",
+    selector: "vocabulary.ttl",
+  });
+  assert.equal(removal.status, "preview", JSON.stringify(removal));
+  assert.ok(
+    removal.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.code === "REFERENCE_COVERAGE_INCOMPLETE" && diagnostic.file === "broken.ttl",
+    ),
+    JSON.stringify(removal),
+  );
+});
+
 test("resource removal previews exact scope, requires confirmation, and retains incoming triples", async () => {
   const root = await project();
   await authorResource({
@@ -181,6 +221,179 @@ test("moving a declared graph also moves convention-linked shapes and rewrites s
   assert.ok(
     (applied.data.changes as { action: string }[]).some((change) => change.action === "move"),
   );
+});
+
+test("moves preserve N-Triples bytes and Turtle text while retaining the source base", async () => {
+  const root = await project();
+  const ntBytes = Buffer.from(
+    "# keep this comment\r\n<urn:move:subject>  <urn:move:predicate> <urn:move:object> .\r\n",
+  );
+  await writeFile(join(root, "source.nt"), ntBytes);
+  const ntPreview = await moveResource({
+    project: root,
+    selector: "source.nt",
+    destination: "archive/source.nt",
+  });
+  assert.equal(ntPreview.status, "preview", JSON.stringify(ntPreview));
+  assert.ok(ntPreview.data);
+  const ntMoved = await moveResource({
+    project: root,
+    selector: "source.nt",
+    destination: "archive/source.nt",
+    apply: true,
+    acceptedPreview: (ntPreview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(ntMoved.status, "ok", JSON.stringify(ntMoved));
+  assert.deepEqual(await readFile(join(root, "archive", "source.nt")), ntBytes);
+
+  const turtleText =
+    "# retain authored formatting\r\n" +
+    "@prefix ex: <urn:move:> .\r\n" +
+    "@base <../relative-base/> .\r\n" +
+    "<subject> ex:predicate <object> .\r\n";
+  const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+  const turtleBytes = Buffer.concat([bom, Buffer.from(turtleText)]);
+  await writeFile(join(root, "source.ttl"), turtleBytes);
+  const sourceGraph = await parseRdf(
+    turtleBytes,
+    "text/turtle",
+    pathToFileURL(join(root, "source.ttl")).href,
+  );
+  const turtlePreview = await moveResource({
+    project: root,
+    selector: "source.ttl",
+    destination: "archive/source.ttl",
+  });
+  assert.equal(turtlePreview.status, "preview", JSON.stringify(turtlePreview));
+  assert.ok(turtlePreview.data);
+  const turtleMoved = await moveResource({
+    project: root,
+    selector: "source.ttl",
+    destination: "archive/source.ttl",
+    apply: true,
+    acceptedPreview: (turtlePreview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(turtleMoved.status, "ok", JSON.stringify(turtleMoved));
+  const movedBytes = await readFile(join(root, "archive", "source.ttl"));
+  assert.deepEqual(movedBytes.subarray(0, bom.length), bom);
+  assert.deepEqual(
+    movedBytes.subarray(
+      bom.length +
+        Buffer.byteLength(`@base <${pathToFileURL(join(root, "source.ttl")).href}> .\r\n`),
+    ),
+    turtleBytes.subarray(bom.length),
+  );
+  const movedText = new TextDecoder().decode(movedBytes);
+  assert.ok(movedText.startsWith(`@base <${pathToFileURL(join(root, "source.ttl")).href}> .\r\n`));
+  const movedGraph = await parseRdf(
+    movedBytes,
+    "text/turtle",
+    pathToFileURL(join(root, "archive", "source.ttl")).href,
+  );
+  const terms = (store: typeof sourceGraph) =>
+    store
+      .getQuads(null, null, null, null)
+      .map((item) => [item.subject.value, item.predicate.value, item.object.value].join("\u0000"))
+      .sort();
+  assert.deepEqual(terms(movedGraph), terms(sourceGraph));
+});
+
+test("RDF/XML moves find the real root and decode an existing xml:base", async () => {
+  const root = await project();
+  const sourcePath = join(root, "source.rdf");
+  const destinationPath = join(root, "archive", "source.rdf");
+  const sourceText =
+    '<?xml version="1.0"?>\r\n' +
+    "<!-- an example root: <rdf:RDF> -->\r\n" +
+    '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" ' +
+    'xml:base="relative/&amp;escaped/">\r\n' +
+    '  <rdf:Description rdf:about="ontology">\r\n' +
+    `    <rdf:type rdf:resource="${owl}Ontology"/>\r\n` +
+    "  </rdf:Description>\r\n" +
+    "</rdf:RDF>\r\n";
+  const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+  const sourceBytes = Buffer.concat([bom, Buffer.from(sourceText)]);
+  const normalizedSourceText = new TextDecoder().decode(sourceBytes);
+  await writeFile(sourcePath, sourceBytes);
+  const sourceGraph = await parseRdf(
+    sourceBytes,
+    "application/rdf+xml",
+    pathToFileURL(sourcePath).href,
+  );
+  const preview = await moveResource({
+    project: root,
+    selector: "source.rdf",
+    destination: "archive/source.rdf",
+  });
+  assert.equal(preview.status, "preview", JSON.stringify(preview));
+  assert.ok(preview.data);
+  const moved = await moveResource({
+    project: root,
+    selector: "source.rdf",
+    destination: "archive/source.rdf",
+    apply: true,
+    acceptedPreview: (preview.data.preview as { fingerprint: string }).fingerprint,
+  });
+  assert.equal(moved.status, "ok", JSON.stringify(moved));
+  const movedBytes = await readFile(destinationPath);
+  assert.deepEqual(movedBytes.subarray(0, bom.length), bom);
+  const movedText = new TextDecoder().decode(movedBytes);
+  const sourceRootStart = normalizedSourceText.indexOf("<rdf:RDF xmlns:");
+  const sourceRootEnd = normalizedSourceText.indexOf(">\r\n", sourceRootStart) + 1;
+  const movedRootStart = movedText.indexOf("<rdf:RDF xmlns:");
+  const movedRootEnd = movedText.indexOf(">\r\n", movedRootStart) + 1;
+  assert.deepEqual(
+    movedBytes.subarray(0, bom.length + Buffer.byteLength(movedText.slice(0, movedRootStart))),
+    sourceBytes.subarray(
+      0,
+      bom.length + Buffer.byteLength(normalizedSourceText.slice(0, sourceRootStart)),
+    ),
+  );
+  assert.deepEqual(
+    movedBytes.subarray(bom.length + Buffer.byteLength(movedText.slice(0, movedRootEnd))),
+    sourceBytes.subarray(
+      bom.length + Buffer.byteLength(normalizedSourceText.slice(0, sourceRootEnd)),
+    ),
+  );
+  assert.equal(movedText.replaceAll("\r\n", "").includes("\n"), false);
+  assert.ok(movedText.includes("<!-- an example root: <rdf:RDF> -->"));
+  const movedGraph = await parseRdf(
+    movedBytes,
+    "application/rdf+xml",
+    pathToFileURL(destinationPath).href,
+  );
+  const terms = (store: typeof sourceGraph) =>
+    store
+      .getQuads(null, null, null, null)
+      .map((item) => [item.subject.value, item.predicate.value, item.object.value].join("\u0000"))
+      .sort();
+  assert.deepEqual(terms(movedGraph), terms(sourceGraph));
+});
+
+test("RDF/XML moves insert xml:base before a self-closing root slash", async () => {
+  const root = await project();
+  await writeFile(
+    join(root, "empty.rdf"),
+    '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/>\n',
+  );
+
+  const result = await moveResource({
+    project: root,
+    selector: "empty.rdf",
+    destination: "archive/empty.rdf",
+  });
+  assert.equal(result.status, "preview", JSON.stringify(result));
+});
+
+test("resource moves reject destinations excluded from project discovery", async () => {
+  const root = await project();
+  await writeFile(join(root, "source.ttl"), "<urn:source:s> <urn:source:p> <urn:source:o> .\n");
+
+  for (const destination of [".git/moved.ttl", "node_modules/moved.ttl", ".tbspec/moved.ttl"]) {
+    const result = await moveResource({ project: root, selector: "source.ttl", destination });
+    assert.equal(result.status, "invalid_arguments", JSON.stringify(result));
+    assert.equal(result.diagnostics[0]?.code, "PATH_UNSAFE");
+  }
 });
 
 test("moving and removing an owned view source updates selectors and discloses dependent files", async () => {

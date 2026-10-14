@@ -4,11 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { dependencyAdd, dependencyRemove, dependencyRename } from "../src/dependencies.ts";
+import { prepareEdit, showEditor } from "../src/editing.ts";
 import type { FileSystem } from "../src/filesystem.ts";
 import { initializeProject } from "../src/project.ts";
 import { parseLock, parseManifest } from "../src/schemas.ts";
 import { publishPlan } from "../src/transactions.ts";
-import { prepareEditWithViews, showView, viewOperation } from "../src/views.ts";
+import { listViews, prepareEditWithViews, showView, viewOperation } from "../src/views.ts";
 
 function faultSecondLink(): FileSystem {
   let calls = 0;
@@ -70,6 +71,11 @@ test("dependency ID rename preserves a locked-source view and updates its exact 
   await fs.mkdir(source);
   await initializeProject({ directory: project, baseIri: "urn:view-dependency-rename:/" });
   await fs.writeFile(
+    join(project, "local.ttl"),
+    "<urn:local:ontology> a <http://www.w3.org/2002/07/owl#Ontology> .\n" +
+      "<urn:local:a> <urn:local:p> <urn:local:b> .\n",
+  );
+  await fs.writeFile(
     join(source, "ontology.ttl"),
     "<urn:rename-view:ontology> a <http://www.w3.org/2002/07/owl#Ontology> .\n" +
       "<urn:rename-view:Class> a <http://www.w3.org/2002/07/owl#Class> .\n",
@@ -98,6 +104,13 @@ test("dependency ID rename preserves a locked-source view and updates its exact 
     source: "dep:old/source/ontology.ttl",
   });
   assert.equal(created.status, "ok", JSON.stringify(created));
+  const independentView = await viewOperation({
+    project,
+    action: "create",
+    path: "views/local.ttl",
+    source: "local.ttl",
+  });
+  assert.equal(independentView.status, "ok", JSON.stringify(independentView));
   const oldLock = parseLock(await fs.readFile(join(project, "tbspec.lock"), "utf8"));
   const oldDependency = oldLock.dependencies.old;
   assert.ok(oldDependency);
@@ -225,4 +238,38 @@ test("dependency ID rename preserves a locked-source view and updates its exact 
   assert.equal(broken.status, "unavailable", JSON.stringify(broken));
   assert.equal(broken.diagnostics[0]?.code, "RESOURCE_MISSING");
   assert.equal(broken.diagnostics[0]?.message, "Dependency selector is unavailable.");
+
+  const listed = await listViews({ project });
+  assert.ok(listed.data, JSON.stringify(listed));
+  const listedItems = listed.data.items as { selector: string; source: string }[];
+  assert.deepEqual(
+    listedItems.map((item) => item.selector),
+    ["views/locked.ttl", "views/local.ttl"],
+  );
+  assert.equal(
+    listedItems.find((item) => item.selector === "views/locked.ttl")?.source,
+    "dep:new/source/ontology.ttl",
+  );
+  assert.ok(
+    listed.diagnostics.some(
+      (diagnostic) =>
+        ["ASSOCIATION_BROKEN", "RESOURCE_MISSING"].includes(diagnostic.code) &&
+        diagnostic.file === "views/locked.ttl",
+    ),
+    JSON.stringify(listed.diagnostics),
+  );
+
+  const localEditor = await showEditor({ project, selector: "local.ttl" });
+  assert.ok(localEditor.data, JSON.stringify(localEditor));
+  const localStatement = localEditor.data.triples.find(
+    (triple) => triple.subject.value === "urn:local:a" && triple.predicate.value === "urn:local:p",
+  );
+  assert.ok(localStatement);
+  const unrelatedEdit = await prepareEdit({
+    project,
+    selector: "local.ttl",
+    revision: localEditor.data.resource.revision,
+    edits: [{ action: "remove", before: localStatement }],
+  });
+  assert.ok(unrelatedEdit.plan.writes.some((write) => write.file === "local.ttl"));
 });

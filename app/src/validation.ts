@@ -483,7 +483,7 @@ export async function validateInspection(input: {
         (c) =>
           c.kind === "ontology" &&
           c.target_iri === iri &&
-          c.context === records.get(`dep:${r.dependencyId}/${dep.primary}`)?.context,
+          c.context === records.get(r.selector)?.context,
       );
       const selectedIsReachable =
         sourceChoice !== undefined &&
@@ -960,8 +960,10 @@ export async function validateInspection(input: {
             candidate.kind === "design" && candidate.dependencyId === owner.dependencyId,
         )) {
           const key = records.get(design.selector)?.key;
-          if (dependency && ownerKey && key)
-            add(design, 2 + dependencyDistanceFrom(dependency, ownerKey, key));
+          if (dependency && ownerKey && key) {
+            const distance = dependencyDistanceFrom(dependency, ownerKey, key);
+            if (Number.isFinite(distance)) add(design, 2 + distance);
+          }
         }
       } else if (owner.ownership === "project") {
         for (const design of resources.filter(

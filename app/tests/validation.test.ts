@@ -652,7 +652,7 @@ test("locked external models retain source bindings and selected validation excl
   assert.ok(primary);
   primary.graph_iri = "urn:external-model";
   const bytes = Buffer.from(
-    `${prefixes} @prefix p: <http://purl.org/net/p-plan#> . <${primary.graph_iri}> a t:ProcessModel, p:Plan; t:modelType "data" . ex:step a p:Step; p:isStepOfPlan <${primary.graph_iri}> .`,
+    `${prefixes} @prefix p: <http://purl.org/net/p-plan#> . <${primary.graph_iri}> a t:ProcessModel, p:Plan; t:modelType "data" . ex:step a p:Step; p:isStepOfPlan <${primary.graph_iri}> . ex:item a owl:Class .`,
   );
   dep.kind = "model";
   primary.kind = "process-model";
@@ -667,6 +667,53 @@ test("locked external models retain source bindings and selected validation excl
       schemas: [],
     },
   ];
+  const designFile = (key: string, sourceResource: string, graphIri: string, bytes: Buffer) => {
+    const file = {
+      ...primary,
+      key,
+      source_resource: sourceResource,
+      roles: ["design"],
+      kind: "design",
+      classification: "declared",
+      identity: "declared",
+      graph_iri: graphIri,
+      source_graph_iri: graphIri,
+      byte_digest: digest(bytes),
+      byte_length: bytes.length,
+    };
+    file.graph_signature = graphSignature(file);
+    return file;
+  };
+  const retainedDesign = Buffer.from(
+    `${prefixes} <urn:retained-design> a t:VisualDesignModel; t:rule ex:retainedRule . ex:retainedRule a t:NodeVisualRule; t:targetConcept owl:Class .`,
+  );
+  const retained = designFile(
+    "source/retained.design.ttl",
+    "retained.design.ttl",
+    "urn:retained-design",
+    retainedDesign,
+  );
+  dep.files.push(retained);
+  await writeFile(join(root, dep.snapshot_path, retained.key), retainedDesign);
+  const activeDesign = Buffer.from(
+    `${prefixes} @prefix p: <http://purl.org/net/p-plan#> . <urn:active-design> a t:VisualDesignModel; t:rule ex:activeRule . ex:activeRule a t:NodeVisualRule; t:targetConcept p:Step .`,
+  );
+  const active = designFile(
+    "source/active.design.ttl",
+    "active.design.ttl",
+    "urn:active-design",
+    activeDesign,
+  );
+  dep.files.push(active);
+  dep.associations.push({
+    context: primary.context,
+    resource: primary.key,
+    support: active.key,
+    role: "design",
+    origin: "source",
+    active: true,
+  });
+  await writeFile(join(root, dep.snapshot_path, active.key), activeDesign);
   dep.interpretation_signature = interpretationSignature(dep);
   parseLock(writeToml(lock));
   await writeFile(join(root, dep.snapshot_path, dep.primary), bytes);
@@ -684,6 +731,12 @@ test("locked external models retain source bindings and selected validation excl
     selector: "dep:source-model",
   });
   assert.equal(selected.status, "ok", JSON.stringify(selected));
+  const selectedValidation = selected.data as Validation | null;
+  assert.deepEqual(selectedValidation?.designRuleOptions?.nodes["urn:ex:item"], []);
+  assert.deepEqual(
+    selectedValidation?.designRuleOptions?.nodes["urn:ex:step"]?.map((rule) => rule.iri),
+    ["urn:ex:activeRule"],
+  );
   const whole = await inspectProject({ project: root, command: "validate" });
   assert.equal(whole.status, "invalid");
   assert.ok(whole.diagnostics.some((d) => d.code === "SNAPSHOT_INTEGRITY"));
@@ -933,10 +986,19 @@ test("whole validation keeps independently source-bound vocabulary versions out 
     const vocabulary = Buffer.from(
       `${prefixes} ex:vocabulary a owl:Ontology; rdfs:label "${id}" . ex:Thing a owl:Class .`,
     );
+    const vocabularyContext = id === "source-two" ? "vocabulary-context" : primary.context;
+    if (id === "source-two")
+      dep.sources.push({
+        id: vocabularyContext,
+        kind: "directory",
+        locator: root,
+        selected_resource: "vocabulary.ttl",
+      });
     const file = {
       ...primary,
       key: "source/vocabulary.ttl",
       source_resource: "vocabulary.ttl",
+      context: vocabularyContext,
       roles: ["vocabulary"],
       kind: "ontology",
       graph_iri: "urn:ex:vocabulary",
@@ -949,6 +1011,33 @@ test("whole validation keeps independently source-bound vocabulary versions out 
     dep.edges = [
       { context: primary.context, from: primary.key, relation: "vocabulary", to: file.key },
     ];
+    if (id === "source-two") {
+      const alternateVocabulary = Buffer.from(
+        `${prefixes} ex:vocabulary a owl:Ontology; rdfs:label "${id} alternate" . ex:Thing a owl:Class .`,
+      );
+      const alternate = {
+        ...file,
+        key: "source/vocabulary-alternate.ttl",
+        source_resource: "vocabulary-alternate.ttl",
+        byte_digest: digest(alternateVocabulary),
+        byte_length: alternateVocabulary.length,
+      };
+      alternate.graph_signature = graphSignature(alternate);
+      dep.files.push(alternate);
+      dep.edges.push({
+        context: primary.context,
+        from: primary.key,
+        relation: "vocabulary",
+        to: alternate.key,
+      });
+      dep.choices.push({
+        context: vocabularyContext,
+        kind: "ontology",
+        target_iri: "urn:ex:vocabulary",
+        selected: alternate.key,
+      });
+      await writeFile(join(root, dep.snapshot_path, alternate.key), alternateVocabulary);
+    }
     dep.bindings = [
       { context: primary.context, resource: primary.key, ontologies: [file.key], schemas: [] },
     ];
@@ -965,7 +1054,11 @@ test("whole validation keeps independently source-bound vocabulary versions out 
     );
   await writeFile(
     join(root, "tbspec.toml"),
-    `${await readFile(join(root, "tbspec.toml"), "utf8")}\n[ontology_choices]\n"urn:ex:vocabulary" = "source-two"\n`,
+    `${await readFile(join(root, "tbspec.toml"), "utf8")}\n[ontology_choices]\n"urn:ex:vocabulary" = "source-two"\n\n[model_types."review-data"]\nenabled = true\nontology = "dep:source-two/source/vocabulary.ttl"\n`,
+  );
+  await writeFile(
+    join(root, "model.ttl"),
+    `${prefixes} ex:model a t:ConcreteDataModel; t:modelType "review-data" . ex:item a ex:Thing .`,
   );
   for (const id of ["source-one", "source-two"])
     assert.equal(
@@ -973,5 +1066,5 @@ test("whole validation keeps independently source-bound vocabulary versions out 
       "ok",
     );
   const whole = await inspectProject({ project: root, command: "validate" });
-  assert.equal(whole.status, "ok", JSON.stringify(whole.diagnostics));
+  assert.equal(whole.status, "ok", JSON.stringify(whole));
 });

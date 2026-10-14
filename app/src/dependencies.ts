@@ -2927,13 +2927,7 @@ async function checkManualAttachmentSources(options: {
         signal: options.signal,
         limits: options.limits,
       });
-      const selected = [...source.entries.values()].find((entry) =>
-        [
-          entry.address,
-          entry.sourceResource,
-          inspectedResource(source as SourceInventory, entry),
-        ].includes(String(record.selected_resource)),
-      );
+      const selected = sourceEntryForSelection(source, String(record.selected_resource));
       if (!selected)
         throw new ProjectError(
           "invalid",
@@ -3804,6 +3798,20 @@ async function prepareDependencyPlan(
 function inspectedResource(source: SourceInventory, entry: SourceEntry): string {
   return source.kind === "url" ? entry.sourceResource : entry.address;
 }
+function sourceEntryForSelection(
+  source: SourceInventory,
+  selected: string,
+): SourceEntry | undefined {
+  const requested = selected.replaceAll("\\", "/");
+  if (source.lock)
+    for (const [dependencyId, dependency] of Object.entries(source.lock.dependencies))
+      for (const file of dependency.files)
+        if (requested === `${dependency.snapshot_path}/${file.key}`)
+          return source.entries.get(`dep:${dependencyId}/${file.key}`);
+  return [...source.entries.values()].find((entry) =>
+    [entry.address, entry.sourceResource, inspectedResource(source, entry)].includes(requested),
+  );
+}
 function inspectEntry(source: SourceInventory, entry: SourceEntry): Row {
   const resource = inspectedResource(source, entry);
   const byteDigest = entry.byteDigest ?? (entry.bytes ? digest(entry.bytes) : null);
@@ -4019,10 +4027,51 @@ async function buildClosure(
         target
       ];
       const dependency = selectedId ? source.lock?.dependencies[selectedId] : undefined;
-      const selected = dependency
-        ? source.entries.get(`dep:${selectedId}/${dependency.primary}`)
-        : undefined;
-      if (selected && entryKind(selected) === kind && selected.graphIri === target) return selected;
+      if (dependency && selectedId) {
+        const reachable = dependencyDistances(dependency);
+        const candidates = dependency.files
+          .filter((file) => {
+            if (file.kind !== "ontology" || file.graph_iri !== target || !reachable.has(file.key))
+              return false;
+            const sourceChoice = dependency.choices.find(
+              (choice) =>
+                choice.kind === "ontology" &&
+                choice.target_iri === target &&
+                choice.context === file.context,
+            );
+            const selectedIsReachable =
+              sourceChoice !== undefined && reachable.has(String(sourceChoice.selected));
+            return !selectedIsReachable || sourceChoice?.selected === file.key;
+          })
+          .flatMap((file) => {
+            const entry = source.entries.get(`dep:${selectedId}/${file.key}`);
+            const distance = reachable.get(file.key);
+            return entry && distance !== undefined
+              ? [{ entry, distance, key: file.key, signature: file.graph_signature }]
+              : [];
+          });
+        const resolution = resolveOntologyCandidates(
+          target,
+          candidates.map(({ distance, key, signature }) => ({
+            selector: `dep:${selectedId}/${key}`,
+            graphIri: target,
+            signature,
+            rank: distance,
+            dependencyId: selectedId,
+          })),
+        );
+        const selectedSignature =
+          resolution.state === "resolved" ? resolution.signature : undefined;
+        const selected = selectedSignature
+          ? candidates
+              .filter((candidate) => candidate.signature === selectedSignature)
+              .sort(
+                (left, right) => left.distance - right.distance || utf8Compare(left.key, right.key),
+              )[0]?.entry
+          : undefined;
+        if (selected && entryKind(selected) === kind && selected.graphIri === target)
+          return selected;
+      }
     }
     if (kind === "design") {
       const choice = ((source.manifest?.design_choices ?? {}) as Record<string, string>)[target];
@@ -4354,7 +4403,7 @@ async function buildClosure(
         >),
       };
       const modelConfig = modelTypes[modelType];
-      if (!modelConfig || modelConfig.enabled === false)
+      if (!modelConfig)
         throw new ProjectError(
           "invalid",
           "SOURCE_BINDING_INVALID",
@@ -4843,11 +4892,8 @@ async function resolveDependencySource(
   const requestedEntry =
     requested === undefined
       ? undefined
-      : ([...source.entries.values()].find((entry) =>
-          [entry.address, entry.sourceResource, inspectedResource(source, entry)].includes(
-            requested,
-          ),
-        ) ?? (source.kind === "url" ? source.entries.values().next().value : undefined));
+      : (sourceEntryForSelection(source, requested) ??
+        (source.kind === "url" ? source.entries.values().next().value : undefined));
   if (requestedEntry?.parseError) throw requestedEntry.parseError;
   const candidates = [...source.entries.values()].filter((entry) =>
     resolvedKind(options.kind, entry),

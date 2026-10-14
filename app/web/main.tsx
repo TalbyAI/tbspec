@@ -16,6 +16,7 @@ interface Diagnostic {
   severity: string;
   message: string;
   file: string | null;
+  details?: Record<string, unknown>;
   shacl?: {
     selector: string;
     graphIri: string;
@@ -62,6 +63,11 @@ interface SavedQuery {
   parametersFile: string;
   parameters: QueryParameter[];
 }
+type QueryFileRevision = { state: "absent" } | { state: "present"; digest: string };
+interface QueryRevisions {
+  query: QueryFileRevision;
+  parameters: QueryFileRevision;
+}
 interface Term {
   kind: string;
   value: string;
@@ -74,6 +80,37 @@ interface Triple {
   predicate: Term;
   object: Term;
 }
+
+function removableBrokenQuery(
+  diagnostic: Diagnostic,
+): { name: string; expectedRevisions: QueryRevisions } | null {
+  const details = diagnostic.details;
+  if (!details || typeof details.name !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(details.name))
+    return null;
+  const value = details.expectedRevisions;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const revisions = value as Record<string, unknown>;
+  if (Object.keys(revisions).sort().join(",") !== "parameters,query") return null;
+  const parseRevision = (entry: unknown): QueryFileRevision | null => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const revision = entry as Record<string, unknown>;
+    if (revision.state === "absent" && Object.keys(revision).length === 1)
+      return { state: "absent" };
+    if (
+      revision.state === "present" &&
+      Object.keys(revision).sort().join(",") === "digest,state" &&
+      typeof revision.digest === "string" &&
+      /^sha256:[a-f0-9]{64}$/.test(revision.digest)
+    )
+      return { state: "present", digest: revision.digest };
+    return null;
+  };
+  const query = parseRevision(revisions.query);
+  const parameters = parseRevision(revisions.parameters);
+  if (!query || !parameters) return null;
+  return { name: details.name, expectedRevisions: { query, parameters } };
+}
+
 interface Preview {
   changes: { file: string; action: string }[];
   arguments: {
@@ -257,6 +294,7 @@ function App() {
   const [lifecycleImpact, setLifecycleImpact] = useState<Envelope | null>(null);
   const [moveDestination, setMoveDestination] = useState("");
   const [queries, setQueries] = useState<SavedQuery[]>([]);
+  const [queryDiagnostics, setQueryDiagnostics] = useState<Diagnostic[]>([]);
   const [queryName, setQueryName] = useState("");
   const [queryText, setQueryText] = useState("SELECT * WHERE { ?subject ?predicate ?object }");
   const [parametersText, setParametersText] = useState("");
@@ -459,8 +497,10 @@ function App() {
       const result = await request("queries", session);
       const items = (result.data?.items as SavedQuery[]) ?? [];
       setQueries(items);
+      setQueryDiagnostics(result.diagnostics);
       if (!items.some((item) => item.name === queryName)) setQueryName(items[0]?.name ?? "");
     } catch (problem) {
+      setQueryDiagnostics([]);
       setError(problem instanceof Error ? problem.message : "Saved queries are unavailable.");
     } finally {
       setBusy(false);
@@ -488,12 +528,9 @@ function App() {
     if (!queryName) return;
     await inspectQuery(queryName, true);
   }
-  function reviewedQueryRevisions(name: string) {
+  function reviewedQueryRevisions(name: string): QueryRevisions {
     if (queryDetails?.name === name && queryDetails.revisions)
-      return queryDetails.revisions as {
-        query: { state: string; digest?: string };
-        parameters: { state: string; digest?: string };
-      };
+      return queryDetails.revisions as QueryRevisions;
     return { query: { state: "absent" }, parameters: { state: "absent" } };
   }
   async function saveQuery() {
@@ -539,24 +576,24 @@ function App() {
       setBusy(false);
     }
   }
-  async function removeQuery() {
-    if (!queryName) return;
-    if (queryDetails?.name !== queryName) {
-      await refreshQueryReview();
+  async function removeQuery(name = queryName, expectedRevisions?: QueryRevisions) {
+    if (!name) return;
+    if (!expectedRevisions && queryDetails?.name !== name) {
+      if (name === queryName) await refreshQueryReview();
       return;
     }
-    if (!window.confirm(`Remove saved query “${queryName}” and its declaration?`)) return;
+    if (!window.confirm(`Remove saved query “${name}” and its declaration if present?`)) return;
     setBusy(true);
     setError("");
     try {
       const result = await request("query/remove", session, {
-        name: queryName,
+        name,
         confirm: true,
-        expectedRevisions: reviewedQueryRevisions(queryName),
+        expectedRevisions: expectedRevisions ?? reviewedQueryRevisions(name),
       });
       setQueryResult(result);
       if (result.status === "ok") {
-        setQueryDetails(null);
+        if (queryDetails?.name === name) setQueryDetails(null);
         await refreshQueries();
       }
     } catch (problem) {
@@ -1682,6 +1719,30 @@ function App() {
                     Remove saved query
                   </button>
                 </div>
+                {queryDiagnostics.length > 0 && (
+                  <section aria-label="Saved query warnings">
+                    <h3>Warnings for unavailable saved queries</h3>
+                    <Diagnostics items={queryDiagnostics} />
+                    <ul>
+                      {queryDiagnostics.map((diagnostic) => {
+                        const broken = removableBrokenQuery(diagnostic);
+                        return broken ? (
+                          <li key={`${diagnostic.file}:${broken.name}`}>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() =>
+                                void removeQuery(broken.name, broken.expectedRevisions)
+                              }
+                            >
+                              Remove broken saved query {broken.name}
+                            </button>
+                          </li>
+                        ) : null;
+                      })}
+                    </ul>
+                  </section>
+                )}
                 {queryDetails && (
                   <details open>
                     <summary>Saved declaration and file revisions</summary>

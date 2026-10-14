@@ -44,6 +44,7 @@ export async function prepareDesignChoice(options: {
 
   let selected: string | undefined;
   let resource: Resource | undefined;
+  let selectedDiagnostics: typeof listing.diagnostics = [];
   if (options.design !== undefined) {
     selected = selector(
       options.design.startsWith("dep:")
@@ -65,7 +66,22 @@ export async function prepareDesignChoice(options: {
         );
       selected = `dep:${id}/${file.key}`;
     }
-    resource = listing.data.items?.find((item) => item.selector === selected);
+    if (selected.startsWith("dep:")) {
+      const inspected = await inspectSnapshot(root, snapshot, {
+        project: root,
+        command: "graph.show",
+        selector: selected,
+      });
+      selectedDiagnostics = inspected.diagnostics;
+      if (!inspected.data)
+        throw new ProjectError(
+          inspected.status,
+          inspected.diagnostics[0]?.code ?? "RESOURCE_MISSING",
+          inspected.diagnostics[0]?.message ?? "Selected design is unavailable.",
+          selected,
+        );
+      resource = inspected.data.resource;
+    } else resource = listing.data.items?.find((item) => item.selector === selected);
     if (resource?.kind !== "design")
       throw new ProjectError(
         "invalid",
@@ -100,6 +116,6 @@ export async function prepareDesignChoice(options: {
       revision: plan.preview.changes[0]?.before ?? { state: "absent" },
       associations: [],
     },
-    diagnostics: listing.diagnostics,
+    diagnostics: [...listing.diagnostics, ...selectedDiagnostics],
   };
 }

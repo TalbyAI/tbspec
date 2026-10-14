@@ -309,7 +309,7 @@ export function ViewsPanel({
   const [layoutReady, setLayoutReady] = useState(false);
 
   const call = useCallback(
-    async (route: string, body?: Record<string, unknown>) => {
+    async (route: string, body?: Record<string, unknown>, allowDomainFailure = false) => {
       const response = await fetch(`/api/project/v1/${route}`, {
         method: body ? "POST" : "GET",
         headers: {
@@ -321,7 +321,7 @@ export function ViewsPanel({
       });
       const result = (await response.json()) as Envelope;
       if (result.schemaVersion !== 1) throw new Error("Incompatible project API.");
-      if (!response.ok)
+      if (!response.ok && !(allowDomainFailure && response.status === 422 && result.data))
         throw new Error(
           result.diagnostics.map((item) => item.message).join(" ") || "Project operation failed.",
         );
@@ -331,7 +331,9 @@ export function ViewsPanel({
   );
 
   const refresh = useCallback(async () => {
-    const { views: result, designs } = await loadViewsWorkspace(call);
+    const { views: result, designs } = await loadViewsWorkspace((route) =>
+      call(route, undefined, true),
+    );
     setItems((result.data?.items as typeof items) ?? []);
     setDesignItems((designs.data?.items as typeof designItems) ?? []);
   }, [call]);
@@ -558,6 +560,8 @@ export function ViewsPanel({
       try {
         const validation = await call(
           `validate?selector=${encodeURIComponent(selectedView.presentation.resource.selector)}`,
+          undefined,
+          true,
         );
         const effective = validation.data as
           | {
@@ -1098,16 +1102,51 @@ export function ViewsPanel({
       setPending(undefined);
       setLayoutBackup(undefined);
       setLayoutPreviewReady(false);
-      await refresh();
-      if (design) await showDesign(design.resource.selector);
+      const removedDesign = pending.route === "resources/remove" && design !== undefined;
+      if (removedDesign) {
+        setDesign(undefined);
+        setRuleIri("");
+        setRuleTarget("");
+        setRuleFieldValues({});
+        setRuleOriginalValues({});
+      }
+      setMessage("Project files were updated.");
+
+      const refreshErrors: string[] = [];
+      try {
+        await refresh();
+      } catch (problem) {
+        refreshErrors.push(
+          problem instanceof Error ? problem.message : "The workspace could not be refreshed.",
+        );
+      }
+      if (design && !removedDesign) {
+        try {
+          await showDesign(design.resource.selector);
+        } catch (problem) {
+          refreshErrors.push(
+            problem instanceof Error ? problem.message : "The selected design could not be read.",
+          );
+        }
+      }
       if (selected && !pending.accept.includes("confirm")) {
-        await show(selected);
-        if (pending.route === "view/edit" && view?.source) onTemporaryChoicesConsumed(view.source);
+        try {
+          await show(selected);
+          if (pending.route === "view/edit" && view?.source)
+            onTemporaryChoicesConsumed(view.source);
+        } catch (problem) {
+          setView(undefined);
+          setSelected("");
+          refreshErrors.push(
+            problem instanceof Error ? problem.message : "The selected view could not be read.",
+          );
+        }
       } else {
         setView(undefined);
         setSelected("");
       }
-      setMessage("Project files were updated.");
+      if (refreshErrors.length)
+        setMessage(`Project files were updated. ${refreshErrors.join(" ")}`);
       onApplied();
     } catch (problem) {
       setMessage(problem instanceof Error ? problem.message : "View changes could not be applied.");
@@ -1139,6 +1178,12 @@ export function ViewsPanel({
       setRelationships((current) =>
         current.filter((tuple) => tuple.subject !== member && tuple.object !== member),
       );
+      setNodeAppearanceEdits((current) => {
+        if (!current[member]) return current;
+        const next = { ...current };
+        delete next[member];
+        return next;
+      });
       setPositions((current) => {
         const next = { ...current };
         delete next[member];
@@ -1220,6 +1265,25 @@ export function ViewsPanel({
       removePredicate(rdfType);
       add(rdfType, { kind: "iri", value: `${metadata}${visualKind}` });
     }
+    if (
+      !selectedRule &&
+      design.resource.graphIri &&
+      !design.triples.some(
+        (triple) =>
+          triple.subject.value === design.resource.graphIri &&
+          triple.predicate.value === `${metadata}rule` &&
+          triple.object.kind === "iri" &&
+          triple.object.value === ruleIri,
+      )
+    )
+      edits.push({
+        action: "add",
+        after: {
+          subject: { kind: "iri", value: design.resource.graphIri },
+          predicate: { kind: "iri", value: `${metadata}rule` },
+          object: { kind: "iri", value: ruleIri },
+        },
+      });
     if (!selectedRule || selectedRule.targetConcept !== ruleTarget) {
       removePredicate(`${metadata}targetConcept`);
       add(`${metadata}targetConcept`, { kind: "iri", value: ruleTarget });

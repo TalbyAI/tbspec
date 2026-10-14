@@ -86,9 +86,11 @@ test("authenticated views keep independent membership and presentation and inclu
     presentationRevision: one.presentation.resource.revision,
     members: ["urn:a", "urn:b"],
     relationships: [],
+    positions: [],
     nodeAppearances: [{ element: "urn:a", backgroundImage: "url(https://example.test/x)" }],
   });
   assert.equal(rejectedAppearance.status, 400, JSON.stringify(rejectedAppearance));
+  assert.equal(rejectedAppearance.envelope.diagnostics[0]?.code, "ARGUMENT_INVALID");
   const rejectedNumber = await call("view/edit", {
     selector: "views/one.ttl",
     sourceRevision: one.sourceRevision,
@@ -96,9 +98,11 @@ test("authenticated views keep independent membership and presentation and inclu
     presentationRevision: one.presentation.resource.revision,
     members: ["urn:a", "urn:b"],
     relationships: [],
+    positions: [],
     nodeAppearances: [{ element: "urn:a", fontSize: 15.5 }],
   });
   assert.equal(rejectedNumber.status, 400, JSON.stringify(rejectedNumber));
+  assert.equal(rejectedNumber.envelope.diagnostics[0]?.code, "ARGUMENT_INVALID");
   const rejectedFractionalWeight = await call("view/edit", {
     selector: "views/one.ttl",
     sourceRevision: one.sourceRevision,
@@ -106,9 +110,11 @@ test("authenticated views keep independent membership and presentation and inclu
     presentationRevision: one.presentation.resource.revision,
     members: ["urn:a", "urn:b"],
     relationships: [],
+    positions: [],
     nodeAppearances: [{ element: "urn:a", fontWeight: "500.5" }],
   });
   assert.equal(rejectedFractionalWeight.status, 400, JSON.stringify(rejectedFractionalWeight));
+  assert.equal(rejectedFractionalWeight.envelope.diagnostics[0]?.code, "PRESENTATION_INVALID");
   const selected = await apply("view/edit", {
     selector: "views/one.ttl",
     sourceRevision: one.sourceRevision,
