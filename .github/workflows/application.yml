@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      packed_only:
+        description: Skip the source test job and verify the packed artifact matrix only.
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -12,6 +18,7 @@ permissions:
 jobs:
   application:
     name: Node 24 application (${{ matrix.os }})
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.packed_only != true }}
     timeout-minutes: 90
     strategy:
       fail-fast: false

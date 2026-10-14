@@ -2286,7 +2286,9 @@ async function main() {
   };
   await saveEvidence();
 
-  taskRoot = await privateDirectory(join(tmpdir(), "tbspec-packed-verification-"));
+  taskRoot = await privateDirectory(join(await realpath(tmpdir()), "tbspec-packed-verification-"));
+  tempRoot = taskRoot;
+  taskRoot = await realpath(taskRoot);
   tempRoot = taskRoot;
   await mkdir(tempRoot, { recursive: true });
   if (process.platform === "win32")
@@ -2525,11 +2527,14 @@ try {
     try {
       const candidate = resolve(tempRoot);
       const expected = taskRoot ? resolve(taskRoot) : null;
-      const realCandidate = await realpath(candidate);
+      const [realCandidate, realTempDirectory] = await Promise.all([
+        realpath(candidate),
+        realpath(tmpdir()),
+      ]);
       verifiedTempRoot =
         expected === candidate &&
         realCandidate === candidate &&
-        resolve(dirname(candidate)) === resolve(tmpdir()) &&
+        dirname(candidate) === realTempDirectory &&
         basename(candidate).startsWith("tbspec-packed-verification-");
     } catch {
       verifiedTempRoot = false;
