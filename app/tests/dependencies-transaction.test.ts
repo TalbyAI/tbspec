@@ -29,7 +29,9 @@ function failSecondMove(targetPath: string): FileSystem {
 }
 
 test("dependency rename rolls back its lock and earlier snapshot moves after a later move fails", async () => {
-  const parent = await fs.mkdtemp(join(tmpdir(), "tb-dependency-rename-rollback-"));
+  const parent = await fs.realpath(
+    await fs.mkdtemp(join(tmpdir(), "tb-dependency-rename-rollback-")),
+  );
   const source = join(parent, "source");
   const project = join(parent, "project");
   await fs.mkdir(source);

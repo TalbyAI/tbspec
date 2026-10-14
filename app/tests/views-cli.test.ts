@@ -168,19 +168,34 @@ test("design import creates new rule identities and provenance without choosing 
   const shown = invoke(["design", "show", "designs/imported.ttl"], root);
   assert.equal(shown.envelope.data.resource.graphIri, "urn:imported-design");
   assert.equal(shown.envelope.data.rules[0].iri, "urn:imported-design#rule");
-  assert.equal(shown.envelope.data.provenance[0].sourceGraphIri, "urn:source-design");
-  assert.equal(shown.envelope.data.provenance[0].sourceSelector, "source-design.ttl");
-  assert.doesNotMatch(await readFile(join(root, "tbspec.toml"), "utf8"), /\[design_choices\]/);
+  assert.equal(shown.envelope.data.resource.provenance[0].sourceGraphIri, "urn:source-design");
+  assert.equal(shown.envelope.data.resource.provenance[0].sourceSelector, "source-design.ttl");
+  assert.equal(
+    invoke(["config", "show"], root).envelope.data.designChoices[
+      "http://www.w3.org/2002/07/owl#Class"
+    ],
+    undefined,
+  );
 
   const selected = invoke(
     ["design", "select", "http://www.w3.org/2002/07/owl#Class", "designs/imported.ttl"],
     root,
   );
   assert.equal(selected.envelope.status, "ok", JSON.stringify(selected.envelope));
-  assert.match(await readFile(join(root, "tbspec.toml"), "utf8"), /\[design_choices\]/);
+  assert.equal(
+    invoke(["config", "show"], root).envelope.data.designChoices[
+      "http://www.w3.org/2002/07/owl#Class"
+    ],
+    "designs/imported.ttl",
+  );
   const cleared = invoke(["design", "clear", "http://www.w3.org/2002/07/owl#Class"], root);
   assert.equal(cleared.envelope.status, "ok", JSON.stringify(cleared.envelope));
-  assert.doesNotMatch(await readFile(join(root, "tbspec.toml"), "utf8"), /\[design_choices\]/);
+  assert.equal(
+    invoke(["config", "show"], root).envelope.data.designChoices[
+      "http://www.w3.org/2002/07/owl#Class"
+    ],
+    undefined,
+  );
 });
 
 test("design impact and moves identify selectors while removal preserves unresolved choices", async () => {

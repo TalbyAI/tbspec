@@ -144,7 +144,8 @@ test("authenticated HTTP exposes saved query lifecycle and execution", {
 });
 
 test("authenticated HTTP stages, applies, lists and shows an acquired directory dependency", {
-  timeout: 60000,
+  // A serial Intel source run measured 176.7s across these sequential dependency previews and applies.
+  timeout: 240000,
 }, async (t) => {
   const parent = await privateDirectory(join(tmpdir(), "tbspec-web-dependency-"));
   const root = join(parent, "project");

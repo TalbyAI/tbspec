@@ -69,6 +69,7 @@ async function dispatch(): Promise<Result> {
         "--confirm",
         "--apply",
         "--source",
+        "--id",
         "--ref",
         "--resource",
         "--kind",
@@ -108,6 +109,7 @@ async function dispatch(): Promise<Result> {
         "--schema",
         "--accepted-preview",
         "--source",
+        "--id",
         "--ref",
         "--resource",
         "--kind",
@@ -173,6 +175,12 @@ async function dispatch(): Promise<Result> {
       "invalid_arguments",
       "ARGUMENT_INVALID",
       "--base-iri is valid only with init.",
+    );
+  if (options.has("--id") && !(command === "dependency" && positional[0] === "add"))
+    throw new ProjectError(
+      "invalid_arguments",
+      "ARGUMENT_INVALID",
+      "--id applies only to dependency add.",
     );
   if (
     ["--iri", "--type", "--profile", "--schema"].some((flag) => options.has(flag)) &&
@@ -362,6 +370,7 @@ async function dispatch(): Promise<Result> {
       );
     const mutationOptions = [
       "--source",
+      "--id",
       "--ref",
       "--resource",
       "--kind",
@@ -468,20 +477,18 @@ async function dispatch(): Promise<Result> {
       action === "support" &&
       positional[1] === "set" &&
       positional.length === 3 &&
-      value("--target") &&
       value("--role") &&
       value("--source") &&
-      value("--resource") &&
       !["--kind", "--apply", "--confirm", "--accept-impact"].some((flag) => options.has(flag)) &&
       ["shacl", "design"].includes(value("--role") ?? "")
     )
       return dependencySupportSet({
         project: selectedProject,
         id: positional[2] ?? "",
-        target: value("--target") as string,
+        ...(value("--target") ? { target: value("--target") } : {}),
         role: value("--role") as "shacl" | "design",
         source: value("--source") as string,
-        resource: value("--resource") as string,
+        ...(value("--resource") ? { resource: value("--resource") } : {}),
         ...(value("--ref") ? { ref: value("--ref") } : {}),
         ...(value("--accepted-preview") ? { acceptedPreview: value("--accepted-preview") } : {}),
       });
@@ -489,7 +496,6 @@ async function dispatch(): Promise<Result> {
       action === "support" &&
       positional[1] === "clear" &&
       positional.length === 3 &&
-      value("--target") &&
       value("--role") &&
       value("--resource") &&
       ["shacl", "design"].includes(value("--role") ?? "") &&
@@ -500,29 +506,34 @@ async function dispatch(): Promise<Result> {
       return dependencySupportClear({
         project: selectedProject,
         id: positional[2] ?? "",
-        target: value("--target") as string,
+        ...(value("--target") ? { target: value("--target") } : {}),
         role: value("--role") as "shacl" | "design",
         resource: value("--resource") as string,
         ...(value("--accepted-preview") ? { acceptedPreview: value("--accepted-preview") } : {}),
       });
-    if (action === "inspect" && positional.length === 1 && value("--source"))
+    if (
+      action === "inspect" &&
+      ((positional.length === 1 && value("--source")) ||
+        (positional.length === 2 && !options.has("--source")))
+    )
       return dependencyInspect({
         project: selectedProject,
-        source: value("--source") as string,
+        source: (value("--source") ?? positional[1]) as string,
         ...(value("--ref") ? { ref: value("--ref") } : {}),
         ...(value("--resource") ? { resource: value("--resource") } : {}),
       });
     if (
       action === "add" &&
       positional.length === 2 &&
-      value("--source") &&
+      ((value("--source") && !options.has("--id")) ||
+        (value("--id") && !options.has("--source"))) &&
       value("--kind") &&
       ["ontology", "model", "design"].includes(value("--kind") ?? "")
     )
       return dependencyAdd({
         project: selectedProject,
-        source: value("--source") as string,
-        id: positional[1] ?? "",
+        source: (value("--source") ? value("--source") : positional[1]) as string,
+        id: (value("--id") ? value("--id") : positional[1]) as string,
         kind: value("--kind") as "ontology" | "model" | "design",
         ...(value("--ref") ? { ref: value("--ref") } : {}),
         ...(value("--resource") ? { resource: value("--resource") } : {}),
@@ -531,7 +542,7 @@ async function dispatch(): Promise<Result> {
     throw new ProjectError(
       "invalid_arguments",
       "ARGUMENT_INVALID",
-      "Use dependency inspect --source <directory|git|http-url> [--ref <revision>] [--resource <selector>]; dependency add <id> --source <source> --kind ontology|model|design [--ref <revision>] [--resource <selector>] --accepted-preview <fingerprint>; dependency update <id> [--apply --accepted-preview <fingerprint> --accept-impact]; dependency rename <old-id> <new-id> [--apply --accepted-preview <fingerprint>]; dependency remove <id> [--confirm --accepted-preview <fingerprint>]; dependency support set <id> --target <dep:id/file> --role shacl|design --source <source> --resource <exact-file> --accepted-preview <fingerprint>; dependency support clear <id> --target <dep:id/file> --role shacl|design --resource <dep:id/support-file>; dependency list; dependency show <id>; dependency check [<id>]; dependency select <ontology-iri> <id>; or dependency clear <ontology-iri>.",
+      "Use dependency inspect <source> [--ref <revision>] [--resource <selector>] (also accepts --source <source>); dependency add <source> --id <id> --kind ontology|model|design [--ref <revision>] [--resource <selector>] --accepted-preview <fingerprint> (also accepts <id> --source <source>); dependency update <id> [--apply --accepted-preview <fingerprint> --accept-impact]; dependency rename <old-id> <new-id> [--apply --accepted-preview <fingerprint>]; dependency remove <id> [--confirm --accepted-preview <fingerprint>]; dependency support set <id> --role shacl|design --source <source> [--resource <exact-file>] [--target <dep:id/file>] --accepted-preview <fingerprint>; dependency support clear <id> --role shacl|design --resource <dep:id/support-file> [--target <dep:id/file>]; dependency list; dependency show <id>; dependency check [<id>]; dependency select <ontology-iri> <id>; or dependency clear <ontology-iri>.",
     );
   }
   if (command === "view") {

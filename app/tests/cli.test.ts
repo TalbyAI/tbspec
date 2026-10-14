@@ -414,6 +414,120 @@ test("CLI dependencies select and clear an ontology winner and check source drif
   assert.equal(invoke(["dependency", "check"], project).status, 0);
 });
 
+test("dependency CLI accepts canonical source forms and resolves omitted support selectors only when unique", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tb-cli-dependency-canonical-"));
+  const source = join(root, "source");
+  const support = join(root, "support");
+  const ambiguousSupport = join(root, "ambiguous-support");
+  const project = join(root, "project");
+  await mkdir(source);
+  await mkdir(support);
+  await mkdir(ambiguousSupport);
+  await initializeProject({ directory: project, baseIri: "urn:dependency-canonical-cli:/" });
+  await writeFile(
+    join(source, "vocabulary.ttl"),
+    `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<urn:canonical:vocabulary> a owl:Ontology .\n`,
+  );
+  const shape = `@prefix t: <https://talby.ai/ontology/tbspec#> .\n<urn:canonical:shapes> a t:ShapesGraph .\n`;
+  await writeFile(join(support, "rules.ttl"), shape);
+  await writeFile(join(ambiguousSupport, "one.ttl"), shape);
+  await writeFile(
+    join(ambiguousSupport, "two.ttl"),
+    `@prefix t: <https://talby.ai/ontology/tbspec#> .\n<urn:other-shapes> a t:ShapesGraph .\n`,
+  );
+
+  assert.equal(invoke(["dependency", "inspect", source], project).status, 0);
+  assert.equal(invoke(["dependency", "inspect", source, "--source", source], project).status, 2);
+
+  const addPreview = invoke(
+    ["dependency", "add", source, "--id", "canonical", "--kind", "ontology"],
+    project,
+  );
+  assert.equal(addPreview.status, 3, addPreview.stderr);
+  assert.equal(addPreview.envelope.data.preview.operation, "dependency.add");
+  assert.equal(
+    invoke(
+      ["dependency", "add", source, "--id", "canonical", "--source", source, "--kind", "ontology"],
+      project,
+    ).status,
+    2,
+  );
+  assert.equal(
+    invoke(
+      [
+        "dependency",
+        "add",
+        source,
+        "--id",
+        "canonical",
+        "--kind",
+        "ontology",
+        "--accepted-preview",
+        addPreview.envelope.data.preview.fingerprint,
+      ],
+      project,
+    ).status,
+    0,
+  );
+
+  const supportPreview = invoke(
+    ["dependency", "support", "set", "canonical", "--role", "shacl", "--source", support],
+    project,
+  );
+  assert.equal(supportPreview.status, 3, supportPreview.stderr);
+  assert.ok(
+    supportPreview.envelope.diagnostics.some(
+      (item: { code: string }) => item.code === "PREVIEW_REQUIRED",
+    ),
+  );
+  const attached = invoke(
+    [
+      "dependency",
+      "support",
+      "set",
+      "canonical",
+      "--role",
+      "shacl",
+      "--source",
+      support,
+      "--accepted-preview",
+      supportPreview.envelope.data.preview.fingerprint,
+    ],
+    project,
+  );
+  assert.equal(attached.status, 0, attached.stderr);
+  const shown = invoke(["dependency", "show", "canonical"], project);
+  const supportFile = shown.envelope.data.dependency.files.find(
+    (file: { roles: string[]; key: string }) =>
+      file.roles.includes("shacl") && file.key.includes("attachment-1"),
+  );
+  assert.ok(supportFile);
+  const cleared = invoke(
+    [
+      "dependency",
+      "support",
+      "clear",
+      "canonical",
+      "--role",
+      "shacl",
+      "--resource",
+      `dep:canonical/${supportFile.key}`,
+    ],
+    project,
+  );
+  assert.equal(cleared.status, 0, cleared.stderr);
+  const ambiguous = invoke(
+    ["dependency", "support", "set", "canonical", "--role", "shacl", "--source", ambiguousSupport],
+    project,
+  );
+  assert.ok(
+    ambiguous.envelope.diagnostics.some(
+      (item: { code: string }) => item.code === "SOURCE_SELECTION_AMBIGUOUS",
+    ),
+    JSON.stringify(ambiguous.envelope),
+  );
+});
+
 test("CLI dependency update previews the reacquired source before changing its snapshot", async () => {
   const root = await mkdtemp(join(tmpdir(), "tb-cli-dependency-update-"));
   const source = join(root, "source");

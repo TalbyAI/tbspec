@@ -110,12 +110,29 @@ test("bundled dependency updates require an explicit preview and keep their reco
   const beforeFile = await readFile(
     join(project, beforeDependency.snapshot_path, beforeDependency.primary),
   );
+  const beforeFiles = new Map(
+    await Promise.all(
+      beforeDependency.files.map(
+        async (file) =>
+          [
+            file.key,
+            await readFile(join(project, beforeDependency.snapshot_path, file.key)),
+          ] as const,
+      ),
+    ),
+  );
 
   const preview = await dependencyUpdate({ project, id: "tbspec-metadata" });
   assert.equal(preview.status, "preview", JSON.stringify(preview));
   assert.ok(preview.data);
   assert.equal((preview.data.preview as { operation: string }).operation, "dependency.update");
   assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBefore);
+  assert.deepEqual(
+    (preview.data.preview as { acquired: { selector: string }[] }).acquired.map(
+      (file) => file.selector,
+    ),
+    beforeDependency.files.map((file) => `dep:tbspec-metadata/${file.key}`),
+  );
   const applied = await dependencyUpdate({
     project,
     id: "tbspec-metadata",
@@ -123,12 +140,30 @@ test("bundled dependency updates require an explicit preview and keep their reco
     acceptedPreview: (preview.data.preview as { fingerprint: string }).fingerprint,
   });
   assert.equal(applied.status, "ok", JSON.stringify(applied));
-  assert.equal(
+  const after = parseLock(await readFile(join(project, "tbspec.lock"), "utf8"));
+  const afterDependency = after.dependencies["tbspec-metadata"];
+  assert.ok(afterDependency);
+  assert.equal(afterDependency.snapshot_path, beforeDependency.snapshot_path);
+  assert.equal(afterDependency.primary, beforeDependency.primary);
+  assert.equal(afterDependency.interpretation_signature, beforeDependency.interpretation_signature);
+  assert.deepEqual(afterDependency.files, beforeDependency.files);
+  assert.deepEqual(afterDependency.edges, beforeDependency.edges);
+  assert.deepEqual(afterDependency.bindings, beforeDependency.bindings);
+  assert.deepEqual(afterDependency.associations, beforeDependency.associations);
+  assert.deepEqual(afterDependency.choices, beforeDependency.choices);
+  assert.deepEqual(afterDependency.attachments, beforeDependency.attachments);
+  assert.deepEqual(afterDependency.sources, beforeDependency.sources);
+  assert.equal(afterDependency.sources[0]?.kind, "bundle");
+  for (const [key, bytes] of beforeFiles)
+    assert.deepEqual(await readFile(join(project, beforeDependency.snapshot_path, key)), bytes);
+  assert.deepEqual(
     await readFile(join(project, beforeDependency.snapshot_path, beforeDependency.primary)),
     beforeFile,
   );
-  const after = parseLock(await readFile(join(project, "tbspec.lock"), "utf8"));
-  assert.equal(after.dependencies["tbspec-metadata"]?.sources[0]?.kind, "bundle");
+  const status = await inspectProject({ project, command: "status" });
+  assert.equal(status.status, "ok", JSON.stringify(status));
+  assert.equal(status.data?.project?.validity, "valid");
+  assert.equal(status.data?.project?.validationComplete, true);
 });
 
 test("dependency update requires impact acceptance for a new manual SHACL violation", async () => {

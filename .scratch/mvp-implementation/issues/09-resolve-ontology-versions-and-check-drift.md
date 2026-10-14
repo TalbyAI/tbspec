@@ -1,7 +1,7 @@
 # Resolve ontology versions and detect source drift
 
 Type: task
-Status: resolved
+Status: ready-for-agent
 State: resolved
 Blocked by: 06, 08
 User stories covered: 43, 44, 48, 49, 97, 98
