@@ -203,24 +203,45 @@ export function rdfGraphsAreIsomorphic(left: Store, right: Store): boolean {
         ]),
       )
       .sort(utf8Compare);
+  type Edge = { position: "subject" | "object"; predicate: string; other: Term };
+  const adjacency = (quads: typeof leftQuads) => {
+    const indexed = new Map<string, Edge[]>();
+    const add = (node: string, edge: Edge) => {
+      let edges = indexed.get(node);
+      if (!edges) {
+        edges = [];
+        indexed.set(node, edges);
+      }
+      edges.push(edge);
+    };
+    for (const quad of quads) {
+      const predicate = quad.predicate.value;
+      if (quad.subject.termType === "BlankNode")
+        add(quad.subject.value, { position: "subject", predicate, other: quad.object });
+      if (quad.object.termType === "BlankNode")
+        add(quad.object.value, { position: "object", predicate, other: quad.subject });
+    }
+    return indexed;
+  };
+  const leftEdges = adjacency(leftQuads);
+  const rightEdges = adjacency(rightQuads);
   const refine = (leftMarks: Map<string, string>, rightMarks: Map<string, string>) => {
     let leftColors = new Map(leftNodes.map((node) => [node, leftMarks.get(node) ?? "_"]));
     let rightColors = new Map(rightNodes.map((node) => [node, rightMarks.get(node) ?? "_"]));
     while (true) {
-      const descriptions = (node: string, colors: Map<string, string>, quads: typeof leftQuads) => {
-        const nearby: string[] = [];
-        for (const quad of quads) {
-          const predicate = quad.predicate.value;
-          if (quad.subject.termType === "BlankNode" && quad.subject.value === node)
-            nearby.push(JSON.stringify(["subject", predicate, encodeTerm(quad.object, colors)]));
-          if (quad.object.termType === "BlankNode" && quad.object.value === node)
-            nearby.push(JSON.stringify(["object", predicate, encodeTerm(quad.subject, colors)]));
-        }
+      const descriptions = (
+        node: string,
+        colors: Map<string, string>,
+        edges: Map<string, Edge[]>,
+      ) => {
+        const nearby = (edges.get(node) ?? []).map((edge) =>
+          JSON.stringify([edge.position, edge.predicate, encodeTerm(edge.other, colors)]),
+        );
         return JSON.stringify([colors.get(node), nearby.sort(utf8Compare)]);
       };
-      const leftDescriptions = leftNodes.map((node) => descriptions(node, leftColors, leftQuads));
+      const leftDescriptions = leftNodes.map((node) => descriptions(node, leftColors, leftEdges));
       const rightDescriptions = rightNodes.map((node) =>
-        descriptions(node, rightColors, rightQuads),
+        descriptions(node, rightColors, rightEdges),
       );
       const allDescriptions = [...new Set([...leftDescriptions, ...rightDescriptions])].sort(
         utf8Compare,

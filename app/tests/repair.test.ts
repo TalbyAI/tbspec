@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import type { BaseQuad } from "@rdfjs/types";
+import { DataFactory, Store } from "n3";
 import { digest, graphSignature } from "../src/canonical.ts";
 import type { FileSystem } from "../src/filesystem.ts";
 import { initializeProject } from "../src/project.ts";
@@ -96,6 +98,40 @@ test("RDF graph isomorphism ignores blank labels but preserves connectivity", as
 
   assert.equal(rdfGraphsAreIsomorphic(original, relabeled), true);
   assert.equal(rdfGraphsAreIsomorphic(original, reversed), false);
+});
+
+test("blank-node refinement visits indexed neighbours within a linear work budget", () => {
+  const size = 1000;
+  let predicateReads = 0;
+  const factory = {
+    ...DataFactory,
+    quad: (...terms: Parameters<typeof DataFactory.quad>) =>
+      new Proxy(DataFactory.quad<BaseQuad>(...terms), {
+        get(target, property, receiver) {
+          if (property === "predicate") predicateReads++;
+          return Reflect.get(target, property, receiver);
+        },
+      }),
+  };
+  const graph = (prefix: string) =>
+    new Store(
+      Array.from({ length: size }, (_, index) =>
+        DataFactory.quad(
+          DataFactory.blankNode(`${prefix}${index}`),
+          DataFactory.namedNode("urn:restriction"),
+          DataFactory.literal(`restriction ${index}`),
+        ),
+      ),
+      { factory },
+    );
+  const left = graph("left");
+  const right = graph("right");
+  predicateReads = 0;
+  assert.equal(rdfGraphsAreIsomorphic(left, right), true);
+  assert.ok(
+    predicateReads < size * 50,
+    `${predicateReads} quad predicate reads for ${size} blank nodes`,
+  );
 });
 
 test("reference inspection separates exact occurrences from demonstrably dangling managed uses", async () => {
