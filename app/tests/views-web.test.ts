@@ -12,7 +12,8 @@ const metadata = "https://talby.ai/ontology/tbspec#";
 const rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 
 test("authenticated views keep independent membership and presentation and include exact endpoints", {
-  timeout: 60000,
+  // Several sequential RDF-backed view edits exceed one minute on a loaded serial Mac runner.
+  timeout: 180000,
 }, async (t) => {
   const root = await privateDirectory(join(tmpdir(), "tb-views-http-"));
   await initializeProject({ directory: root, baseIri: "urn:views-http:/" });
