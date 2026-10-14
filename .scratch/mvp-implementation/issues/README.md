@@ -47,7 +47,7 @@ The user approved this grouped breakdown of 20 AFK vertical slices on 2026-10-04
 - Start with issue 01. A later ticket can start when all its listed blockers are implemented and verified; numeric order is a valid dependency order, but independent unblocked tickets need not wait for unrelated lower numbers.
 - Each ticket is a complete demoable workflow through shared operations and its applicable interfaces. Individual RDF statement editing belongs to the web editors; do not invent statement-edit CLI commands.
 - Story references can span tickets: early workflows cover the resource kinds available at that point, and later slices extend discovery, validation, query assembly, guidance, impact, moves, and editing for newly introduced kinds. A story is fully delivered only when all its mapped scope is complete. Do not report absent checks as complete clean validation.
-- Ticket 20 is unblocked because tickets 01–19 are resolved in the integration branch. Its installed-artifact, cross-platform, and assembled acceptance checks remain open until their evidence is recorded.
+- [Ticket 20](20-install-and-verify-packed-application.md#answer) resolves installed-artifact acceptance against one immutable producer archive on Linux, standard-user Windows, macOS arm64, and Intel, with native browser evidence bound to its SHA-256. Its Mac source coverage is an explicitly audited 275-case composite rather than a single all-green full-suite run; platform skips and historical timeout/fixture failures remain documented. Publication, deployment, and screenshot-pixel inspection are not claimed.
 - Append implementation discussion under the ticket's Comments section. Do not close or modify the parent specification as part of these issues.
 
 ## Shared delivery requirements
