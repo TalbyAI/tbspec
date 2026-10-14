@@ -12,7 +12,7 @@ on:
         required: false
         default: false
       macos_regressions_only:
-        description: Run focused ownership and transaction rollback checks on both macOS architectures only.
+        description: Run focused ownership, transaction rollback and locked editor checks on both macOS architectures only.
         type: boolean
         required: false
         default: false
@@ -208,3 +208,5 @@ jobs:
         run: node --test tests/macos-ownership.test.ts
       - name: Test transaction rollback on both macOS architectures
         run: node --test --test-concurrency=1 tests/dependencies-transaction.test.ts tests/transactions.test.ts
+      - name: Test locked editor design resolution and read-only behavior
+        run: node --test --test-name-pattern='locked model editor inspection resolves manual design support and remains read-only' tests/editor-design-web.test.ts

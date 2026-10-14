@@ -165,7 +165,8 @@ test("editor inspection returns same-snapshot design resolution after exact type
 });
 
 test("locked model editor inspection resolves manual design support and remains read-only", {
-  timeout: 60000,
+  // Provisioning two locked dependencies runs four isolated CLI subprocesses.
+  timeout: 180000,
 }, async (t) => {
   const root = await privateDirectory(join(tmpdir(), "tb-locked-editor-design-web-"));
   const project = join(root, "project");
@@ -227,8 +228,10 @@ test("locked model editor inspection resolves manual design support and remains 
   );
   assert.equal(acceptedSupport.status, 0, acceptedSupport.stderr);
 
-  const server = await startWebServer(await realpath(project));
-  t.after(() => server.stop());
+  const serverProject = await realpath(project);
+  const serverStarting = startWebServer(serverProject);
+  t.after(async () => (await serverStarting).stop());
+  const server = await serverStarting;
   const base = server.record.baseUrl ?? "";
   const link = await controlRequest(server.record, "opening-link", {});
   const opened = await fetch(new URL("api/auth/v1/bootstrap", base), {
