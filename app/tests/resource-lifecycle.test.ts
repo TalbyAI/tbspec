@@ -26,7 +26,7 @@ const owl = "http://www.w3.org/2002/07/owl#";
 async function project() {
   const root = await mkdtemp(join(tmpdir(), "tb-resource-lifecycle-"));
   assert.equal((await initializeProject({ directory: root })).status, "ok");
-  return root;
+  return fs.realpath(root);
 }
 
 async function addLockedReference(root: string, target: string) {

@@ -244,7 +244,7 @@ test("dependency ID rename preserves a locked-source view and updates its exact 
   const listedItems = listed.data.items as { selector: string; source: string }[];
   assert.deepEqual(
     listedItems.map((item) => item.selector),
-    ["views/locked.ttl", "views/local.ttl"],
+    ["views/local.ttl", "views/locked.ttl"],
   );
   assert.equal(
     listedItems.find((item) => item.selector === "views/locked.ttl")?.source,
