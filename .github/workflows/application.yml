@@ -11,6 +11,11 @@ on:
         type: boolean
         required: false
         default: false
+      macos_regressions_only:
+        description: Run focused ownership and transaction rollback checks on both macOS architectures only.
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -18,7 +23,7 @@ permissions:
 jobs:
   application:
     name: Node 24 application (${{ matrix.os }})
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.packed_only != true }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.packed_only != true && inputs.macos_regressions_only != true) }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -74,6 +79,7 @@ jobs:
 
   package-artifact:
     name: Pack the release candidate once
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.macos_regressions_only != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -169,3 +175,36 @@ jobs:
           path: ${{ runner.os == 'Windows' && 'C:\Users\Public\tbspec-packed-tests\windows-latest.json' || format('packed-evidence/{0}.json', matrix.os) }}
           if-no-files-found: warn
           retention-days: 30
+
+  macos-regressions:
+    name: Node 24 focused macOS regressions (${{ matrix.os }})
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_regressions_only == true }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install isolated application dependencies
+        run: npm ci
+      - name: Typecheck and compile
+        run: npm run typecheck && npm run build
+      - name: Test native macOS process identity
+        run: node --test tests/macos-ownership.test.ts
+      - name: Test transaction rollback on both macOS architectures
+        run: node --test --test-concurrency=1 tests/dependencies-transaction.test.ts tests/transactions.test.ts
