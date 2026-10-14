@@ -11,7 +11,8 @@ import { privateDirectory } from "./private-directory.ts";
 const metadata = "https://talby.ai/ontology/tbspec#";
 
 test("authenticated repair API stages IRI refactor, scoped removal and separately selected GC", {
-  timeout: 120000,
+  // Serial Intel CI measured 141s for reference scans, refactor, removal and GC previews together.
+  timeout: 240000,
 }, async (t) => {
   const root = await privateDirectory(join(tmpdir(), "tb-repair-http-"));
   await initializeProject({ directory: root, baseIri: "urn:http-repair:/" });

@@ -12,10 +12,16 @@ on:
         required: false
         default: false
       macos_regressions_only:
-        description: Run focused ownership, transaction rollback and locked editor checks on both macOS architectures only.
+        description: Run focused ownership, transaction rollback and browser checks on both macOS architectures only.
         type: boolean
         required: false
         default: false
+      macos_regression_set:
+        description: Select all focused Mac checks or the two slow HTTP regressions; used only with macos_regressions_only.
+        type: choice
+        required: false
+        default: all
+        options: [all, slow-http]
       macos_intel_source_only:
         description: Run application source tests in serial partitions on macOS Intel only; select all or one partition below.
         type: boolean
@@ -237,15 +243,23 @@ jobs:
       - name: Typecheck and compile
         run: npm run typecheck && npm run build
       - name: Test native macOS process identity
+        if: ${{ inputs.macos_regression_set == 'all' }}
         run: node --test tests/macos-ownership.test.ts
       - name: Test transaction rollback on both macOS architectures
+        if: ${{ inputs.macos_regression_set == 'all' }}
         run: node --test --test-concurrency=1 tests/dependencies-transaction.test.ts tests/transactions.test.ts
       - name: Test locked editor design resolution and read-only behavior
+        if: ${{ inputs.macos_regression_set == 'all' }}
         run: node --test --test-name-pattern='locked model editor inspection resolves manual design support and remains read-only' tests/editor-design-web.test.ts
       - name: Test authenticated view membership and presentation over HTTP
+        if: ${{ inputs.macos_regression_set == 'all' }}
         run: node --test --test-name-pattern='authenticated views keep independent membership and presentation and include exact endpoints' tests/views-web.test.ts
       - name: Test authenticated dependency acquisition over HTTP
+        if: ${{ inputs.macos_regression_set == 'all' || inputs.macos_regression_set == 'slow-http' }}
         run: node --test --test-name-pattern='authenticated HTTP stages, applies, lists and shows an acquired directory dependency' tests/web.test.ts
+      - name: Test authenticated repair API staging and application
+        if: ${{ inputs.macos_regression_set == 'all' || inputs.macos_regression_set == 'slow-http' }}
+        run: node --test --test-name-pattern='authenticated repair API stages IRI refactor, scoped removal and separately selected GC' tests/repair-web.test.ts
 
   macos-intel-source:
     name: Node 24 Intel source partition ${{ matrix.partition }}
