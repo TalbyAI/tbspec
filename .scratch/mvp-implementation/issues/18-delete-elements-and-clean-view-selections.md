@@ -18,14 +18,14 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 
 ## Acceptance criteria
 
-- [ ] Keep view-only removal, single statement/association removal, source-element deletion, managed-root lifecycle removal, and IRI refactoring as distinct operations. A cleared field or opened form never implies element deletion.
-- [ ] Preview all exact source statements containing the chosen resource as subject, predicate, or object, including unknown incident statements. Blank-node deletion binds identity to its parsed source graph/revision and requires explicit confirmation.
-- [ ] Remove only the reviewed occurrences in that source graph. Do not recursively delete neighbors, Flow/Transition resources, disconnected blank-node structures, or statements in other graphs; managed-root deletion uses lifecycle operations.
-- [ ] Synchronize all affected saved views/presentations by removing deleted members, exact relationships, node presentation, and corresponding relationship presentation while preserving unrelated membership, coordinates, styles, and other-graph source content.
-- [ ] Disclose all known references in other sources, configuration, and locked dependencies as impact. Leave them intact and infer no ownership from IRI prefixes or a deleted-identity registry.
-- [ ] Post-deletion diagnostics follow current explicit associations, available vocabulary, view/presentation invariants, and applicable SHACL constraints. An ordinary individual-valued cross-graph IRI remains permitted without dereferencing even when its previous local definition was deleted.
-- [ ] Parse and revision-check every graph to be rewritten, including newly discovered affected views/inventory; stale or malformed required files prevent the entire mutation. Normal failure restores bytes; guarded rollback preserves intervening edits/recovery evidence.
-- [ ] Public-operation/browser checks cover predicate uses, unknown incident statements, blank-node scope, multiple views, locked/other-source impact, confirmed invalidity, stale acceptance, and coupled rollback. After fresh-process restart, ordinary individual values remain permitted while missing vocabulary, broken schema/source associations, stale views, and explicit SHACL failures remain diagnostic.
+- [x] Keep view-only removal, single statement/association removal, source-element deletion, managed-root lifecycle removal, and IRI refactoring as distinct operations. A cleared field or opened form never implies element deletion.
+- [x] Preview all exact source statements containing the chosen resource as subject, predicate, or object, including unknown incident statements. Blank-node deletion binds identity to its parsed source graph/revision and requires explicit confirmation.
+- [x] Remove only the reviewed occurrences in that source graph. Do not recursively delete neighbors, Flow/Transition resources, disconnected blank-node structures, or statements in other graphs; managed-root deletion uses lifecycle operations.
+- [x] Synchronize all affected saved views/presentations by removing deleted members, exact relationships, node presentation, and corresponding relationship presentation while preserving unrelated membership, coordinates, styles, and other-graph source content.
+- [x] Disclose all known references in other sources, configuration, and locked dependencies as impact. Leave them intact and infer no ownership from IRI prefixes or a deleted-identity registry.
+- [x] Post-deletion diagnostics follow current explicit associations, available vocabulary, view/presentation invariants, and applicable SHACL constraints. An ordinary individual-valued cross-graph IRI remains permitted without dereferencing even when its previous local definition was deleted.
+- [x] Parse and revision-check every graph to be rewritten, including newly discovered affected views/inventory; stale or malformed required files prevent the entire mutation. Normal failure restores bytes; guarded rollback preserves intervening edits/recovery evidence.
+- [x] Public-operation/browser checks cover predicate uses, unknown incident statements, blank-node scope, multiple views, locked/other-source impact, confirmed invalidity, stale acceptance, and coupled rollback. After fresh-process restart, ordinary individual values remain permitted while missing vocabulary, broken schema/source associations, stale views, and explicit SHACL failures remain diagnostic.
 
 ## Blocked by
 
