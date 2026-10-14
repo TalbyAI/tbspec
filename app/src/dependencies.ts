@@ -2405,11 +2405,11 @@ export async function dependencySupportSet(options: {
   project?: string;
   cwd?: string;
   id: string;
-  target: string;
+  target?: string;
   role: "shacl" | "design";
   source: string;
   ref?: string;
-  resource: string;
+  resource?: string;
   acceptedPreview?: string;
   signal?: AbortSignal;
 }): Promise<Result> {
@@ -2446,7 +2446,7 @@ export async function dependencySupportClear(options: {
   project?: string;
   cwd?: string;
   id: string;
-  target: string;
+  target?: string;
   role: "shacl" | "design";
   resource: string;
   acceptedPreview?: string;
@@ -3272,6 +3272,7 @@ export async function prepareDependencyUpdate(options: {
         })),
       }),
     };
+    const bundledFiles = new Map<string, Buffer>();
     for (const file of installed.files) {
       const bytes = bundle.files[`${installed.snapshot_path}/${file.key}`];
       if (!bytes)
@@ -3281,23 +3282,7 @@ export async function prepareDependencyUpdate(options: {
           "A required bundled dependency file is not present in the installed release.",
           file.key,
         );
-      source.entries.set(file.key, {
-        address: file.key,
-        sourceResource: file.source_resource,
-        source: file.source,
-        context: file.context,
-        bytes: Buffer.from(bytes),
-        byteLength: file.byte_length,
-        capturedDigest: file.byte_digest,
-        lockedFile: file,
-        mediaType: file.media_type,
-        baseIri: file.base_iri,
-        profile: file.parser_profile,
-        kind: file.kind,
-        classification: file.classification,
-        identity: file.identity as "declared" | "generated",
-        graphIri: file.graph_iri,
-      });
+      bundledFiles.set(file.key, Buffer.from(bytes));
     }
     if (options.signal?.aborted)
       throw new ProjectError(
@@ -3305,17 +3290,18 @@ export async function prepareDependencyUpdate(options: {
         "ACQUISITION_CANCELLED",
         "Dependency update was cancelled.",
       );
-    return await prepareDependencyFromSource(
+    return await prepareDependencyCandidate(
       {
         id: dependencyId,
         kind: existing.kind as ResourceKind,
         resource: String(installedSource.selected_resource),
       },
       current,
-      limits,
       source,
       "dependency.update",
+      installed,
       installedSource,
+      bundledFiles,
     );
   }
   const ref =
@@ -3351,11 +3337,11 @@ export async function prepareDependencySupportSet(options: {
   project?: string;
   cwd?: string;
   id: string;
-  target: string;
+  target?: string;
   role: "shacl" | "design";
   source: string;
   ref?: string;
-  resource: string;
+  resource?: string;
   signal?: AbortSignal;
 }): Promise<PreparedDependency> {
   const dependencyId = id(options.id);
@@ -3369,7 +3355,10 @@ export async function prepareDependencySupportSet(options: {
       "ARGUMENT_INVALID",
       "Support role must be shacl or design.",
     );
-  const targetKey = dependencyKey(dependencyId, options.target);
+  const targetKey = dependencyKey(
+    dependencyId,
+    options.target ?? `dep:${dependencyId}/${existing.primary}`,
+  );
   const target = existing.files.find((file) => file.key === targetKey);
   if (!target)
     throw new ProjectError(
@@ -3383,17 +3372,31 @@ export async function prepareDependencySupportSet(options: {
     source: options.source,
     cwd: options.cwd,
     ref: options.ref,
-    resource: options.resource,
+    ...(options.resource ? { resource: options.resource } : {}),
     signal: options.signal,
     limits,
   });
   try {
     const expectedKind = options.role === "shacl" ? "shapes" : "design";
-    const selected = [...source.entries.values()].find((entry) =>
-      [entry.address, entry.sourceResource, inspectedResource(source, entry)].includes(
-        options.resource,
-      ),
-    );
+    const candidates = [...source.entries.values()].filter((entry) => {
+      if (options.resource)
+        return [entry.address, entry.sourceResource, inspectedResource(source, entry)].includes(
+          options.resource,
+        );
+      return entry.kind === expectedKind && !entry.parseError;
+    });
+    if (!options.resource && candidates.length > 1)
+      throw new ProjectError(
+        "conflict",
+        "SOURCE_SELECTION_AMBIGUOUS",
+        "Omitting --resource is only supported when the source has one parseable resource for this support role.",
+        undefined,
+        {
+          role: options.role,
+          resources: candidates.map((entry) => entry.address).sort(utf8Compare),
+        },
+      );
+    const selected = candidates[0];
     if (!selected)
       throw new ProjectError(
         "invalid_arguments",
@@ -3567,7 +3570,7 @@ export async function prepareDependencySupportSet(options: {
       {
         target: `dep:${dependencyId}/${target.key}`,
         role: options.role,
-        resource: options.resource,
+        resource: selected.address,
       },
       writes,
       files,
@@ -3582,7 +3585,7 @@ export async function prepareDependencySupportClear(options: {
   project?: string;
   cwd?: string;
   id: string;
-  target: string;
+  target?: string;
   role: "shacl" | "design";
   resource: string;
 }): Promise<PreparedDependency> {
@@ -3591,7 +3594,10 @@ export async function prepareDependencySupportClear(options: {
   const existing = current.lock.dependencies[dependencyId];
   if (!existing)
     throw new ProjectError("invalid_arguments", "RESOURCE_MISSING", "Dependency ID was not found.");
-  const targetKey = dependencyKey(dependencyId, options.target);
+  const targetKey = dependencyKey(
+    dependencyId,
+    options.target ?? `dep:${dependencyId}/${existing.primary}`,
+  );
   const supportKey = dependencyKey(dependencyId, options.resource);
   const association = existing.associations.find(
     (item) =>
@@ -4611,12 +4617,34 @@ async function prepareDependencyFromSource(
   operation = "dependency.add",
   sourceRecordOverride?: Row,
 ): Promise<PreparedDependency> {
-  const dependencyId = id(options.id);
   const { closure, dependency: acquiredDependency } = await resolveDependencySource(
     options,
     limits,
     source,
   );
+  return await prepareDependencyCandidate(
+    options,
+    current,
+    source,
+    operation,
+    acquiredDependency,
+    sourceRecordOverride,
+    new Map(closure.entries.map((entry) => [outputKey(entry), Buffer.from(entry.bytes as Buffer)])),
+    closure.diagnostics,
+  );
+}
+
+async function prepareDependencyCandidate(
+  options: Pick<DependencyAddOptions, "id" | "kind" | "resource">,
+  current: Awaited<ReturnType<typeof readProject>>,
+  source: SourceInventory,
+  operation: string,
+  acquiredDependency: Dependency,
+  sourceRecordOverride?: Row,
+  acquiredBytes: Map<string, Buffer> = new Map(),
+  closureDiagnostics: Diagnostic[] = [],
+): Promise<PreparedDependency> {
+  const dependencyId = id(options.id);
   if (sourceRecordOverride) acquiredDependency.sources[0] = sourceRecordOverride;
   const existing =
     operation === "dependency.update" ? current.lock.dependencies[dependencyId] : undefined;
@@ -4637,14 +4665,11 @@ async function prepareDependencyFromSource(
     dependencies: { ...current.lock.dependencies, [dependencyId]: dependency },
   };
   const lockBytes = Buffer.from(writeToml(lock));
-  const acquired = new Map(
-    closure.entries.map((entry) => [outputKey(entry), Buffer.from(entry.bytes as Buffer)]),
-  );
   const existingKeys = new Set((existing?.files ?? []).map((file) => file.key));
   const nextKeys = new Set(dependency.files.map((file) => file.key));
   const fileWrites = dependency.files.map((file) => {
     const path = `${dependency.snapshot_path}/${file.key}`;
-    const bytes = acquired.get(file.key) ?? current.snapshot.files[path];
+    const bytes = acquiredBytes.get(file.key) ?? current.snapshot.files[path];
     if (!bytes)
       throw new ProjectError(
         "invalid",
@@ -4800,7 +4825,7 @@ async function prepareDependencyFromSource(
     id: dependencyId,
     dependency,
     plan: completedPlan,
-    diagnostics: [...source.diagnostics, ...closure.diagnostics, ...after.diagnostics],
+    diagnostics: [...source.diagnostics, ...closureDiagnostics, ...after.diagnostics],
     projectValidity: (after.data?.project?.validity ??
       "unchecked") as PreparedDependency["projectValidity"],
     validationComplete: after.data?.project?.validationComplete ?? false,

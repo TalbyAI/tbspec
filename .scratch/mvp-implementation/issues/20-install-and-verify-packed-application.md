@@ -3,7 +3,8 @@
 Type: task
 Status: ready-for-agent
 State: open
-Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
+Blocked by: none
+Assigned to: Codex
 User stories covered: 9, 54, 117
 
 ## Parent
@@ -29,28 +30,6 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 - [ ] Record artifact identity, Node/OS versions, exact install/run/check commands, measured outcomes, and material limitations. Missing platform execution is explicit incomplete evidence, not a passed mock or an assumption from prototype verdicts.
 - [ ] Tests introduced by earlier tickets remain the primary public-operation seam; broaden integration only to installed-artifact, cross-platform, and cross-feature risks that those checks cannot establish. Do not claim multi-file crash atomicity, network-share guarantees, public publication, or vocabulary hosting.
 
-## Blocked by
-
-- [01 - Initialize and discover an offline project](01-initialize-offline-project.md).
-- [02 - Inspect the project from CLI and an authenticated browser](02-inspect-project-and-authenticated-web.md).
-- [03 - Create and import editable ontologies and domain models](03-create-and-import-owned-resources.md).
-- [04 - Validate models, schema associations, and constraints offline](04-validate-models-schemas-and-shacl.md).
-- [05 - Edit RDF through the canvas, Turtle, and ontology forms](05-edit-rdf-source-and-ontology-forms.md).
-- [06 - Run and manage reproducible SPARQL queries](06-run-and-manage-sparql-queries.md).
-- [07 - Configure model types and accept vocabulary changes](07-configure-model-types-and-vocabulary-changes.md).
-- [08 - Acquire dependencies from directories, HTTP, and Git](08-acquire-directory-http-and-git-dependencies.md).
-- [09 - Resolve ontology versions and detect source drift](09-resolve-ontology-versions-and-check-drift.md).
-- [10 - Update dependencies and manage explicit support](10-update-dependencies-and-manual-support.md).
-- [11 - Rename and deliberately remove dependencies](11-rename-and-remove-dependencies.md).
-- [12 - Move and remove owned resources with impact review](12-move-and-remove-owned-resources.md).
-- [13 - Maintain independent views and synchronize their selections](13-maintain-independent-saved-views.md).
-- [14 - Create reusable designs and customize each view](14-author-designs-and-view-appearance.md).
-- [15 - Organize and explore the canvas without losing positions](15-organize-and-explore-canvas.md).
-- [16 - Edit descriptive processes with specialized forms](16-edit-descriptive-process-forms.md).
-- [17 - Edit descriptive state machines](17-edit-descriptive-state-machine-forms.md).
-- [18 - Delete elements precisely and clean affected views](18-delete-elements-and-clean-view-selections.md).
-- [19 - Refactor identities, repair references, and collect orphaned support](19-refactor-repair-and-collect-orphaned-support.md).
-
 ## References
 
 - [Implementation and testing decisions](../spec.md#implementation-decisions).
@@ -65,3 +44,9 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
 
 - On 2026-10-07, the user approved implementing the macOS full-process identity adapter in ticket 01, with foundation CI on arm64 and Intel. This ticket verifies the complete installed artifact and platform-sensitive assembled workflows; ownership of final acceptance does not defer platform implementation from earlier feature tickets.
+
+- On 2026-10-14, the local candidate passed root `npm ci`, `npm run format`, and `npm run check`, plus app `npm run typecheck`. `npm pack` produced `E:/talby/tbspec-worktrees/mvp20-final-packed-20261014/tbspec-0.1.0.tgz` (11,957,063 bytes; SHA-256 `cbedd10e68cceb17e60edaa469272912c1d26afcd3d8f4e54d35753d9f3e985e`). The fresh Windows verifier passed on Node 24.14.1/npm 11.17.0, Windows 10.0.26200 x64: both installs used empty npm caches and exited 0; all eight groups (runtime compatibility and the seven original scenarios) passed with 179 assertions, 118 CLI commands, and 46 HTTP checks. It verified 487 production package instances, 17 starter files, six browser assets, 112 notice-text hashes for 507 package-instance records, and 202 clean distribution files. Sanitized evidence: `E:/talby/tbspec-worktrees/mvp20-final-evidence-windows.json` (SHA-256 `20868b9c0ecce3d3f755e5cbdccd6cb72164fcf20ec5ce1a6abc3bef2f521d2c`). The candidate source suite previously passed 275 tests (273 pass, two platform skips, zero failures) in `E:/talby/tbspec-worktrees/mvp-20-source-tests.log`.
+
+- The verifier now checks the npm-installed public shim under `node_modules/.bin`, checks the imported ontology using its copied root IRI as the `owl:imports` subject, and expects unresolved ontology query conflicts to use exit 3/status `conflict`. These align with the observed consumer filesystem, installed CLI response, and normative query/exit contracts. Prior failed verifier evidence remains at `E:/talby/tbspec-worktrees/mvp20-final-evidence-windows-failed-01.json` and `E:/talby/tbspec-worktrees/mvp20-final-evidence-windows-failed-02.json`.
+
+- Ticket 20 remains open pending the producer artifact's Linux, standard-user Windows, macOS arm64, and Intel workflow results, plus native T3 browser acceptance against that same archive. The local Windows run does not establish cross-platform support or native browser acceptance.
