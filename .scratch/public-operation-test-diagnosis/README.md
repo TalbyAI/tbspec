@@ -6,7 +6,7 @@ Date: 2026-10-15. Investigated commit: `720d3496595f74c1f5c52785965dc7b3b1d33412
 
 The main opportunity is to avoid repeating expensive work inside tests and operations before changing CI scheduling. The same-commit Ubuntu run spends 58.3% of measured test-body time in four files: `cli.test.ts`, `dependencies.test.ts`, `repair.test.ts`, and `resource-lifecycle.test.ts`. Local profiles identify two different costs: repeated whole-project validation in dependency/repair operations, and repeated Node/PowerShell startup in CLI tests. A conservative fixture experiment reduced one test's median by 10.0% while retaining its unique positive CLI route checks.
 
-The initial diagnosis below changed no application source, existing test, dependency version, or workflow. The hooks in this directory transform modules in memory only when explicitly imported. The subsequently approved implementation and its verification are documented separately in [implementation-results.md](implementation-results.md), with the execution ledger in [implementation-plan.md](implementation-plan.md).
+The initial diagnosis below changed no application source, existing test, dependency version, or workflow. The hooks in this directory transform modules in memory only when explicitly imported. The subsequently approved implementation and its verification are documented separately in [implementation-results.md](implementation-results.md), with the execution ledger in [implementation-plan.md](implementation-plan.md). The second iteration has its own [plan](session-2-plan.md) and [results](session-2-results.md).
 
 ## Scope and measurement method
 

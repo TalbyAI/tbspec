@@ -1,0 +1,1504 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-15",
+  "baselineCommit": "829d0b129defc850a6ddf352a37bf158fb7ca389",
+  "rawEvidenceDirectory": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-session-2-829d0b1",
+  "environment": {
+    "node": "v24.14.1",
+    "platform": "win32",
+    "release": "10.0.26200",
+    "arch": "x64",
+    "cpu": "Intel(R) Core(TM) i9-10900K CPU @ 3.70GHz",
+    "npm": "11.17.0"
+  },
+  "method": {
+    "startup": "Five fresh-process samples per version/entry/case. Identical loader in both modes, baseline starting-commit sources, byte-equivalent TypeScript emitter for compiled overrides, warm filesystem caches, empty PATH. Accepted samples have no competing task benchmark/build/suite.",
+    "workloads": "Three serial pairs, baseline/current/current/baseline/baseline/current. Same loader also installed in workers and CLI subprocesses. Instrumentation disabled. Desktop activity uncontrolled.",
+    "core": "Synthetic: 32 repeated-value focus nodes, two typed range comparisons per node, ten runShapes calls after one untimed warmup; three fresh-process pairs. No project I/O or counters.",
+    "profiles": "Real engine calls, separate instrumented executions. HTTP counters installed in both workers and recorded before termination. Do not use profile elapsed time as timing evidence.",
+    "suite": "The first portion overlaps the installed-artifact verifier; this is functional evidence, not an isolated speed comparison."
+  },
+  "startup": [
+    {
+      "entry": "src/cli.ts",
+      "name": "help",
+      "before": {
+        "n": 5,
+        "minMs": 110.41159999999945,
+        "medianMs": 115.58299999999872,
+        "maxMs": 121.64710000000196
+      },
+      "after": {
+        "n": 5,
+        "minMs": 110.92679999999928,
+        "medianMs": 116.13919999999962,
+        "maxMs": 122.10120000000097
+      },
+      "reductionPercent": -0.4812126350768775
+    },
+    {
+      "entry": "src/cli.ts",
+      "name": "version",
+      "before": {
+        "n": 5,
+        "minMs": 112.06430000000182,
+        "medianMs": 121.03789999999572,
+        "maxMs": 121.57910000000265
+      },
+      "after": {
+        "n": 5,
+        "minMs": 112.41270000000077,
+        "medianMs": 114.32550000000083,
+        "maxMs": 119.51510000000417
+      },
+      "reductionPercent": 5.54570097464937
+    },
+    {
+      "entry": "src/cli.ts",
+      "name": "model-list",
+      "before": {
+        "n": 5,
+        "minMs": 1457.7672999999995,
+        "medianMs": 1522.5271999999968,
+        "maxMs": 1828.116
+      },
+      "after": {
+        "n": 5,
+        "minMs": 1111.8716999999997,
+        "medianMs": 1134.1697000000004,
+        "maxMs": 1181.3404999999984
+      },
+      "reductionPercent": 25.507426074226935
+    },
+    {
+      "entry": "src/cli.ts",
+      "name": "config-show",
+      "before": {
+        "n": 5,
+        "minMs": 1353.2019999999975,
+        "medianMs": 1425.3047000000006,
+        "maxMs": 1768.2411000000006
+      },
+      "after": {
+        "n": 5,
+        "minMs": 1006.3533000000007,
+        "medianMs": 1037.239999999998,
+        "maxMs": 1104.9829000000027
+      },
+      "reductionPercent": 27.226788770148758
+    },
+    {
+      "entry": "dist/cli.js",
+      "name": "help",
+      "before": {
+        "n": 5,
+        "minMs": 73.67069999999876,
+        "medianMs": 74.6810000000005,
+        "maxMs": 88.14179999999942
+      },
+      "after": {
+        "n": 5,
+        "minMs": 68.6802000000007,
+        "medianMs": 71.63740000000325,
+        "maxMs": 73.77380000000267
+      },
+      "reductionPercent": 4.075467655758791
+    },
+    {
+      "entry": "dist/cli.js",
+      "name": "version",
+      "before": {
+        "n": 5,
+        "minMs": 67.4255000000012,
+        "medianMs": 73.3698000000004,
+        "maxMs": 86.42990000000009
+      },
+      "after": {
+        "n": 5,
+        "minMs": 68.6306999999997,
+        "medianMs": 72.32960000000458,
+        "maxMs": 87.44020000000455
+      },
+      "reductionPercent": 1.4177495372698523
+    },
+    {
+      "entry": "dist/cli.js",
+      "name": "model-list",
+      "before": {
+        "n": 5,
+        "minMs": 1397.7134000000005,
+        "medianMs": 1500.6933999999965,
+        "maxMs": 1724.5787999999993
+      },
+      "after": {
+        "n": 5,
+        "minMs": 1024.8027999999995,
+        "medianMs": 1063.303700000004,
+        "maxMs": 1168.8526000000056
+      },
+      "reductionPercent": 29.145840182944326
+    },
+    {
+      "entry": "dist/cli.js",
+      "name": "config-show",
+      "before": {
+        "n": 5,
+        "minMs": 1354.7083999999995,
+        "medianMs": 1395.792300000001,
+        "maxMs": 1448.0430999999999
+      },
+      "after": {
+        "n": 5,
+        "minMs": 963.1860000000015,
+        "medianMs": 968.2944999999963,
+        "maxMs": 1027.3889000000054
+      },
+      "reductionPercent": 30.627608419963657
+    }
+  ],
+  "startupSamples": [
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "help",
+      "ms": 113.72880000000009,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "version",
+      "ms": 119.63280000000009,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "model-list",
+      "ms": 1828.116,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "config-show",
+      "ms": 1768.2411000000006,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "help",
+      "ms": 88.14179999999942,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "version",
+      "ms": 86.42990000000009,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "model-list",
+      "ms": 1724.5787999999993,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "config-show",
+      "ms": 1448.0430999999999,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "help",
+      "ms": 116.13919999999962,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "version",
+      "ms": 112.41270000000077,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "model-list",
+      "ms": 1136.3374000000003,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "config-show",
+      "ms": 1006.3533000000007,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "help",
+      "ms": 68.6802000000007,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "version",
+      "ms": 68.6306999999997,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "model-list",
+      "ms": 1024.8027999999995,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "config-show",
+      "ms": 963.1860000000015,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "help",
+      "ms": 110.92679999999928,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "version",
+      "ms": 114.32550000000083,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "model-list",
+      "ms": 1134.1697000000004,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "config-show",
+      "ms": 1047.8385999999991,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "help",
+      "ms": 72.28219999999965,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "version",
+      "ms": 71.60419999999976,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "model-list",
+      "ms": 1059.9215999999997,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "config-show",
+      "ms": 965.0132000000012,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "help",
+      "ms": 121.64710000000196,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "version",
+      "ms": 121.48790000000008,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "model-list",
+      "ms": 1457.7672999999995,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "config-show",
+      "ms": 1425.3047000000006,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "help",
+      "ms": 73.67069999999876,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "version",
+      "ms": 70.5695999999989,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "model-list",
+      "ms": 1561.638500000001,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "config-show",
+      "ms": 1395.792300000001,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "help",
+      "ms": 115.58299999999872,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "version",
+      "ms": 112.06430000000182,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "model-list",
+      "ms": 1465.125100000001,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "config-show",
+      "ms": 1353.2019999999975,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "help",
+      "ms": 74.6810000000005,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "version",
+      "ms": 67.4255000000012,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "model-list",
+      "ms": 1397.7134000000005,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "config-show",
+      "ms": 1354.7083999999995,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "help",
+      "ms": 122.10120000000097,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "version",
+      "ms": 114.29219999999987,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "model-list",
+      "ms": 1111.8716999999997,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "config-show",
+      "ms": 1024.8797000000013,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "help",
+      "ms": 71.63740000000325,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "version",
+      "ms": 77.15200000000186,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "model-list",
+      "ms": 1168.8526000000056,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "config-show",
+      "ms": 1027.3889000000054,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "help",
+      "ms": 116.21650000000227,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "version",
+      "ms": 116.6388999999981,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "model-list",
+      "ms": 1181.3404999999984,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "config-show",
+      "ms": 1104.9829000000027,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "help",
+      "ms": 73.77380000000267,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "version",
+      "ms": 72.32960000000458,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "model-list",
+      "ms": 1092.7396000000008,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "config-show",
+      "ms": 968.2944999999963,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "help",
+      "ms": 110.41159999999945,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "version",
+      "ms": 121.57910000000265,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "model-list",
+      "ms": 1575.9974999999977,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "config-show",
+      "ms": 1433.0526000000027,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "help",
+      "ms": 77.17859999999928,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "version",
+      "ms": 73.58469999999943,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "model-list",
+      "ms": 1482.7953000000052,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "config-show",
+      "ms": 1426.211500000005,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "help",
+      "ms": 121.26610000000073,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "version",
+      "ms": 121.03789999999572,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "model-list",
+      "ms": 1522.5271999999968,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "src/cli.ts",
+      "name": "config-show",
+      "ms": 1403.3512999999948,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "help",
+      "ms": 74.04189999999653,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "version",
+      "ms": 73.3698000000004,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "model-list",
+      "ms": 1500.6933999999965,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "baseline",
+      "entry": "dist/cli.js",
+      "name": "config-show",
+      "ms": 1361.4891999999963,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "help",
+      "ms": 112.14459999999963,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "version",
+      "ms": 119.51510000000417,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "model-list",
+      "ms": 1130.786199999995,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "src/cli.ts",
+      "name": "config-show",
+      "ms": 1037.239999999998,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "help",
+      "ms": 69.5564000000013,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "version",
+      "ms": 87.44020000000455,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "model-list",
+      "ms": 1063.303700000004,
+      "status": 0,
+      "stderr": ""
+    },
+    {
+      "mode": "current",
+      "entry": "dist/cli.js",
+      "name": "config-show",
+      "ms": 1013.3590999999942,
+      "status": 0,
+      "stderr": ""
+    }
+  ],
+  "workloads": [
+    {
+      "name": "cli",
+      "before": {
+        "n": 3,
+        "minMs": 22202.1665,
+        "medianMs": 22909.4454,
+        "maxMs": 23158.7809
+      },
+      "after": {
+        "n": 3,
+        "minMs": 18916.248,
+        "medianMs": 18975.2686,
+        "maxMs": 20707.3188
+      },
+      "reductionPercent": 17.172728240728176
+    },
+    {
+      "name": "dependency",
+      "before": {
+        "n": 3,
+        "minMs": 65430.2925,
+        "medianMs": 65478.9364,
+        "maxMs": 67686.5851
+      },
+      "after": {
+        "n": 3,
+        "minMs": 63226.1969,
+        "medianMs": 64099.5905,
+        "maxMs": 71384.9107
+      },
+      "reductionPercent": 2.106549030628424
+    },
+    {
+      "name": "repair-http",
+      "before": {
+        "n": 3,
+        "minMs": 40878.1982,
+        "medianMs": 41643.3396,
+        "maxMs": 42896.7028
+      },
+      "after": {
+        "n": 3,
+        "minMs": 39119.5038,
+        "medianMs": 40232.4,
+        "maxMs": 43163.7116
+      },
+      "reductionPercent": 3.3881518954834156
+    },
+    {
+      "name": "synthetic-core-10-validations",
+      "before": {
+        "n": 3,
+        "minMs": 743.0439000000001,
+        "medianMs": 750.815,
+        "maxMs": 766.5522000000001
+      },
+      "after": {
+        "n": 3,
+        "minMs": 299.3985,
+        "medianMs": 300.4981,
+        "maxMs": 303.97479999999996
+      },
+      "reductionPercent": 59.97707824164408
+    }
+  ],
+  "workloadSamples": [
+    {
+      "mode": "baseline",
+      "name": "cli",
+      "wallMs": 24006.0424,
+      "bodyMs": 23158.7809,
+      "status": 0,
+      "log": "workload-0-baseline-cli.tap"
+    },
+    {
+      "mode": "baseline",
+      "name": "dependency",
+      "wallMs": 68677.2592,
+      "bodyMs": 67686.5851,
+      "status": 0,
+      "log": "workload-1-baseline-dependency.tap"
+    },
+    {
+      "mode": "baseline",
+      "name": "repair-http",
+      "wallMs": 43208.59890000001,
+      "bodyMs": 42896.7028,
+      "status": 0,
+      "log": "workload-2-baseline-repair-http.tap"
+    },
+    {
+      "mode": "current",
+      "name": "cli",
+      "wallMs": 21192.052800000005,
+      "bodyMs": 20707.3188,
+      "status": 0,
+      "log": "workload-3-current-cli.tap"
+    },
+    {
+      "mode": "current",
+      "name": "dependency",
+      "wallMs": 72310.60630000001,
+      "bodyMs": 71384.9107,
+      "status": 0,
+      "log": "workload-4-current-dependency.tap"
+    },
+    {
+      "mode": "current",
+      "name": "repair-http",
+      "wallMs": 43469.08009999999,
+      "bodyMs": 43163.7116,
+      "status": 0,
+      "log": "workload-5-current-repair-http.tap"
+    },
+    {
+      "mode": "current",
+      "name": "cli",
+      "wallMs": 19444.4522,
+      "bodyMs": 18975.2686,
+      "status": 0,
+      "log": "workload-6-current-cli.tap"
+    },
+    {
+      "mode": "current",
+      "name": "dependency",
+      "wallMs": 64987.2438,
+      "bodyMs": 64099.5905,
+      "status": 0,
+      "log": "workload-7-current-dependency.tap"
+    },
+    {
+      "mode": "current",
+      "name": "repair-http",
+      "wallMs": 40531.90120000002,
+      "bodyMs": 40232.4,
+      "status": 0,
+      "log": "workload-8-current-repair-http.tap"
+    },
+    {
+      "mode": "baseline",
+      "name": "cli",
+      "wallMs": 23735.24489999999,
+      "bodyMs": 22909.4454,
+      "status": 0,
+      "log": "workload-9-baseline-cli.tap"
+    },
+    {
+      "mode": "baseline",
+      "name": "dependency",
+      "wallMs": 66308.864,
+      "bodyMs": 65430.2925,
+      "status": 0,
+      "log": "workload-10-baseline-dependency.tap"
+    },
+    {
+      "mode": "baseline",
+      "name": "repair-http",
+      "wallMs": 41180.794599999965,
+      "bodyMs": 40878.1982,
+      "status": 0,
+      "log": "workload-11-baseline-repair-http.tap"
+    },
+    {
+      "mode": "baseline",
+      "name": "cli",
+      "wallMs": 23044.755700000096,
+      "bodyMs": 22202.1665,
+      "status": 0,
+      "log": "workload-12-baseline-cli.tap"
+    },
+    {
+      "mode": "baseline",
+      "name": "dependency",
+      "wallMs": 66327.60620000004,
+      "bodyMs": 65478.9364,
+      "status": 0,
+      "log": "workload-13-baseline-dependency.tap"
+    },
+    {
+      "mode": "baseline",
+      "name": "repair-http",
+      "wallMs": 41951.03489999997,
+      "bodyMs": 41643.3396,
+      "status": 0,
+      "log": "workload-14-baseline-repair-http.tap"
+    },
+    {
+      "mode": "current",
+      "name": "cli",
+      "wallMs": 19374.51299999992,
+      "bodyMs": 18916.248,
+      "status": 0,
+      "log": "workload-15-current-cli.tap"
+    },
+    {
+      "mode": "current",
+      "name": "dependency",
+      "wallMs": 64164.47529999993,
+      "bodyMs": 63226.1969,
+      "status": 0,
+      "log": "workload-16-current-dependency.tap"
+    },
+    {
+      "mode": "current",
+      "name": "repair-http",
+      "wallMs": 39430.03540000005,
+      "bodyMs": 39119.5038,
+      "status": 0,
+      "log": "workload-17-current-repair-http.tap"
+    }
+  ],
+  "syntheticCoreSamples": [
+    {
+      "mode": "baseline",
+      "focusNodes": 32,
+      "comparisonsPerFocus": 2,
+      "iterations": 10,
+      "ms": 766.5522000000001
+    },
+    {
+      "mode": "current",
+      "focusNodes": 32,
+      "comparisonsPerFocus": 2,
+      "iterations": 10,
+      "ms": 303.97479999999996
+    },
+    {
+      "mode": "current",
+      "focusNodes": 32,
+      "comparisonsPerFocus": 2,
+      "iterations": 10,
+      "ms": 300.4981
+    },
+    {
+      "mode": "baseline",
+      "focusNodes": 32,
+      "comparisonsPerFocus": 2,
+      "iterations": 10,
+      "ms": 750.815
+    },
+    {
+      "mode": "baseline",
+      "focusNodes": 32,
+      "comparisonsPerFocus": 2,
+      "iterations": 10,
+      "ms": 743.0439000000001
+    },
+    {
+      "mode": "current",
+      "focusNodes": 32,
+      "comparisonsPerFocus": 2,
+      "iterations": 10,
+      "ms": 299.3985
+    }
+  ],
+  "queries": {
+    "dependency": {
+      "before": {
+        "contexts": [],
+        "engines": 60,
+        "core": 2880,
+        "select": 7260,
+        "uniqueCore": 140,
+        "uniqueSelect": 3660,
+        "raw": "dependency-baseline-profile.ndjson"
+      },
+      "after": {
+        "contexts": [],
+        "engines": 60,
+        "core": 140,
+        "select": 7260,
+        "uniqueCore": 140,
+        "uniqueSelect": 3660,
+        "raw": "dependency-current-profile.ndjson"
+      }
+    },
+    "repairHttp": {
+      "before": {
+        "contexts": [
+          {
+            "pid": 49248,
+            "threadId": 0
+          },
+          {
+            "pid": 49248,
+            "threadId": 1
+          },
+          {
+            "pid": 49248,
+            "threadId": 2
+          }
+        ],
+        "engines": 33,
+        "core": 1584,
+        "select": 3993,
+        "uniqueCore": 77,
+        "uniqueSelect": 2013,
+        "raw": "repair-http-baseline-workers-validated.ndjson"
+      },
+      "after": {
+        "contexts": [
+          {
+            "pid": 47476,
+            "threadId": 0
+          },
+          {
+            "pid": 47476,
+            "threadId": 1
+          },
+          {
+            "pid": 47476,
+            "threadId": 2
+          }
+        ],
+        "engines": 33,
+        "core": 77,
+        "select": 3993,
+        "uniqueCore": 77,
+        "uniqueSelect": 2013,
+        "raw": "repair-http-current-workers-validated.ndjson"
+      }
+    }
+  },
+  "parserOnlyMovedCases": [
+    [
+      "validate",
+      "one",
+      "two"
+    ],
+    [
+      "validate",
+      "--confirm"
+    ],
+    [
+      "model",
+      "schema",
+      "add",
+      "model.ttl"
+    ],
+    [
+      "model",
+      "schema",
+      "list",
+      "model.ttl",
+      "--type",
+      "data"
+    ],
+    [
+      "shapes",
+      "create",
+      "model.ttl",
+      "--source",
+      "schema.ttl"
+    ],
+    [
+      "dependency",
+      "add",
+      "shop",
+      "--source",
+      "unused-source",
+      "--kind",
+      "ontology",
+      "--accept-impact"
+    ],
+    [
+      "dependency",
+      "inspect",
+      "--resource",
+      "shop.ttl"
+    ],
+    [
+      "ontology",
+      "list",
+      "--iri",
+      "urn:extra"
+    ],
+    [
+      "status",
+      "--type",
+      "data"
+    ],
+    [
+      "status",
+      "extra"
+    ],
+    [
+      "graph",
+      "show"
+    ],
+    [
+      "graph",
+      "list",
+      "extra"
+    ],
+    [
+      "config",
+      "model-type",
+      "set",
+      "new"
+    ],
+    [
+      "web",
+      "status",
+      "--background"
+    ],
+    [
+      "web",
+      "--port",
+      "0"
+    ],
+    [
+      "web",
+      "--port",
+      "1e3"
+    ],
+    [
+      "config",
+      "model-type",
+      "set",
+      "process",
+      "--ontology",
+      "replacement.ttl",
+      "--confirm"
+    ],
+    [
+      "config",
+      "model-type",
+      "disable",
+      "process",
+      "--accept-impact"
+    ],
+    [
+      "config",
+      "model-type",
+      "design",
+      "set",
+      "process"
+    ]
+  ],
+  "discovery": {
+    "emitterByteEquivalent": [
+      "server.js",
+      "shacl-execution.js",
+      "validation.js"
+    ],
+    "topLevelFileCount": 47,
+    "files": [
+      "authoring-web.test.ts",
+      "authoring.test.ts",
+      "cli.test.ts",
+      "configuration-web.test.ts",
+      "configuration.test.ts",
+      "dependencies-transaction.test.ts",
+      "dependencies.test.ts",
+      "dependency-sources.test.ts",
+      "diagnostic-impact.test.ts",
+      "editing-web.test.ts",
+      "editing.test.ts",
+      "editor-design-web.test.ts",
+      "editor-drafts.test.ts",
+      "element-deletion-transaction.test.ts",
+      "element-deletion-web.test.ts",
+      "inspection-retention.test.ts",
+      "inspection.test.ts",
+      "locator-policy.test.ts",
+      "macos-ownership.test.ts",
+      "ownership.test.ts",
+      "paths.test.ts",
+      "previews.test.ts",
+      "project.test.ts",
+      "queries.test.ts",
+      "rdfxml-security.test.ts",
+      "repair-web.test.ts",
+      "repair.test.ts",
+      "resource-lifecycle-web.test.ts",
+      "resource-lifecycle.test.ts",
+      "resources.test.ts",
+      "runtime.test.ts",
+      "schema-impact.test.ts",
+      "schemas.test.ts",
+      "shacl-core.test.ts",
+      "shacl-regex.test.ts",
+      "state-machine-web.test.ts",
+      "state-machine.test.ts",
+      "transactions.test.ts",
+      "validation-web.test.ts",
+      "validation.test.ts",
+      "views-cli.test.ts",
+      "views-layout-web.test.ts",
+      "views-transaction.test.ts",
+      "views-web.test.ts",
+      "views-workspace.test.ts",
+      "web-process.test.ts",
+      "web.test.ts"
+    ],
+    "partitions": [
+      [
+        "authoring-web.test.ts",
+        "configuration-web.test.ts",
+        "dependencies.test.ts",
+        "editing-web.test.ts",
+        "editor-drafts.test.ts",
+        "inspection-retention.test.ts",
+        "macos-ownership.test.ts",
+        "previews.test.ts",
+        "rdfxml-security.test.ts",
+        "resource-lifecycle-web.test.ts",
+        "runtime.test.ts",
+        "shacl-core.test.ts",
+        "state-machine.test.ts",
+        "validation.test.ts",
+        "views-transaction.test.ts",
+        "web-process.test.ts"
+      ],
+      [
+        "authoring.test.ts",
+        "configuration.test.ts",
+        "dependency-sources.test.ts",
+        "editing.test.ts",
+        "element-deletion-transaction.test.ts",
+        "inspection.test.ts",
+        "ownership.test.ts",
+        "project.test.ts",
+        "repair-web.test.ts",
+        "resource-lifecycle.test.ts",
+        "schema-impact.test.ts",
+        "shacl-regex.test.ts",
+        "transactions.test.ts",
+        "views-cli.test.ts",
+        "views-web.test.ts",
+        "web.test.ts"
+      ],
+      [
+        "cli.test.ts",
+        "dependencies-transaction.test.ts",
+        "diagnostic-impact.test.ts",
+        "editor-design-web.test.ts",
+        "element-deletion-web.test.ts",
+        "locator-policy.test.ts",
+        "paths.test.ts",
+        "queries.test.ts",
+        "repair.test.ts",
+        "resources.test.ts",
+        "schemas.test.ts",
+        "state-machine-web.test.ts",
+        "validation-web.test.ts",
+        "views-layout-web.test.ts",
+        "views-workspace.test.ts"
+      ]
+    ]
+  },
+  "sourceSuite": {
+    "tests": 304,
+    "passed": 301,
+    "failed": 0,
+    "cancelled": 0,
+    "skipped": 3,
+    "durationMs": 2443807.6106,
+    "topLevelCases": 302,
+    "overlap": "The first portion overlaps the installed-artifact verifier; this is functional evidence, not an isolated speed comparison."
+  },
+  "packedVerification": {
+    "state": "passed",
+    "artifact": {
+      "filename": "tbspec-0.1.0.tgz",
+      "bytes": 11963751,
+      "sha256": "52e316f6870019b091d1ad7731f1d3bfd06d2c416f23ec9caa08435a90ad8e54",
+      "applicationVersion": "0.1.0"
+    },
+    "scenarios": [
+      {
+        "name": "dynamic-version-and-runtime-compatibility",
+        "status": "passed",
+        "derivativeMetadataProbe": {
+          "version": "99.0.0-installed-probe",
+          "change": "installed package.json version only",
+          "originalArchiveSha256": "52e316f6870019b091d1ad7731f1d3bfd06d2c416f23ec9caa08435a90ad8e54"
+        },
+        "compatible": true,
+        "samePidAndInstance": true,
+        "refusedIncompatibleProtocolPreservedRecordAndOwner": true,
+        "replacementServerReportedProbeVersion": true,
+        "servedBrowserAssetsMatchOriginalRelease": 6,
+        "assertions": [
+          "installed package version",
+          "compatible reconnection reports running server version",
+          "incompatible protocol refused",
+          "old server normal stop",
+          "metadata probe replacement start and normal stop"
+        ]
+      },
+      {
+        "name": "project-conceptual-concrete-schema-forms",
+        "status": "passed",
+        "assertions": [
+          "conceptual/concrete creation",
+          "schema association",
+          "declared missing schema association validation",
+          "authenticated form fields",
+          "generic concrete graph retains class and property triples",
+          "upward discovery"
+        ]
+      },
+      {
+        "name": "directory-acquisition-check-update",
+        "status": "passed",
+        "assertions": [
+          "offline directory source closure",
+          "unrelated exclusion",
+          "change check",
+          "accepted update"
+        ]
+      },
+      {
+        "name": "accepted-vocabulary-replacement",
+        "status": "passed",
+        "assertions": [
+          "impact preview",
+          "accept-impact",
+          "model and unrelated TOML preservation",
+          "old design reused with an exact compatible local vocabulary copy",
+          "actual default reset"
+        ]
+      },
+      {
+        "name": "independent-views-and-design-ties",
+        "status": "passed",
+        "assertions": [
+          "design tie surfaced",
+          "explicit design choice",
+          "independent memberships",
+          "exact edges and positions",
+          "source graph unchanged"
+        ]
+      },
+      {
+        "name": "retained-transitive-ontology-conflict",
+        "status": "passed",
+        "assertions": [
+          "two transitive candidates conflict",
+          "nearer direct candidate temporarily becomes effective",
+          "reviewed removal restores transitive tie and snapshots",
+          "explicit winner selection",
+          "default query uses winner",
+          "loser snapshot remains readable"
+        ]
+      },
+      {
+        "name": "breaking-removal-repair-ordinary-deletion-gc",
+        "status": "passed",
+        "assertions": [
+          "schema removal impact",
+          "broken association repair",
+          "ordinary element deletion",
+          "external reference preserved",
+          "selected support GC"
+        ]
+      },
+      {
+        "name": "malformed-source-isolated-query",
+        "status": "passed",
+        "assertions": [
+          "public malformed-source save",
+          "partial editor diagnostics",
+          "malformed generic graph edit refused with bytes retained",
+          "whole query fails with file",
+          "validate reports file, code, severity and available location",
+          "selected graph query passes"
+        ]
+      }
+    ],
+    "assertions": 179,
+    "commands": 118,
+    "httpObservations": 46,
+    "failure": null,
+    "raw": "packed-evidence.json"
+  },
+  "verificationRuns": [
+    {
+      "name": "packed-verification",
+      "status": 0,
+      "signal": null,
+      "startedAt": "2026-10-15T13:58:12.893Z",
+      "finishedAt": "2026-10-15T14:09:58.037Z",
+      "completedTopLevel": 0,
+      "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-session-2-829d0b1\\packed-verification.log"
+    },
+    {
+      "name": "full-suite",
+      "status": 0,
+      "signal": null,
+      "startedAt": "2026-10-15T13:58:12.876Z",
+      "finishedAt": "2026-10-15T14:38:56.769Z",
+      "completedTopLevel": 302,
+      "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-session-2-829d0b1\\full-suite.log"
+    }
+  ],
+  "limits": [
+    "No hosted CI execution or macOS verification in this iteration.",
+    "Dependency/HTTP timing ranges overlap; no reliable end-to-end speedup established for them.",
+    "Existing Intel source partition slowdown remains unexplained."
+  ]
+}

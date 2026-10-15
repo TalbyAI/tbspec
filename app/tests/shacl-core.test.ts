@@ -9,6 +9,30 @@ import { initializeProject } from "../src/project.ts";
 
 const prefixes = `@prefix t: <https://talby.ai/ontology/tbspec#> . @prefix sh: <http://www.w3.org/ns/shacl#> . @prefix ex: <urn:ex:> . @prefix owl: <http://www.w3.org/2002/07/owl#> . @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .`;
 
+test("Core count validation does not load SPARQL execution dependencies", () => {
+  const script = `
+    import assert from "node:assert/strict";
+    import { registerHooks } from "node:module";
+    import { Parser, Store } from "n3";
+    registerHooks({ resolve(specifier, context, nextResolve) {
+      assert.ok(!specifier.startsWith("@comunica/"), "Unexpected SPARQL dependency: " + specifier);
+      return nextResolve(specifier, context);
+    }});
+    const { runShapes } = await import(${JSON.stringify(new URL("../src/shacl-execution.ts", import.meta.url).href)});
+    const { prepareShapes } = await import(${JSON.stringify(new URL("../src/shacl-profile.ts", import.meta.url).href)});
+    const graph = text => new Store(new Parser().parse(${JSON.stringify(prefixes)} + text));
+    const report = await runShapes(prepareShapes(graph("ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:minCount 2 .")), graph("ex:item ex:value 1 ."));
+    assert.equal(report.conforms, false);
+    assert.equal(report.results.length, 1);
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 20000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("SHACL constructs query engines only for actual SELECT or Core comparison work", () => {
   const script = `
     import assert from "node:assert/strict";
@@ -45,6 +69,77 @@ test("SHACL constructs query engines only for actual SELECT or Core comparison w
     encoding: "utf8",
     windowsHide: true,
     timeout: 20000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("SHACL comparison reuse preserves exact terms, bounded retention and independent runs", () => {
+  const script = `
+    import assert from "node:assert/strict";
+    import { createRequire } from "node:module";
+    import { Parser, Store } from "n3";
+    const require = createRequire(import.meta.url);
+    const dependency = require("@comunica/query-sparql-rdfjs-lite/lib/QueryEngine.js");
+    const Original = dependency.QueryEngine;
+    let calls = 0, failNext = false;
+    dependency.QueryEngine = class extends Original {
+      async queryBindings(...args) {
+        calls++;
+        if(failNext) { failNext = false; throw new Error("Transient query failure"); }
+        return super.queryBindings(...args);
+      }
+    };
+    const { runShapes } = await import(${JSON.stringify(new URL("../src/shacl-execution.ts", import.meta.url).href)});
+    const { prepareShapes } = await import(${JSON.stringify(new URL("../src/shacl-profile.ts", import.meta.url).href)});
+    const graph = text => new Store(new Parser().parse(${JSON.stringify(prefixes)} + text));
+    const validate = (data, limit = "0", extra = "") => runShapes(prepareShapes(graph(
+      "ex:shape a sh:PropertyShape; sh:targetSubjectsOf ex:value; sh:path ex:value; sh:minInclusive " + limit + " . " + extra
+    )), graph(data));
+    const repeated = (term, count = 12) => Array.from({length:count}, (_, i) => "ex:item" + i + " ex:value " + term + " .").join(" ");
+    try {
+      const first = await validate(repeated("1"));
+      assert.equal(first.conforms, true);
+      assert.equal(calls, 1, "Repeated typed comparisons should execute once per run");
+      const before = calls;
+      const concurrent = await Promise.all([validate(repeated("1")), validate(repeated("-1"))]);
+      assert.deepEqual(concurrent.map(r => r.conforms), [true, false]);
+      assert.equal(calls - before, 2, "Concurrent runs must not share comparison results");
+
+      for(const [term, limit, conforms, expectedCalls] of [
+        ['"01"^^xsd:integer', '0', true, 1],
+        ['"1"^^xsd:decimal', '0', true, 1],
+        ['"bad"^^xsd:integer', '0', false, 1],
+        ['"INF"^^xsd:double', '0', true, 1],
+        ['"NaN"^^xsd:double', '0', false, 1],
+        ['"2026-01-01T01:00:00+01:00"^^xsd:dateTime', '"2026-01-01T00:00:00Z"^^xsd:dateTime', true, 1],
+        ['"2026-01-01T00:00:00"^^xsd:dateTime', '"2026-01-01T00:00:00Z"^^xsd:dateTime', false, 0],
+      ]) {
+        const start = calls;
+        assert.equal((await validate(repeated(term), limit)).conforms, conforms, term);
+        assert.equal(calls - start, expectedCalls, term);
+      }
+      const start = calls;
+      assert.equal((await validate('ex:a ex:value "1"^^xsd:integer . ex:b ex:value "01"^^xsd:integer . ex:c ex:value "1"^^xsd:decimal . ex:d ex:value "1"@en . ex:e ex:value "1"@fr .')).conforms, false);
+      assert.equal(calls - start, 5, "Lexical forms, datatypes and languages must remain distinct");
+
+      const capacityStart = calls;
+      const many = Array.from({length:300}, (_, i) => "ex:item" + i + " ex:value " + i + " .").join(" ");
+      assert.equal((await validate(many, "0", "ex:other a sh:PropertyShape; sh:targetSubjectsOf ex:value; sh:path ex:value; sh:minInclusive 0 .")).conforms, true);
+      assert.equal(calls - capacityStart, 344, "Only 256 comparison entries may be retained");
+      const largeStart = calls;
+      assert.equal((await validate(repeated('"' + '9'.repeat(3000) + '"^^xsd:integer', 2))).conforms, true);
+      assert.equal(calls - largeStart, 2, "Oversized keys must not be retained");
+      failNext = true;
+      const transientStart = calls;
+      const transient = await validate(repeated("1", 2));
+      assert.equal(transient.results.length, 1);
+      assert.equal(calls - transientStart, 2, "Transient failures must not become cached results");
+    } finally { dependency.QueryEngine = Original; }
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 30000,
   });
   assert.equal(result.status, 0, result.stderr);
 });

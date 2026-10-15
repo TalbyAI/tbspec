@@ -173,7 +173,7 @@ test("CLI validates, lists shapes and confirms schema removal offline with exact
     ["model", "schema", "list", "model.ttl", "--type", "data"],
     ["shapes", "create", "model.ttl", "--source", "schema.ttl"],
   ])
-    assert.equal(invoke(args, root).status, 2);
+    assert.equal((await interpret(args)).status, "invalid_arguments");
 });
 
 test("repair CLI supports bare reference listing, exact IRI refactoring and recursive one-envelope guidance", async () => {
@@ -313,8 +313,12 @@ test("CLI dependency commands inspect a source and apply its reviewed fingerprin
     ["dependency", "add", "shop", "--source", source, "--kind", "ontology", "--accept-impact"],
     ["dependency", "inspect", "--resource", "shop.ttl"],
   ]) {
-    const rejected = invoke(args, project);
-    assert.equal(rejected.status, 2, `${args.join(" ")}: ${rejected.stderr}`);
+    const rejected = await interpret(args);
+    assert.equal(
+      rejected.status,
+      "invalid_arguments",
+      `${args.join(" ")}: ${JSON.stringify(rejected)}`,
+    );
   }
 });
 
@@ -1027,10 +1031,13 @@ test("CLI authors and inspects every model family and imports locked vocabulary 
     assert.equal(result.status, 0, result.stderr);
   }
   for (const args of [
-    ["model", "create", "missing.ttl"],
-    ["model", "create", "invalid.ttl", "--type", "process", "--profile", "concrete"],
     ["ontology", "list", "--iri", "urn:extra"],
     ["status", "--type", "data"],
+  ])
+    assert.equal((await interpret(args)).status, "invalid_arguments");
+  for (const args of [
+    ["model", "create", "missing.ttl"],
+    ["model", "create", "invalid.ttl", "--type", "process", "--profile", "concrete"],
     [
       "model",
       "import",
@@ -1194,7 +1201,7 @@ test("inspection CLI routes exact signatures, portable selectors and complete of
     ["web", "--port", "0"],
     ["web", "--port", "1e3"],
   ])
-    assert.equal(invoke(args, cwd).status, 2);
+    assert.equal((await interpret(args)).status, "invalid_arguments");
   for (const args of [
     ["graph", "--help"],
     ["config", "--help"],
@@ -1279,7 +1286,7 @@ test("CLI configures model types and requires explicit acceptance for incompatib
     ["config", "model-type", "disable", "process", "--accept-impact"],
     ["config", "model-type", "design", "set", "process"],
   ])
-    assert.equal(invoke(args, root).status, 2);
+    assert.equal((await interpret(args)).status, "invalid_arguments");
 });
 
 test("CLI inventories impact and confirms removals and fingerprint-bound resource moves", async () => {

@@ -801,11 +801,12 @@ test("view and design reads use the inspection worker and its capacity guard", {
   );
 });
 
-for (const scenario of ["failure-during-stop", "recovery-during-stop"]) {
-  test(`dependency worker shutdown settles ${scenario}`, { timeout: 30000 }, async () => {
-    const root = await privateDirectory(join(tmpdir(), "tbspec-web-dependency-stop-"));
-    await initializeProject({ directory: root });
-    const script = `
+for (const workerKind of ["inspection", "dependency"])
+  for (const scenario of ["failure-during-stop", "recovery-during-stop"]) {
+    test(`${workerKind} worker shutdown settles ${scenario}`, { timeout: 30000 }, async () => {
+      const root = await privateDirectory(join(tmpdir(), "tbspec-web-dependency-stop-"));
+      await initializeProject({ directory: root });
+      const script = `
     import assert from "node:assert/strict";
     import { readFile } from "node:fs/promises";
     import { syncBuiltinESMExports } from "node:module";
@@ -815,14 +816,28 @@ for (const scenario of ["failure-during-stop", "recovery-during-stop"]) {
     import { controlRequest } from ${JSON.stringify(new URL("../src/web.ts", import.meta.url).href)};
     const root = process.argv[1];
     const scenario = ${JSON.stringify(scenario)};
+    const workerKind = ${JSON.stringify(workerKind)};
     const OriginalWorker = threads.Worker;
+    const fs = await import("node:fs/promises");
+    const originalRename = fs.default.rename;
+    let notifyStopPublished, releaseStopPublication;
+    const stopPublished = new Promise(resolve => {notifyStopPublished=resolve});
+    const stopPublicationGate = new Promise(resolve => {releaseStopPublication=resolve});
+    fs.default.rename = async (...args) => {
+      await originalRename(...args);
+      if(scenario === "recovery-during-stop" && String(args[1]) === join(root,".tbspec/runtime/web.json") &&
+        JSON.parse(await readFile(args[1],"utf8")).state === "stopping") {
+        notifyStopPublished();
+        await stopPublicationGate;
+      }
+    };
     let created = 0, notifyPosted, notifyRecovery, releaseRecovery;
     const posted = new Promise(resolve => {notifyPosted=resolve});
     const recoveryStarted = new Promise(resolve => {notifyRecovery=resolve});
     const recoveryGate = new Promise(resolve => {releaseRecovery=resolve});
     threads.Worker = class extends OriginalWorker {
       constructor(...args) {
-        if (String(args[0]).includes("/dependency-worker.") && created++ === 0) {
+        if (String(args[0]).includes("/" + workerKind + "-worker.") && created++ === 0) {
           const code = scenario === "failure-during-stop"
             ? 'const {parentPort,workerData}=require("node:worker_threads");const fs=require("node:fs");parentPort.postMessage({ready:true});parentPort.once("message",()=>setInterval(()=>{if(JSON.parse(fs.readFileSync(workerData,"utf8")).state==="stopping")throw new Error("shutdown failure");},10));'
             : 'const {parentPort}=require("node:worker_threads");parentPort.postMessage({ready:true});parentPort.once("message",()=>{throw new Error("recovery failure")});';
@@ -849,7 +864,7 @@ for (const scenario of ["failure-during-stop", "recovery-during-stop"]) {
         body:JSON.stringify({protocolVersion:1,bootstrap}),
       });
       const session = (await exchanged.json()).data.sessionToken;
-      const read = async () => (await fetch(new URL("api/project/v1/dependencies",server.record.baseUrl),{
+      const read = async () => (await fetch(new URL("api/project/v1/" + (workerKind === "inspection" ? "config" : "dependencies"),server.record.baseUrl),{
         headers:{Authorization:"Bearer "+session,"X-Tbspec-Schema-Version":"1"},
       })).json();
       const first = read();
@@ -862,22 +877,29 @@ for (const scenario of ["failure-during-stop", "recovery-during-stop"]) {
       }
       const stopping = server.stop();
       if(scenario === "recovery-during-stop") {
-        while(JSON.parse(await readFile(join(root,".tbspec/runtime/web.json"),"utf8")).state!=="stopping")
-          await new Promise(resolve=>setTimeout(resolve,10));
+        await stopPublished;
         releaseRecovery();
       }
-      assert.equal((await pending).status,"unavailable");
+      const result = await pending;
+      assert.equal(created,1,"shutdown must not create a replacement worker");
+      assert.equal(result.status,"unavailable");
+      releaseStopPublication();
       await stopping;
       assert.equal(created,1,"shutdown must not create a replacement worker");
-    } finally {releaseRecovery();await server.stop();}
+    } finally {
+      releaseRecovery();releaseStopPublication();
+      fs.default.rename = originalRename;
+      syncBuiltinESMExports();
+      await server.stop();
+    }
   `;
-    await promisify(execFile)(
-      process.execPath,
-      ["--input-type=module", "--eval", script, await realpath(root)],
-      { timeout: 25000, windowsHide: true },
-    );
-  });
-}
+      await promisify(execFile)(
+        process.execPath,
+        ["--input-type=module", "--eval", script, await realpath(root)],
+        { timeout: 25000, windowsHide: true },
+      );
+    });
+  }
 
 test("shared writable runtime parents fail ownership without replacing registration", {
   timeout: 30000,

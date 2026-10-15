@@ -361,9 +361,13 @@ export async function startWebServer(
         await withLock(root, async () => undefined);
         await worker.terminate();
         previewWarnings.push(...(await cleanupPreviews(root, record.instanceId)));
+        if (stopping || record.state !== "running")
+          throw new ProjectError("unavailable", "IO_FAILURE", "Server is stopping.");
         worker = createWorker();
         await workerReady;
       }
+      if (stopping || record.state !== "running")
+        throw new ProjectError("unavailable", "IO_FAILURE", "Server is stopping.");
       return new Promise<Result | InspectionResponse>((resolve) => {
         finish = resolve;
         worker.once("message", finish);
@@ -404,7 +408,7 @@ export async function startWebServer(
         dependencyRecovery ??= (async () => {
           await withLock(root, async () => undefined);
           await dependencyWorker.terminate();
-          if (record.state !== "running")
+          if (stopping || record.state !== "running")
             throw new ProjectError(
               "unavailable",
               "IO_FAILURE",
@@ -420,7 +424,7 @@ export async function startWebServer(
         }
       }
       await dependencyWorkerReady;
-      if (record.state !== "running")
+      if (stopping || record.state !== "running")
         throw new ProjectError("unavailable", "IO_FAILURE", "Server is stopping.");
       if (dependencyWorkerFailed)
         throw new ProjectError("unavailable", "IO_FAILURE", "Dependency worker is unavailable.");
