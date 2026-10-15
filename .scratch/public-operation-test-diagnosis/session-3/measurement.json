@@ -1,0 +1,4688 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "c59f78c8ab8ffc088177d39ab1ab869931dd1f1b",
+  "state": "complete",
+  "environment": {
+    "node": "v24.14.1",
+    "npm": "11.17.0",
+    "platform": "win32",
+    "arch": "x64",
+    "release": "10.0.26200",
+    "cpu": "Intel(R) Core(TM) i9-10900K CPU @ 3.70GHz",
+    "cpus": 20,
+    "memory": 68633952256,
+    "sourceCapturedAt": "2026-10-15T14:55:16.086Z",
+    "nodeCompileCache": null
+  },
+  "methods": {
+    "startup": "Five fresh processes per version/entry/command; alternating baseline,current,current,baseline,baseline,current,current,baseline,baseline,current. Same source override and extra source read in both modes. Empty PATH; same initialized empty project; warm filesystem; uncontrolled desktop activity. No task benchmark/test/build/package workload overlap.",
+    "workloads": "Three baseline batches before production edits, followed by three current batches. Serial files/cases, fresh projects. Same override in both modes and all spawned CLI children. Summed top-level test-body time excludes file/process loading. Fixed batch order is not randomized/interleaved; ranges describe local variation rather than statistical confidence. No other task test/build/package workload overlap.",
+    "functional": "Complete serial suite and installed-artifact verifier run concurrently after accepted measurements. Their durations are functional evidence, excluded from performance comparisons. No comparable full-suite baseline was taken in this iteration.",
+    "coverage": "CLI group consolidates 3 cases into 2 while preserving assertions; SHACL file gains a public attribution case (29 to 30); design group consolidates 2 into 1. New loader regressions are included by the full default suite, outside the selected CLI timing pattern."
+  },
+  "sourceHashes": [
+    {
+      "file": "app/src/inspection.ts",
+      "before": "e205680f6c90eafa8f421b264d328cf47f5c37910dc8de7cf6544701efe2547c",
+      "after": "e9aaa9e9a940ce73adacd270527ec1cd6400f34a9df776ab20f35a15df33cf08"
+    },
+    {
+      "file": "app/src/query.ts",
+      "before": "25a939083ac5e30b26b97dcfb1f40902fcc03abdc1de450af7fc58001056f6bc",
+      "after": "e26bb71105fe462d97b2f9dbd8de041e6cae80d6b9b7b9428053499b29659788"
+    },
+    {
+      "file": "app/tests/cli.test.ts",
+      "before": "b76c615694d8d97482cadcd6306ec2e787ecb178b5b87f7a78467d02019cffe5",
+      "after": "07061046240bd1a633f622e12d048c23bcfadf78c7d83a3fca2e8e50bcc63107"
+    },
+    {
+      "file": "app/tests/queries.test.ts",
+      "before": "a276d45140255c2a859979e5107300e957241479c2616c0ecd6078fdb4eca324",
+      "after": "8beb978e393267e86f3822fdd7ca22c77398233600a64239d8f05ec861449385"
+    },
+    {
+      "file": "app/tests/shacl-core.test.ts",
+      "before": "be45b148d73c544a3ab80aecec0a1e52822cc0c9e6ff5f5f5c8cbd3938b9023e",
+      "after": "5b38a3e30ee51dd3dc837e0698cc90a2dd9d127975bcd28dcfaccbc69925033f"
+    },
+    {
+      "file": "app/tests/views-cli.test.ts",
+      "before": "08d840dc2a152d3e010668b3c916022922000a63394c09569ea77f5749f8a963",
+      "after": "b5279007f34befd6ea496bade4d610ae461431b8310821049603defcb88dd40a"
+    },
+    {
+      "file": "app/dist/inspection.js",
+      "before": "62b41a394a6372a71d54637f5c4982b15f148536a3efec60629a65f9b3edf01f",
+      "after": "b67684dbe28b7b1c9f0a865f173ac9abd795caeaf950149e69fb0b894436389a"
+    },
+    {
+      "file": "app/dist/query.js",
+      "before": "6ac5aed93228f8867b0be1c3bffa84b9cc10d10f1b2b0552d11fdbf1b327a1c3",
+      "after": "7549e271f7f91ca419ca14fc68d5c07b43a4ddf18d76564c0e4850678f55af50"
+    }
+  ],
+  "discovery": {
+    "before": [
+      "authoring-web.test.ts",
+      "authoring.test.ts",
+      "cli.test.ts",
+      "configuration-web.test.ts",
+      "configuration.test.ts",
+      "dependencies-transaction.test.ts",
+      "dependencies.test.ts",
+      "dependency-sources.test.ts",
+      "diagnostic-impact.test.ts",
+      "editing-web.test.ts",
+      "editing.test.ts",
+      "editor-design-web.test.ts",
+      "editor-drafts.test.ts",
+      "element-deletion-transaction.test.ts",
+      "element-deletion-web.test.ts",
+      "inspection-retention.test.ts",
+      "inspection.test.ts",
+      "locator-policy.test.ts",
+      "macos-ownership.test.ts",
+      "ownership.test.ts",
+      "paths.test.ts",
+      "previews.test.ts",
+      "project.test.ts",
+      "queries.test.ts",
+      "rdfxml-security.test.ts",
+      "repair-web.test.ts",
+      "repair.test.ts",
+      "resource-lifecycle-web.test.ts",
+      "resource-lifecycle.test.ts",
+      "resources.test.ts",
+      "runtime.test.ts",
+      "schema-impact.test.ts",
+      "schemas.test.ts",
+      "shacl-core.test.ts",
+      "shacl-regex.test.ts",
+      "state-machine-web.test.ts",
+      "state-machine.test.ts",
+      "transactions.test.ts",
+      "validation-web.test.ts",
+      "validation.test.ts",
+      "views-cli.test.ts",
+      "views-layout-web.test.ts",
+      "views-transaction.test.ts",
+      "views-web.test.ts",
+      "views-workspace.test.ts",
+      "web-process.test.ts",
+      "web.test.ts"
+    ],
+    "after": [
+      "authoring-web.test.ts",
+      "authoring.test.ts",
+      "cli.test.ts",
+      "configuration-web.test.ts",
+      "configuration.test.ts",
+      "dependencies-transaction.test.ts",
+      "dependencies.test.ts",
+      "dependency-sources.test.ts",
+      "diagnostic-impact.test.ts",
+      "editing-web.test.ts",
+      "editing.test.ts",
+      "editor-design-web.test.ts",
+      "editor-drafts.test.ts",
+      "element-deletion-transaction.test.ts",
+      "element-deletion-web.test.ts",
+      "inspection-retention.test.ts",
+      "inspection.test.ts",
+      "locator-policy.test.ts",
+      "macos-ownership.test.ts",
+      "ownership.test.ts",
+      "paths.test.ts",
+      "previews.test.ts",
+      "project.test.ts",
+      "queries.test.ts",
+      "rdfxml-security.test.ts",
+      "repair-web.test.ts",
+      "repair.test.ts",
+      "resource-lifecycle-web.test.ts",
+      "resource-lifecycle.test.ts",
+      "resources.test.ts",
+      "runtime.test.ts",
+      "schema-impact.test.ts",
+      "schemas.test.ts",
+      "shacl-core.test.ts",
+      "shacl-regex.test.ts",
+      "state-machine-web.test.ts",
+      "state-machine.test.ts",
+      "transactions.test.ts",
+      "validation-web.test.ts",
+      "validation.test.ts",
+      "views-cli.test.ts",
+      "views-layout-web.test.ts",
+      "views-transaction.test.ts",
+      "views-web.test.ts",
+      "views-workspace.test.ts",
+      "web-process.test.ts",
+      "web.test.ts"
+    ],
+    "partitions": [
+      [
+        "authoring-web.test.ts",
+        "configuration-web.test.ts",
+        "dependencies.test.ts",
+        "editing-web.test.ts",
+        "editor-drafts.test.ts",
+        "inspection-retention.test.ts",
+        "macos-ownership.test.ts",
+        "previews.test.ts",
+        "rdfxml-security.test.ts",
+        "resource-lifecycle-web.test.ts",
+        "runtime.test.ts",
+        "shacl-core.test.ts",
+        "state-machine.test.ts",
+        "validation.test.ts",
+        "views-transaction.test.ts",
+        "web-process.test.ts"
+      ],
+      [
+        "authoring.test.ts",
+        "configuration.test.ts",
+        "dependency-sources.test.ts",
+        "editing.test.ts",
+        "element-deletion-transaction.test.ts",
+        "inspection.test.ts",
+        "ownership.test.ts",
+        "project.test.ts",
+        "repair-web.test.ts",
+        "resource-lifecycle.test.ts",
+        "schema-impact.test.ts",
+        "shacl-regex.test.ts",
+        "transactions.test.ts",
+        "views-cli.test.ts",
+        "views-web.test.ts",
+        "web.test.ts"
+      ],
+      [
+        "cli.test.ts",
+        "dependencies-transaction.test.ts",
+        "diagnostic-impact.test.ts",
+        "editor-design-web.test.ts",
+        "element-deletion-web.test.ts",
+        "locator-policy.test.ts",
+        "paths.test.ts",
+        "queries.test.ts",
+        "repair.test.ts",
+        "resources.test.ts",
+        "schemas.test.ts",
+        "state-machine-web.test.ts",
+        "validation-web.test.ts",
+        "views-layout-web.test.ts",
+        "views-workspace.test.ts"
+      ]
+    ]
+  },
+  "startup": {
+    "initialBaseline": [
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 113.0121999999999,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 119.86200000000008,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 115.7536,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 123.65960000000018,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 107.99319999999989,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 124.5282000000002,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 122.0039999999999,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 124.33380000000034,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 115.42169999999987,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 113.31569999999965,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1068.4955,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1123.6122,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1322.9706999999999,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1208.3121999999994,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1358.1562999999996,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1615.4701999999997,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1387.532000000001,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1658.378499999999,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1514.179,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1146.595800000001,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1478.0384999999987,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1468.2062000000005,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1489.870500000001,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1461.2682000000023,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1460.007999999998,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 77.3044000000009,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 79.6137000000017,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 76.08939999999711,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 77.98199999999997,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 83.1226999999999,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 102.58459999999832,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 81.08759999999893,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 75.49690000000192,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 79.01640000000043,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 69.64760000000024,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1018.2722999999969,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 977.1692000000003,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1040.4096000000027,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1019.9647999999979,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1003.1885000000002,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1138.062399999999,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1073.2903000000006,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1180.3862000000008,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1136.5664000000033,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1140.562300000005,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1334.887999999999,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1346.6074999999983,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1333.9784,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1417.311099999999,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1421.0197000000044,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 4
+      }
+    ],
+    "accepted": [
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 111.09579999999998,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 123.03380000000004,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 110.46009999999995,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 123.4991,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 124.47210000000001,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 109.18270000000007,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 5
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 121.72759999999994,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 6
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 106.78929999999991,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 7
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 106.07180000000005,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 8
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 128.308,
+        "entry": "src/cli.ts",
+        "command": [
+          "--help"
+        ],
+        "repeat": 9
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 117.11609999999996,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 151.59590000000003,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 112.96699999999987,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 132.99120000000016,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 114.22809999999981,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 116.13429999999994,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 5
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 120.52739999999994,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 6
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 110.11979999999994,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 7
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 127.05549999999994,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 8
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 113.0036,
+        "entry": "src/cli.ts",
+        "command": [
+          "--version"
+        ],
+        "repeat": 9
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1037.6288999999997,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 862.6702999999998,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 860.3787999999995,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1095.7919000000002,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1068.8607000000002,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 869.3175000000001,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 5
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 845.5385000000006,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 6
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1065.2250000000004,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 7
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1133.7191999999995,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 8
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 842.5277000000006,
+        "entry": "src/cli.ts",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 9
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1170.4247999999989,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 973.4516000000003,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 1031.0830000000005,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1137.4953999999998,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1126.868699999999,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 931.6993000000002,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 5
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 953.7565000000031,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 6
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1194.7300000000032,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 7
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1150.4121000000014,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 8
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 938.5846999999994,
+        "entry": "src/cli.ts",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 9
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1478.7623999999996,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 962.2819999999992,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 966.3580000000002,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1456.647200000003,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1431.2695000000022,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 1031.1948999999986,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 5
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 983.1106,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 6
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1385.5856000000022,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 7
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1461.6463999999978,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 8
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\src\\cli.ts",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 998.6949000000022,
+        "entry": "src/cli.ts",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 9
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 74.69959999999992,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 69.5564000000013,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 67.44260000000213,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 68.53399999999965,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 68.82219999999506,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 67.06380000000354,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 5
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 68.66010000000097,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 6
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 70.48510000000533,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 7
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 73.25220000000263,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 8
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--help",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 65.94650000000547,
+        "entry": "dist/cli.js",
+        "command": [
+          "--help"
+        ],
+        "repeat": 9
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 68.51829999999609,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 66.49380000000383,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 67.34410000000207,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 64.87189999999828,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 69.16509999999835,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 66.32869999999821,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 5
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 70.37679999999818,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 6
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 74.10410000000411,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 7
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 84.86809999999969,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 8
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "--version",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 66.71700000000419,
+        "entry": "dist/cli.js",
+        "command": [
+          "--version"
+        ],
+        "repeat": 9
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 941.0771000000022,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 795.1658000000025,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 790.097099999999,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 952.0959000000003,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 978.122199999998,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 818.5356000000029,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 5
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 769.3975999999966,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 6
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 927.9549999999945,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 7
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 977.9160000000047,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 8
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "config",
+          "show",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 834.8176999999996,
+        "entry": "dist/cli.js",
+        "command": [
+          "config",
+          "show"
+        ],
+        "repeat": 9
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1067.839899999999,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 891.9573000000019,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 887.997000000003,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1004.8673000000053,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1015.8582999999999,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 851.3197,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 5
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 956.7061000000031,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 6
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1047.4372000000003,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 7
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1073.0512000000017,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 8
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "model",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 942.1289999999935,
+        "entry": "dist/cli.js",
+        "command": [
+          "model",
+          "list"
+        ],
+        "repeat": 9
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1388.5029000000068,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 0
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 892.7517999999982,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 1
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 875.9467999999979,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 2
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1310.3945000000022,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 3
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1331.0578000000023,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 4
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 948.6408999999985,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 5
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 930.3320999999996,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 6
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1370.270899999996,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 7
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "baseline",
+        "code": 0,
+        "signal": null,
+        "ms": 1370.6854000000021,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 8
+      },
+      {
+        "args": [
+          "E:\\talby\\tbspec\\app\\dist\\cli.js",
+          "query",
+          "list",
+          "--project",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-startup-session-3-vPH5Jf",
+          "--json"
+        ],
+        "mode": "current",
+        "code": 0,
+        "signal": null,
+        "ms": 907.3759999999966,
+        "entry": "dist/cli.js",
+        "command": [
+          "query",
+          "list"
+        ],
+        "repeat": 9
+      }
+    ],
+    "summary": [
+      {
+        "entry": "src/cli.ts",
+        "command": "--help",
+        "before": {
+          "n": 5,
+          "median": 111.09579999999998,
+          "min": 106.07180000000005,
+          "max": 124.47210000000001
+        },
+        "after": {
+          "n": 5,
+          "median": 121.72759999999994,
+          "min": 109.18270000000007,
+          "max": 128.308
+        },
+        "percentReduction": -9.569938737558005
+      },
+      {
+        "entry": "src/cli.ts",
+        "command": "--version",
+        "before": {
+          "n": 5,
+          "median": 117.11609999999996,
+          "min": 110.11979999999994,
+          "max": 132.99120000000016
+        },
+        "after": {
+          "n": 5,
+          "median": 116.13429999999994,
+          "min": 112.96699999999987,
+          "max": 151.59590000000003
+        },
+        "percentReduction": 0.8383134342759169
+      },
+      {
+        "entry": "src/cli.ts",
+        "command": "config show",
+        "before": {
+          "n": 5,
+          "median": 1068.8607000000002,
+          "min": 1037.6288999999997,
+          "max": 1133.7191999999995
+        },
+        "after": {
+          "n": 5,
+          "median": 860.3787999999995,
+          "min": 842.5277000000006,
+          "max": 869.3175000000001
+        },
+        "percentReduction": 19.50505804919206
+      },
+      {
+        "entry": "src/cli.ts",
+        "command": "model list",
+        "before": {
+          "n": 5,
+          "median": 1150.4121000000014,
+          "min": 1126.868699999999,
+          "max": 1194.7300000000032
+        },
+        "after": {
+          "n": 5,
+          "median": 953.7565000000031,
+          "min": 931.6993000000002,
+          "max": 1031.0830000000005
+        },
+        "percentReduction": 17.094361229336684
+      },
+      {
+        "entry": "src/cli.ts",
+        "command": "query list",
+        "before": {
+          "n": 5,
+          "median": 1456.647200000003,
+          "min": 1385.5856000000022,
+          "max": 1478.7623999999996
+        },
+        "after": {
+          "n": 5,
+          "median": 983.1106,
+          "min": 962.2819999999992,
+          "max": 1031.1948999999986
+        },
+        "percentReduction": 32.50866785038973
+      },
+      {
+        "entry": "dist/cli.js",
+        "command": "--help",
+        "before": {
+          "n": 5,
+          "median": 70.48510000000533,
+          "min": 68.53399999999965,
+          "max": 74.69959999999992
+        },
+        "after": {
+          "n": 5,
+          "median": 67.44260000000213,
+          "min": 65.94650000000547,
+          "max": 69.5564000000013
+        },
+        "percentReduction": 4.316515121639853
+      },
+      {
+        "entry": "dist/cli.js",
+        "command": "--version",
+        "before": {
+          "n": 5,
+          "median": 69.16509999999835,
+          "min": 64.87189999999828,
+          "max": 84.86809999999969
+        },
+        "after": {
+          "n": 5,
+          "median": 66.71700000000419,
+          "min": 66.32869999999821,
+          "max": 70.37679999999818
+        },
+        "percentReduction": 3.5395018585879456
+      },
+      {
+        "entry": "dist/cli.js",
+        "command": "config show",
+        "before": {
+          "n": 5,
+          "median": 952.0959000000003,
+          "min": 927.9549999999945,
+          "max": 978.122199999998
+        },
+        "after": {
+          "n": 5,
+          "median": 795.1658000000025,
+          "min": 769.3975999999966,
+          "max": 834.8176999999996
+        },
+        "percentReduction": 16.482593822743873
+      },
+      {
+        "entry": "dist/cli.js",
+        "command": "model list",
+        "before": {
+          "n": 5,
+          "median": 1047.4372000000003,
+          "min": 1004.8673000000053,
+          "max": 1073.0512000000017
+        },
+        "after": {
+          "n": 5,
+          "median": 891.9573000000019,
+          "min": 851.3197,
+          "max": 956.7061000000031
+        },
+        "percentReduction": 14.843839802519753
+      },
+      {
+        "entry": "dist/cli.js",
+        "command": "query list",
+        "before": {
+          "n": 5,
+          "median": 1370.270899999996,
+          "min": 1310.3945000000022,
+          "max": 1388.5029000000068
+        },
+        "after": {
+          "n": 5,
+          "median": 907.3759999999966,
+          "min": 875.9467999999979,
+          "max": 948.6408999999985
+        },
+        "percentReduction": 33.78126909065943
+      }
+    ]
+  },
+  "workloads": {
+    "baseline": [
+      {
+        "id": "workload-0-baseline-dependency-cli",
+        "index": 0,
+        "mode": "baseline",
+        "workload": "dependency-cli",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^CLI (dependency update previews|manual support uses)|^dependency CLI accepts canonical source",
+          "tests/cli.test.ts"
+        ],
+        "ms": 177695.8163,
+        "bodyMs": 177114.6414,
+        "cases": [
+          {
+            "name": "dependency CLI accepts canonical source forms and resolves omitted support selectors only when unique",
+            "ms": 46431.5579
+          },
+          {
+            "name": "CLI dependency update previews the reacquired source before changing its snapshot",
+            "ms": 39362.1147
+          },
+          {
+            "name": "CLI manual support uses an accepted source preview and remains attached through update and clear",
+            "ms": 91320.9688
+          }
+        ]
+      },
+      {
+        "id": "workload-0-baseline-shacl-core",
+        "index": 0,
+        "mode": "baseline",
+        "workload": "shacl-core",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "tests/shacl-core.test.ts"
+        ],
+        "ms": 46336.628999999986,
+        "bodyMs": 45862.6244,
+        "cases": [
+          {
+            "name": "Core count validation does not load SPARQL execution dependencies",
+            "ms": 310.8514
+          },
+          {
+            "name": "SHACL constructs query engines only for actual SELECT or Core comparison work",
+            "ms": 1204.9932
+          },
+          {
+            "name": "SHACL comparison reuse preserves exact terms, bounded retention and independent runs",
+            "ms": 1863.185
+          },
+          {
+            "name": "SHACL patterns accept XPath XML name escapes, class subtraction, Unicode categories, and blocks",
+            "ms": 3055.4045
+          },
+          {
+            "name": "SHACL patterns keep XPath substring, anchor, flag, and back-reference semantics",
+            "ms": 2715.7792
+          },
+          {
+            "name": "SHACL XPath patterns keep Unicode i semantics distinct from JavaScript",
+            "ms": 1963.3159
+          },
+          {
+            "name": "SHACL XPath patterns keep line terminators, free-spacing escapes, and bounded parser work",
+            "ms": 2098.1437
+          },
+          {
+            "name": "SHACL patterns reject JavaScript-only or malformed regex forms during preflight",
+            "ms": 1542.1156
+          },
+          {
+            "name": "Unicode SHACL string length counts Unicode code points",
+            "ms": 1171.0262
+          },
+          {
+            "name": "SHACL integer count parameters retain signed xsd:integer semantics",
+            "ms": 1214.5738
+          },
+          {
+            "name": "SHACL languageIn follows SPARQL language-range matching",
+            "ms": 1432.9711
+          },
+          {
+            "name": "SHACL uniqueLang accepts every valid true lexical form of xsd:boolean",
+            "ms": 978.6419
+          },
+          {
+            "name": "disjoint qualified counts exclude a value matching any sibling shape",
+            "ms": 981.4086
+          },
+          {
+            "name": "SHACL lessThan compares strings by Unicode code point",
+            "ms": 1128.2787
+          },
+          {
+            "name": "SHACL string ranges compare with SPARQL ordering",
+            "ms": 1177.7876
+          },
+          {
+            "name": "SHACL dateTime range constraints reject values incomparable by timezone",
+            "ms": 2059.0911
+          },
+          {
+            "name": "SHACL preflight rejects repeated Core singleton parameters",
+            "ms": 3551.2025
+          },
+          {
+            "name": "SHACL preflight validates target nodes, severity, and messages",
+            "ms": 1803.6096
+          },
+          {
+            "name": "SHACL preflight enforces literal range values and property-only parameters",
+            "ms": 3832.0201
+          },
+          {
+            "name": "SHACL closed parameters allow one ignored-property list and active raw paths",
+            "ms": 990.1805
+          },
+          {
+            "name": "Core parameters with multiple values apply every independent constraint",
+            "ms": 1909.6742
+          },
+          {
+            "name": "SHACL node-shape property-pair constraints compare against the focus node",
+            "ms": 1523.335
+          },
+          {
+            "name": "closed shapes inspect active raw paths and report each forbidden triple",
+            "ms": 1073.3398
+          },
+          {
+            "name": "SHACL closed property shapes inspect each value node",
+            "ms": 984.5888
+          },
+          {
+            "name": "deactivated SHACL SPARQL constraints do not run",
+            "ms": 1030.5182
+          },
+          {
+            "name": "SHACL SPARQL path expansion preserves escaped dollar names and Unicode prefixes",
+            "ms": 1077.2843
+          },
+          {
+            "name": "SHACL PATH expansion preserves a leading escaped variable name in a QName",
+            "ms": 1097.6287
+          },
+          {
+            "name": "SHACL ranges permit positive infinity without applying renderer limits",
+            "ms": 1036.0808
+          },
+          {
+            "name": "SHACL PATH expansion preserves escaped hashes before the path variable",
+            "ms": 1055.5944
+          }
+        ]
+      },
+      {
+        "id": "workload-0-baseline-design-show",
+        "index": 0,
+        "mode": "baseline",
+        "workload": "design-show",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^design CLI lists reusable|^design show preserves foreign",
+          "tests/views-cli.test.ts"
+        ],
+        "ms": 13209.973300000012,
+        "bodyMs": 12961.1914,
+        "cases": [
+          {
+            "name": "design CLI lists reusable designs and creates an inspectable owned design",
+            "ms": 9618.0964
+          },
+          {
+            "name": "design show preserves foreign namespace triples without projecting them as appearance",
+            "ms": 3343.095
+          }
+        ]
+      },
+      {
+        "id": "workload-1-baseline-dependency-cli",
+        "index": 1,
+        "mode": "baseline",
+        "workload": "dependency-cli",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^CLI (dependency update previews|manual support uses)|^dependency CLI accepts canonical source",
+          "tests/cli.test.ts"
+        ],
+        "ms": 207519.8059,
+        "bodyMs": 207016.0497,
+        "cases": [
+          {
+            "name": "dependency CLI accepts canonical source forms and resolves omitted support selectors only when unique",
+            "ms": 44534.4329
+          },
+          {
+            "name": "CLI dependency update previews the reacquired source before changing its snapshot",
+            "ms": 65387.792
+          },
+          {
+            "name": "CLI manual support uses an accepted source preview and remains attached through update and clear",
+            "ms": 97093.8248
+          }
+        ]
+      },
+      {
+        "id": "workload-1-baseline-shacl-core",
+        "index": 1,
+        "mode": "baseline",
+        "workload": "shacl-core",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "tests/shacl-core.test.ts"
+        ],
+        "ms": 47615.3983,
+        "bodyMs": 47126.8116,
+        "cases": [
+          {
+            "name": "Core count validation does not load SPARQL execution dependencies",
+            "ms": 343.848
+          },
+          {
+            "name": "SHACL constructs query engines only for actual SELECT or Core comparison work",
+            "ms": 1363.2778
+          },
+          {
+            "name": "SHACL comparison reuse preserves exact terms, bounded retention and independent runs",
+            "ms": 1914.6389
+          },
+          {
+            "name": "SHACL patterns accept XPath XML name escapes, class subtraction, Unicode categories, and blocks",
+            "ms": 3301.1372
+          },
+          {
+            "name": "SHACL patterns keep XPath substring, anchor, flag, and back-reference semantics",
+            "ms": 2910.72
+          },
+          {
+            "name": "SHACL XPath patterns keep Unicode i semantics distinct from JavaScript",
+            "ms": 2017.2665
+          },
+          {
+            "name": "SHACL XPath patterns keep line terminators, free-spacing escapes, and bounded parser work",
+            "ms": 2126.7484
+          },
+          {
+            "name": "SHACL patterns reject JavaScript-only or malformed regex forms during preflight",
+            "ms": 1602.0896
+          },
+          {
+            "name": "Unicode SHACL string length counts Unicode code points",
+            "ms": 1348.6235
+          },
+          {
+            "name": "SHACL integer count parameters retain signed xsd:integer semantics",
+            "ms": 1453.7205
+          },
+          {
+            "name": "SHACL languageIn follows SPARQL language-range matching",
+            "ms": 1575.8357
+          },
+          {
+            "name": "SHACL uniqueLang accepts every valid true lexical form of xsd:boolean",
+            "ms": 1154.9975
+          },
+          {
+            "name": "disjoint qualified counts exclude a value matching any sibling shape",
+            "ms": 1127.1176
+          },
+          {
+            "name": "SHACL lessThan compares strings by Unicode code point",
+            "ms": 1191.2386
+          },
+          {
+            "name": "SHACL string ranges compare with SPARQL ordering",
+            "ms": 1176.3564
+          },
+          {
+            "name": "SHACL dateTime range constraints reject values incomparable by timezone",
+            "ms": 1798.9477
+          },
+          {
+            "name": "SHACL preflight rejects repeated Core singleton parameters",
+            "ms": 3525.1904
+          },
+          {
+            "name": "SHACL preflight validates target nodes, severity, and messages",
+            "ms": 1516.5039
+          },
+          {
+            "name": "SHACL preflight enforces literal range values and property-only parameters",
+            "ms": 3544.536
+          },
+          {
+            "name": "SHACL closed parameters allow one ignored-property list and active raw paths",
+            "ms": 1079.141
+          },
+          {
+            "name": "Core parameters with multiple values apply every independent constraint",
+            "ms": 2110.5418
+          },
+          {
+            "name": "SHACL node-shape property-pair constraints compare against the focus node",
+            "ms": 1587.083
+          },
+          {
+            "name": "closed shapes inspect active raw paths and report each forbidden triple",
+            "ms": 1142.6726
+          },
+          {
+            "name": "SHACL closed property shapes inspect each value node",
+            "ms": 1028.5397
+          },
+          {
+            "name": "deactivated SHACL SPARQL constraints do not run",
+            "ms": 1035.7955
+          },
+          {
+            "name": "SHACL SPARQL path expansion preserves escaped dollar names and Unicode prefixes",
+            "ms": 1132.6793
+          },
+          {
+            "name": "SHACL PATH expansion preserves a leading escaped variable name in a QName",
+            "ms": 1001.1945
+          },
+          {
+            "name": "SHACL ranges permit positive infinity without applying renderer limits",
+            "ms": 1029.1683
+          },
+          {
+            "name": "SHACL PATH expansion preserves escaped hashes before the path variable",
+            "ms": 987.2017
+          }
+        ]
+      },
+      {
+        "id": "workload-1-baseline-design-show",
+        "index": 1,
+        "mode": "baseline",
+        "workload": "design-show",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^design CLI lists reusable|^design show preserves foreign",
+          "tests/views-cli.test.ts"
+        ],
+        "ms": 11397.304800000042,
+        "bodyMs": 11150.101999999999,
+        "cases": [
+          {
+            "name": "design CLI lists reusable designs and creates an inspectable owned design",
+            "ms": 7904.8371
+          },
+          {
+            "name": "design show preserves foreign namespace triples without projecting them as appearance",
+            "ms": 3245.2649
+          }
+        ]
+      },
+      {
+        "id": "workload-2-baseline-dependency-cli",
+        "index": 2,
+        "mode": "baseline",
+        "workload": "dependency-cli",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^CLI (dependency update previews|manual support uses)|^dependency CLI accepts canonical source",
+          "tests/cli.test.ts"
+        ],
+        "ms": 179699.53659999993,
+        "bodyMs": 179237.80049999998,
+        "cases": [
+          {
+            "name": "dependency CLI accepts canonical source forms and resolves omitted support selectors only when unique",
+            "ms": 46150.5303
+          },
+          {
+            "name": "CLI dependency update previews the reacquired source before changing its snapshot",
+            "ms": 40194.3837
+          },
+          {
+            "name": "CLI manual support uses an accepted source preview and remains attached through update and clear",
+            "ms": 92892.8865
+          }
+        ]
+      },
+      {
+        "id": "workload-2-baseline-shacl-core",
+        "index": 2,
+        "mode": "baseline",
+        "workload": "shacl-core",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "tests/shacl-core.test.ts"
+        ],
+        "ms": 45153.8763,
+        "bodyMs": 44676.9192,
+        "cases": [
+          {
+            "name": "Core count validation does not load SPARQL execution dependencies",
+            "ms": 327.8524
+          },
+          {
+            "name": "SHACL constructs query engines only for actual SELECT or Core comparison work",
+            "ms": 1229.2614
+          },
+          {
+            "name": "SHACL comparison reuse preserves exact terms, bounded retention and independent runs",
+            "ms": 1799.9168
+          },
+          {
+            "name": "SHACL patterns accept XPath XML name escapes, class subtraction, Unicode categories, and blocks",
+            "ms": 3050.1535
+          },
+          {
+            "name": "SHACL patterns keep XPath substring, anchor, flag, and back-reference semantics",
+            "ms": 2739.0187
+          },
+          {
+            "name": "SHACL XPath patterns keep Unicode i semantics distinct from JavaScript",
+            "ms": 1888.8522
+          },
+          {
+            "name": "SHACL XPath patterns keep line terminators, free-spacing escapes, and bounded parser work",
+            "ms": 2099.213
+          },
+          {
+            "name": "SHACL patterns reject JavaScript-only or malformed regex forms during preflight",
+            "ms": 1766.503
+          },
+          {
+            "name": "Unicode SHACL string length counts Unicode code points",
+            "ms": 1268.0486
+          },
+          {
+            "name": "SHACL integer count parameters retain signed xsd:integer semantics",
+            "ms": 1184.8899
+          },
+          {
+            "name": "SHACL languageIn follows SPARQL language-range matching",
+            "ms": 1406.8524
+          },
+          {
+            "name": "SHACL uniqueLang accepts every valid true lexical form of xsd:boolean",
+            "ms": 999.4001
+          },
+          {
+            "name": "disjoint qualified counts exclude a value matching any sibling shape",
+            "ms": 1086.7173
+          },
+          {
+            "name": "SHACL lessThan compares strings by Unicode code point",
+            "ms": 1343.2563
+          },
+          {
+            "name": "SHACL string ranges compare with SPARQL ordering",
+            "ms": 1137.8042
+          },
+          {
+            "name": "SHACL dateTime range constraints reject values incomparable by timezone",
+            "ms": 1699.5254
+          },
+          {
+            "name": "SHACL preflight rejects repeated Core singleton parameters",
+            "ms": 3503.8615
+          },
+          {
+            "name": "SHACL preflight validates target nodes, severity, and messages",
+            "ms": 1623.9044
+          },
+          {
+            "name": "SHACL preflight enforces literal range values and property-only parameters",
+            "ms": 3460.221
+          },
+          {
+            "name": "SHACL closed parameters allow one ignored-property list and active raw paths",
+            "ms": 974.1054
+          },
+          {
+            "name": "Core parameters with multiple values apply every independent constraint",
+            "ms": 1891.4359
+          },
+          {
+            "name": "SHACL node-shape property-pair constraints compare against the focus node",
+            "ms": 1326.7692
+          },
+          {
+            "name": "closed shapes inspect active raw paths and report each forbidden triple",
+            "ms": 963.9982
+          },
+          {
+            "name": "SHACL closed property shapes inspect each value node",
+            "ms": 938.698
+          },
+          {
+            "name": "deactivated SHACL SPARQL constraints do not run",
+            "ms": 938.2304
+          },
+          {
+            "name": "SHACL SPARQL path expansion preserves escaped dollar names and Unicode prefixes",
+            "ms": 1047.3995
+          },
+          {
+            "name": "SHACL PATH expansion preserves a leading escaped variable name in a QName",
+            "ms": 1020.3596
+          },
+          {
+            "name": "SHACL ranges permit positive infinity without applying renderer limits",
+            "ms": 959.301
+          },
+          {
+            "name": "SHACL PATH expansion preserves escaped hashes before the path variable",
+            "ms": 1001.3699
+          }
+        ]
+      },
+      {
+        "id": "workload-2-baseline-design-show",
+        "index": 2,
+        "mode": "baseline",
+        "workload": "design-show",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^design CLI lists reusable|^design show preserves foreign",
+          "tests/views-cli.test.ts"
+        ],
+        "ms": 11242.867199999979,
+        "bodyMs": 10998.0125,
+        "cases": [
+          {
+            "name": "design CLI lists reusable designs and creates an inspectable owned design",
+            "ms": 7876.6582
+          },
+          {
+            "name": "design show preserves foreign namespace triples without projecting them as appearance",
+            "ms": 3121.3543
+          }
+        ]
+      }
+    ],
+    "current": [
+      {
+        "id": "workload-0-current-dependency-cli",
+        "index": 0,
+        "mode": "current",
+        "workload": "dependency-cli",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^CLI (dependency update previews|manual support uses)|^dependency CLI accepts canonical source",
+          "tests/cli.test.ts"
+        ],
+        "ms": 145156.3134,
+        "bodyMs": 144197.01510000002,
+        "cases": [
+          {
+            "name": "dependency CLI accepts canonical source forms and resolves omitted support selectors only when unique",
+            "ms": 47032.0119
+          },
+          {
+            "name": "CLI manual support uses an accepted source preview and remains attached through update and clear",
+            "ms": 97165.0032
+          }
+        ]
+      },
+      {
+        "id": "workload-0-current-shacl-core",
+        "index": 0,
+        "mode": "current",
+        "workload": "shacl-core",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "tests/shacl-core.test.ts"
+        ],
+        "ms": 30611.023400000005,
+        "bodyMs": 30156.199400000005,
+        "cases": [
+          {
+            "name": "Core count validation does not load SPARQL execution dependencies",
+            "ms": 325.1931
+          },
+          {
+            "name": "SHACL constructs query engines only for actual SELECT or Core comparison work",
+            "ms": 1301.0327
+          },
+          {
+            "name": "SHACL comparison reuse preserves exact terms, bounded retention and independent runs",
+            "ms": 1817.3428
+          },
+          {
+            "name": "SHACL patterns accept XPath XML name escapes, class subtraction, Unicode categories, and blocks",
+            "ms": 21.769
+          },
+          {
+            "name": "SHACL patterns keep XPath substring, anchor, flag, and back-reference semantics",
+            "ms": 13.0702
+          },
+          {
+            "name": "SHACL XPath patterns keep Unicode i semantics distinct from JavaScript",
+            "ms": 6.9265
+          },
+          {
+            "name": "SHACL XPath patterns keep line terminators, free-spacing escapes, and bounded parser work",
+            "ms": 6.5903
+          },
+          {
+            "name": "SHACL patterns reject JavaScript-only or malformed regex forms during preflight",
+            "ms": 0.9943
+          },
+          {
+            "name": "public SHACL validation attributes pattern violations and malformed shapes",
+            "ms": 2895.3546
+          },
+          {
+            "name": "Unicode SHACL string length counts Unicode code points",
+            "ms": 1227.1704
+          },
+          {
+            "name": "SHACL integer count parameters retain signed xsd:integer semantics",
+            "ms": 1787.933
+          },
+          {
+            "name": "SHACL languageIn follows SPARQL language-range matching",
+            "ms": 1495.668
+          },
+          {
+            "name": "SHACL uniqueLang accepts every valid true lexical form of xsd:boolean",
+            "ms": 952.7831
+          },
+          {
+            "name": "disjoint qualified counts exclude a value matching any sibling shape",
+            "ms": 943.9221
+          },
+          {
+            "name": "SHACL lessThan compares strings by Unicode code point",
+            "ms": 1173.8569
+          },
+          {
+            "name": "SHACL string ranges compare with SPARQL ordering",
+            "ms": 1176.8288
+          },
+          {
+            "name": "SHACL dateTime range constraints reject values incomparable by timezone",
+            "ms": 1806.9876
+          },
+          {
+            "name": "SHACL preflight rejects repeated Core singleton parameters",
+            "ms": 2.36
+          },
+          {
+            "name": "SHACL preflight validates target nodes, severity, and messages",
+            "ms": 999.6523
+          },
+          {
+            "name": "SHACL preflight enforces literal range values and property-only parameters",
+            "ms": 1015.4817
+          },
+          {
+            "name": "SHACL closed parameters allow one ignored-property list and active raw paths",
+            "ms": 952.1025
+          },
+          {
+            "name": "Core parameters with multiple values apply every independent constraint",
+            "ms": 1938.0124
+          },
+          {
+            "name": "SHACL node-shape property-pair constraints compare against the focus node",
+            "ms": 1393.124
+          },
+          {
+            "name": "closed shapes inspect active raw paths and report each forbidden triple",
+            "ms": 966.7186
+          },
+          {
+            "name": "SHACL closed property shapes inspect each value node",
+            "ms": 938.114
+          },
+          {
+            "name": "deactivated SHACL SPARQL constraints do not run",
+            "ms": 934.093
+          },
+          {
+            "name": "SHACL SPARQL path expansion preserves escaped dollar names and Unicode prefixes",
+            "ms": 993.1293
+          },
+          {
+            "name": "SHACL PATH expansion preserves a leading escaped variable name in a QName",
+            "ms": 1041.7749
+          },
+          {
+            "name": "SHACL ranges permit positive infinity without applying renderer limits",
+            "ms": 1039.9948
+          },
+          {
+            "name": "SHACL PATH expansion preserves escaped hashes before the path variable",
+            "ms": 988.2185
+          }
+        ]
+      },
+      {
+        "id": "workload-0-current-design-show",
+        "index": 0,
+        "mode": "current",
+        "workload": "design-show",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^design CLI lists reusable|^design show preserves foreign",
+          "tests/views-cli.test.ts"
+        ],
+        "ms": 8352.18160000001,
+        "bodyMs": 8096.3542,
+        "cases": [
+          {
+            "name": "design CLI lists reusable designs and creates an inspectable owned design",
+            "ms": 8096.3542
+          }
+        ]
+      },
+      {
+        "id": "workload-1-current-dependency-cli",
+        "index": 1,
+        "mode": "current",
+        "workload": "dependency-cli",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^CLI (dependency update previews|manual support uses)|^dependency CLI accepts canonical source",
+          "tests/cli.test.ts"
+        ],
+        "ms": 140509.6798,
+        "bodyMs": 140061.0146,
+        "cases": [
+          {
+            "name": "dependency CLI accepts canonical source forms and resolves omitted support selectors only when unique",
+            "ms": 43377.615
+          },
+          {
+            "name": "CLI manual support uses an accepted source preview and remains attached through update and clear",
+            "ms": 96683.3996
+          }
+        ]
+      },
+      {
+        "id": "workload-1-current-shacl-core",
+        "index": 1,
+        "mode": "current",
+        "workload": "shacl-core",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "tests/shacl-core.test.ts"
+        ],
+        "ms": 29412.890199999965,
+        "bodyMs": 28938.1266,
+        "cases": [
+          {
+            "name": "Core count validation does not load SPARQL execution dependencies",
+            "ms": 314.7431
+          },
+          {
+            "name": "SHACL constructs query engines only for actual SELECT or Core comparison work",
+            "ms": 1287.2018
+          },
+          {
+            "name": "SHACL comparison reuse preserves exact terms, bounded retention and independent runs",
+            "ms": 1836.9022
+          },
+          {
+            "name": "SHACL patterns accept XPath XML name escapes, class subtraction, Unicode categories, and blocks",
+            "ms": 22.7646
+          },
+          {
+            "name": "SHACL patterns keep XPath substring, anchor, flag, and back-reference semantics",
+            "ms": 13.0723
+          },
+          {
+            "name": "SHACL XPath patterns keep Unicode i semantics distinct from JavaScript",
+            "ms": 6.846
+          },
+          {
+            "name": "SHACL XPath patterns keep line terminators, free-spacing escapes, and bounded parser work",
+            "ms": 5.5898
+          },
+          {
+            "name": "SHACL patterns reject JavaScript-only or malformed regex forms during preflight",
+            "ms": 0.9749
+          },
+          {
+            "name": "public SHACL validation attributes pattern violations and malformed shapes",
+            "ms": 2330.9336
+          },
+          {
+            "name": "Unicode SHACL string length counts Unicode code points",
+            "ms": 1176.4349
+          },
+          {
+            "name": "SHACL integer count parameters retain signed xsd:integer semantics",
+            "ms": 1211.0133
+          },
+          {
+            "name": "SHACL languageIn follows SPARQL language-range matching",
+            "ms": 1381.8319
+          },
+          {
+            "name": "SHACL uniqueLang accepts every valid true lexical form of xsd:boolean",
+            "ms": 996.2342
+          },
+          {
+            "name": "disjoint qualified counts exclude a value matching any sibling shape",
+            "ms": 952.7225
+          },
+          {
+            "name": "SHACL lessThan compares strings by Unicode code point",
+            "ms": 1134.902
+          },
+          {
+            "name": "SHACL string ranges compare with SPARQL ordering",
+            "ms": 1117.9813
+          },
+          {
+            "name": "SHACL dateTime range constraints reject values incomparable by timezone",
+            "ms": 1723.7956
+          },
+          {
+            "name": "SHACL preflight rejects repeated Core singleton parameters",
+            "ms": 2.4507
+          },
+          {
+            "name": "SHACL preflight validates target nodes, severity, and messages",
+            "ms": 1132.9159
+          },
+          {
+            "name": "SHACL preflight enforces literal range values and property-only parameters",
+            "ms": 1062.0453
+          },
+          {
+            "name": "SHACL closed parameters allow one ignored-property list and active raw paths",
+            "ms": 1037.6829
+          },
+          {
+            "name": "Core parameters with multiple values apply every independent constraint",
+            "ms": 1901.7883
+          },
+          {
+            "name": "SHACL node-shape property-pair constraints compare against the focus node",
+            "ms": 1317.4368
+          },
+          {
+            "name": "closed shapes inspect active raw paths and report each forbidden triple",
+            "ms": 1024.4781
+          },
+          {
+            "name": "SHACL closed property shapes inspect each value node",
+            "ms": 985.9709
+          },
+          {
+            "name": "deactivated SHACL SPARQL constraints do not run",
+            "ms": 934.919
+          },
+          {
+            "name": "SHACL SPARQL path expansion preserves escaped dollar names and Unicode prefixes",
+            "ms": 1002.7721
+          },
+          {
+            "name": "SHACL PATH expansion preserves a leading escaped variable name in a QName",
+            "ms": 987.4672
+          },
+          {
+            "name": "SHACL ranges permit positive infinity without applying renderer limits",
+            "ms": 1007.6366
+          },
+          {
+            "name": "SHACL PATH expansion preserves escaped hashes before the path variable",
+            "ms": 1026.6188
+          }
+        ]
+      },
+      {
+        "id": "workload-1-current-design-show",
+        "index": 1,
+        "mode": "current",
+        "workload": "design-show",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^design CLI lists reusable|^design show preserves foreign",
+          "tests/views-cli.test.ts"
+        ],
+        "ms": 8540.401300000027,
+        "bodyMs": 8290.2563,
+        "cases": [
+          {
+            "name": "design CLI lists reusable designs and creates an inspectable owned design",
+            "ms": 8290.2563
+          }
+        ]
+      },
+      {
+        "id": "workload-2-current-dependency-cli",
+        "index": 2,
+        "mode": "current",
+        "workload": "dependency-cli",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^CLI (dependency update previews|manual support uses)|^dependency CLI accepts canonical source",
+          "tests/cli.test.ts"
+        ],
+        "ms": 140365.8773,
+        "bodyMs": 139886.3518,
+        "cases": [
+          {
+            "name": "dependency CLI accepts canonical source forms and resolves omitted support selectors only when unique",
+            "ms": 42897.54
+          },
+          {
+            "name": "CLI manual support uses an accepted source preview and remains attached through update and clear",
+            "ms": 96988.8118
+          }
+        ]
+      },
+      {
+        "id": "workload-2-current-shacl-core",
+        "index": 2,
+        "mode": "current",
+        "workload": "shacl-core",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "tests/shacl-core.test.ts"
+        ],
+        "ms": 30021.179399999965,
+        "bodyMs": 29562.939999999995,
+        "cases": [
+          {
+            "name": "Core count validation does not load SPARQL execution dependencies",
+            "ms": 328.1379
+          },
+          {
+            "name": "SHACL constructs query engines only for actual SELECT or Core comparison work",
+            "ms": 1234.6609
+          },
+          {
+            "name": "SHACL comparison reuse preserves exact terms, bounded retention and independent runs",
+            "ms": 1926.1028
+          },
+          {
+            "name": "SHACL patterns accept XPath XML name escapes, class subtraction, Unicode categories, and blocks",
+            "ms": 22.4885
+          },
+          {
+            "name": "SHACL patterns keep XPath substring, anchor, flag, and back-reference semantics",
+            "ms": 12.3599
+          },
+          {
+            "name": "SHACL XPath patterns keep Unicode i semantics distinct from JavaScript",
+            "ms": 7.8345
+          },
+          {
+            "name": "SHACL XPath patterns keep line terminators, free-spacing escapes, and bounded parser work",
+            "ms": 4.8433
+          },
+          {
+            "name": "SHACL patterns reject JavaScript-only or malformed regex forms during preflight",
+            "ms": 1.0061
+          },
+          {
+            "name": "public SHACL validation attributes pattern violations and malformed shapes",
+            "ms": 2374.0775
+          },
+          {
+            "name": "Unicode SHACL string length counts Unicode code points",
+            "ms": 1174.2282
+          },
+          {
+            "name": "SHACL integer count parameters retain signed xsd:integer semantics",
+            "ms": 1176.0974
+          },
+          {
+            "name": "SHACL languageIn follows SPARQL language-range matching",
+            "ms": 1351.7081
+          },
+          {
+            "name": "SHACL uniqueLang accepts every valid true lexical form of xsd:boolean",
+            "ms": 1092.0867
+          },
+          {
+            "name": "disjoint qualified counts exclude a value matching any sibling shape",
+            "ms": 1232.5134
+          },
+          {
+            "name": "SHACL lessThan compares strings by Unicode code point",
+            "ms": 1190.7806
+          },
+          {
+            "name": "SHACL string ranges compare with SPARQL ordering",
+            "ms": 1152.6437
+          },
+          {
+            "name": "SHACL dateTime range constraints reject values incomparable by timezone",
+            "ms": 1797.8691
+          },
+          {
+            "name": "SHACL preflight rejects repeated Core singleton parameters",
+            "ms": 2.3141
+          },
+          {
+            "name": "SHACL preflight validates target nodes, severity, and messages",
+            "ms": 1016.5519
+          },
+          {
+            "name": "SHACL preflight enforces literal range values and property-only parameters",
+            "ms": 1026.1794
+          },
+          {
+            "name": "SHACL closed parameters allow one ignored-property list and active raw paths",
+            "ms": 1070.8543
+          },
+          {
+            "name": "Core parameters with multiple values apply every independent constraint",
+            "ms": 1891.7118
+          },
+          {
+            "name": "SHACL node-shape property-pair constraints compare against the focus node",
+            "ms": 1376.4496
+          },
+          {
+            "name": "closed shapes inspect active raw paths and report each forbidden triple",
+            "ms": 976.1407
+          },
+          {
+            "name": "SHACL closed property shapes inspect each value node",
+            "ms": 1130.8693
+          },
+          {
+            "name": "deactivated SHACL SPARQL constraints do not run",
+            "ms": 1001.8519
+          },
+          {
+            "name": "SHACL SPARQL path expansion preserves escaped dollar names and Unicode prefixes",
+            "ms": 1005.8147
+          },
+          {
+            "name": "SHACL PATH expansion preserves a leading escaped variable name in a QName",
+            "ms": 1011.4354
+          },
+          {
+            "name": "SHACL ranges permit positive infinity without applying renderer limits",
+            "ms": 983.1229
+          },
+          {
+            "name": "SHACL PATH expansion preserves escaped hashes before the path variable",
+            "ms": 990.2054
+          }
+        ]
+      },
+      {
+        "id": "workload-2-current-design-show",
+        "index": 2,
+        "mode": "current",
+        "workload": "design-show",
+        "args": [
+          "--test",
+          "--test-concurrency=1",
+          "--test-reporter=tap",
+          "--test-name-pattern=^design CLI lists reusable|^design show preserves foreign",
+          "tests/views-cli.test.ts"
+        ],
+        "ms": 8809.817500000005,
+        "bodyMs": 8548.8718,
+        "cases": [
+          {
+            "name": "design CLI lists reusable designs and creates an inspectable owned design",
+            "ms": 8548.8718
+          }
+        ]
+      }
+    ],
+    "summary": [
+      {
+        "workload": "dependency-cli",
+        "before": {
+          "n": 3,
+          "median": 179237.80049999998,
+          "min": 177114.6414,
+          "max": 207016.0497
+        },
+        "after": {
+          "n": 3,
+          "median": 140061.0146,
+          "min": 139886.3518,
+          "max": 144197.01510000002
+        },
+        "percentReduction": 21.85743508942467,
+        "rangesSeparated": true
+      },
+      {
+        "workload": "shacl-core",
+        "before": {
+          "n": 3,
+          "median": 45862.6244,
+          "min": 44676.9192,
+          "max": 47126.8116
+        },
+        "after": {
+          "n": 3,
+          "median": 29562.939999999995,
+          "min": 28938.1266,
+          "max": 30156.199400000005
+        },
+        "percentReduction": 35.54023480610064,
+        "rangesSeparated": true
+      },
+      {
+        "workload": "design-show",
+        "before": {
+          "n": 3,
+          "median": 11150.101999999999,
+          "min": 10998.0125,
+          "max": 12961.1914
+        },
+        "after": {
+          "n": 3,
+          "median": 8290.2563,
+          "min": 8096.3542,
+          "max": 8548.8718
+        },
+        "percentReduction": 25.64860572575928,
+        "rangesSeparated": true
+      }
+    ]
+  },
+  "imports": [
+    {
+      "mode": "baseline",
+      "command": [
+        "config",
+        "show"
+      ],
+      "imports": [
+        "./support.ts",
+        "./validation.ts",
+        "./shacl-execution.ts",
+        "./shacl-regex.ts",
+        "xspattern",
+        "./shacl-profile.ts",
+        "@traqula/parser-sparql-1-1",
+        "@traqula/core",
+        "@traqula/chevrotain",
+        "@traqula/rules-sparql-1-1"
+      ]
+    },
+    {
+      "mode": "baseline",
+      "command": [
+        "model",
+        "list"
+      ],
+      "imports": [
+        "./support.ts",
+        "./validation.ts",
+        "./shacl-execution.ts",
+        "./shacl-regex.ts",
+        "xspattern",
+        "./shacl-profile.ts",
+        "@traqula/parser-sparql-1-1",
+        "@traqula/core",
+        "@traqula/chevrotain",
+        "@traqula/rules-sparql-1-1"
+      ]
+    },
+    {
+      "mode": "baseline",
+      "command": [
+        "query",
+        "list"
+      ],
+      "imports": [
+        "@comunica/query-sparql-rdfjs-lite",
+        "@comunica/utils-bindings-factory",
+        "./support.ts",
+        "./validation.ts",
+        "./shacl-execution.ts",
+        "./shacl-regex.ts",
+        "xspattern",
+        "./shacl-profile.ts",
+        "@traqula/parser-sparql-1-1",
+        "@traqula/core",
+        "@traqula/chevrotain",
+        "@traqula/rules-sparql-1-1",
+        "@comunica/actor-init-query",
+        "@comunica/bus-init",
+        "@comunica/core",
+        "@comunica/context-entries",
+        "@comunica/logger-pretty",
+        "@comunica/types",
+        "@comunica/actor-http-proxy",
+        "@comunica/bus-http",
+        "@comunica/utils-algebra",
+        "@traqula/algebra-transformations-1-2",
+        "@traqula/algebra-transformations-1-1",
+        "@traqula/rules-sparql-1-2",
+        "@comunica/runner",
+        "@comunica/mediator-combine-union",
+        "@comunica/mediator-race",
+        "@comunica/actor-rdf-parse-n3",
+        "@comunica/bus-rdf-parse",
+        "@comunica/actor-abstract-mediatyped",
+        "@comunica/actor-rdf-parse-rdfxml",
+        "@comunica/actor-rdf-parse-xml-rdfa",
+        "@comunica/actor-rdf-parse-shaclc",
+        "@comunica/actor-http-fetch",
+        "@comunica/mediator-number",
+        "@comunica/actor-rdf-parse-html",
+        "@comunica/actor-rdf-parse-html-microdata",
+        "@comunica/bus-rdf-parse-html",
+        "@comunica/actor-rdf-parse-html-rdfa",
+        "@comunica/actor-rdf-parse-html-script",
+        "@comunica/actor-rdf-parse-jsonld"
+      ]
+    },
+    {
+      "mode": "current",
+      "command": [
+        "config",
+        "show"
+      ],
+      "imports": []
+    },
+    {
+      "mode": "current",
+      "command": [
+        "model",
+        "list"
+      ],
+      "imports": []
+    },
+    {
+      "mode": "current",
+      "command": [
+        "query",
+        "list"
+      ],
+      "imports": [
+        "./shacl-profile.ts",
+        "@traqula/parser-sparql-1-1",
+        "@traqula/core",
+        "@traqula/chevrotain",
+        "@traqula/rules-sparql-1-1",
+        "./shacl-regex.ts",
+        "xspattern"
+      ]
+    }
+  ],
+  "artifact": {
+    "sha256": "8553c0ce9d6c7ac4defd5a8921f0a9e338e50188c3364030df295ba8c2015d19"
+  },
+  "functionalChecks": {
+    "typecheck": "passed",
+    "focusedShaclViews": {
+      "passed": 34,
+      "failed": 0
+    },
+    "focusedQueries": {
+      "passed": 13,
+      "skipped": 1,
+      "failed": 0
+    },
+    "loaderRegression": {
+      "beforeFailed": 2,
+      "afterPassed": 2
+    },
+    "buildPack": "passed",
+    "initialFormatCheck": "passed",
+    "packed": {
+      "summary": {
+        "action": "packed",
+        "args": [
+          "scripts/verify-packed-application.mjs",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-session-3-c59f78c\\packed\\tbspec-0.1.0.tgz",
+          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-session-3-c59f78c\\packed-evidence.json"
+        ],
+        "code": 0,
+        "signal": null,
+        "ms": 728082.6932,
+        "topCases": 0,
+        "failures": 0
+      },
+      "state": "passed",
+      "scenarios": 8,
+      "commands": 118,
+      "assertions": 179,
+      "http": 46,
+      "installs": [
+        {
+          "label": "original-consumer",
+          "offline": true,
+          "emptyCacheBeforeInstall": true,
+          "exit": 0,
+          "errorCode": null
+        },
+        {
+          "label": "version-probe",
+          "offline": true,
+          "emptyCacheBeforeInstall": true,
+          "exit": 0,
+          "errorCode": null
+        }
+      ],
+      "failure": null,
+      "dependencyUpdates": [
+        {
+          "command": [
+            "dependency",
+            "update",
+            "shop"
+          ],
+          "exit": 0,
+          "errorCode": null,
+          "status": "preview",
+          "diagnosticCodes": []
+        },
+        {
+          "command": [
+            "dependency",
+            "update",
+            "shop",
+            "--apply",
+            "--accepted-preview",
+            "<preview-fingerprint>"
+          ],
+          "exit": 0,
+          "errorCode": null,
+          "status": "ok",
+          "diagnosticCodes": []
+        }
+      ]
+    },
+    "source": {
+      "action": "suite",
+      "args": [
+        "--test",
+        "--test-concurrency=1",
+        "--test-reporter=tap",
+        "tests/*.test.ts"
+      ],
+      "code": 0,
+      "signal": null,
+      "ms": 2358374.2946,
+      "topCases": 303,
+      "failures": 0,
+      "counts": {
+        "tests": 305,
+        "pass": 302,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 3,
+        "todo": 0
+      }
+    },
+    "inventory": {
+      "topCases": 303,
+      "passed": 300,
+      "skipped": 3,
+      "files": 47,
+      "path": "session-3/local-tests.csv"
+    },
+    "finalFormatCheck": {
+      "format": "passed",
+      "check": "passed",
+      "codeFiles": 141,
+      "markdownFiles": 78,
+      "issues": 0,
+      "rawFormat": "format-final.log",
+      "rawCheck": "check-final.log"
+    }
+  },
+  "temporaryEvidence": "C:/Users/iskan/AppData/Local/Temp/tbspec-performance-session-3-c59f78c",
+  "completedAt": "2026-10-15T16:05:00.914Z"
+}

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "date": "2026-10-15",
   "baselineCommit": "720d3496595f74c1f5c52785965dc7b3b1d33412",
-  "rawLocalEvidenceDirectory": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349",
+  "rawLocalEvidenceDirectory": "%TEMP%\\tbspec-performance-implementation-720d349",
   "method": {
     "startup": "Five sequential fresh processes per case and mode; PATH and NODE_OPTIONS empty; warm filesystem caches; no concurrent test/pack benchmark from this task. Earlier baseline batch was collected on the same machine before implementation.",
     "comparison": "Original HEAD sources supplied by an in-memory loader hook versus current sources. Both modes preload the same hook and source map, including subprocesses. CLI order baseline,current,current,baseline; dependency and HTTP order baseline,current (one observation each). No timing profiler in these comparisons. Normal desktop activity is uncontrolled.",
@@ -488,7 +488,7 @@
       {
         "args": [
           "init",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
           "--base-iri",
           "urn:installed:/"
         ],
@@ -497,7 +497,7 @@
       {
         "args": [
           "--project",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
           "config",
           "show"
         ],
@@ -506,7 +506,7 @@
       {
         "args": [
           "--project",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
           "ontology",
           "create",
           "domain.ttl"
@@ -516,7 +516,7 @@
       {
         "args": [
           "--project",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
           "model",
           "create",
           "model.ttl",
@@ -528,7 +528,7 @@
       {
         "args": [
           "--project",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
           "shapes",
           "create",
           "model.ttl"
@@ -538,19 +538,19 @@
       {
         "args": [
           "--project",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
           "query",
           "save",
           "sample",
           "--file",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-sample.rq"
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-sample.rq"
         ],
         "blockNetwork": true
       },
       {
         "args": [
           "--project",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
           "query",
           "run",
           "--saved",
@@ -561,7 +561,7 @@
       {
         "args": [
           "--project",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
           "references",
           "list",
           "--target",
@@ -572,7 +572,7 @@
       {
         "args": [
           "--project",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
           "web",
           "--background"
         ],
@@ -581,7 +581,7 @@
       {
         "args": [
           "--project",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
           "web",
           "status"
         ],
@@ -590,15 +590,15 @@
       {
         "args": [
           "--project",
-          "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
           "web",
           "stop"
         ],
         "blockNetwork": false
       }
     ],
-    "consumer": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\consumer-complete",
-    "project": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy"
+    "consumer": "%TEMP%\\tbspec-performance-implementation-720d349\\consumer-complete",
+    "project": "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy"
   },
   "rawFollowup": {
     "platform": "win32",
@@ -857,7 +857,7 @@
             "ms": 41601.8934
           }
         ],
-        "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\comparison-0-baseline.tap"
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-0-baseline.tap"
       },
       {
         "name": "cli",
@@ -870,7 +870,7 @@
             "ms": 29219.7902
           }
         ],
-        "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\comparison-1-current.tap"
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-1-current.tap"
       },
       {
         "name": "cli",
@@ -883,7 +883,7 @@
             "ms": 28512.6671
           }
         ],
-        "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\comparison-2-current.tap"
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-2-current.tap"
       },
       {
         "name": "cli",
@@ -896,7 +896,7 @@
             "ms": 40518.242
           }
         ],
-        "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\comparison-3-baseline.tap"
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-3-baseline.tap"
       },
       {
         "name": "dependency",
@@ -909,7 +909,7 @@
             "ms": 74509.2502
           }
         ],
-        "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\comparison-4-baseline.tap"
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-4-baseline.tap"
       },
       {
         "name": "dependency",
@@ -922,7 +922,7 @@
             "ms": 63013.682
           }
         ],
-        "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\comparison-5-current.tap"
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-5-current.tap"
       },
       {
         "name": "repair-http",
@@ -935,7 +935,7 @@
             "ms": 58584.2179
           }
         ],
-        "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\comparison-6-baseline.tap"
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-6-baseline.tap"
       },
       {
         "name": "repair-http",
@@ -948,7 +948,7 @@
             "ms": 47272.9715
           }
         ],
-        "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\comparison-7-current.tap"
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-7-current.tap"
       }
     ],
     "profiles": [
@@ -1013,8 +1013,8 @@
             "inclusiveMs": 74878.2575
           }
         },
-        "trace": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\dependency-profile.ndjson",
-        "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\dependency-profile.tap"
+        "trace": "%TEMP%\\tbspec-performance-implementation-720d349\\dependency-profile.ndjson",
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\dependency-profile.tap"
       },
       {
         "name": "repair-http",
@@ -1093,8 +1093,8 @@
             "inclusiveMs": 54624.6987
           }
         },
-        "trace": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\repair-http-profile.ndjson",
-        "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-implementation-720d349\\repair-http-profile.tap"
+        "trace": "%TEMP%\\tbspec-performance-implementation-720d349\\repair-http-profile.ndjson",
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\repair-http-profile.tap"
       }
     ]
   }

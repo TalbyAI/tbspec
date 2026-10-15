@@ -26,7 +26,6 @@ import {
   selector,
 } from "./schemas.ts";
 import { loadStarters } from "./starters.ts";
-import { listSupport } from "./support.ts";
 import type { Snapshot } from "./transactions.ts";
 
 export type InspectionCommand =
@@ -294,8 +293,10 @@ export async function inspectProject(options: {
       selector: options.selector,
     })) as unknown as Result<InspectionData>;
   }
-  if (options.command === "shapes.list" || options.command === "model.schema.list")
+  if (options.command === "shapes.list" || options.command === "model.schema.list") {
+    const { listSupport } = await import("./support.ts");
     return listSupport(options);
+  }
   if (options.command.startsWith("ontology.") || options.command.startsWith("model.")) {
     const family = options.command.split(".")[0];
     const show = options.command.endsWith(".show");

@@ -121,16 +121,6 @@ test("design CLI lists reusable designs and creates an inspectable owned design"
   const shown = invoke(["design", "show", "designs/custom.ttl"], root);
   assert.equal(shown.envelope.data.resource.graphIri, "urn:custom-design");
   assert.deepEqual(shown.envelope.data.rules, []);
-});
-
-test("design show preserves foreign namespace triples without projecting them as appearance", async () => {
-  const root = await mkdtemp(join(tmpdir(), "tb-design-fields-"));
-  await initializeProject({ directory: root, baseIri: "urn:design-fields:/" });
-  const created = invoke(
-    ["design", "create", "designs/custom.ttl", "--iri", "urn:custom-design"],
-    root,
-  );
-  assert.equal(created.envelope.status, "ok", JSON.stringify(created.envelope));
 
   const vocabulary = "https://talby.ai/ontology/tbspec#";
   const rule = "urn:custom-design#node-rule";
@@ -144,14 +134,17 @@ test("design show preserves foreign namespace triples without projecting them as
       `<${foreignFillColor}> "preserved value" .\n`,
   );
 
-  const shown = invoke(["design", "show", "designs/custom.ttl"], root);
-  assert.equal(shown.envelope.status, "ok", JSON.stringify(shown.envelope));
+  const withForeignRule = invoke(["design", "show", "designs/custom.ttl"], root);
+  assert.equal(withForeignRule.envelope.status, "ok", JSON.stringify(withForeignRule.envelope));
   assert.ok(
-    shown.envelope.data.triples.some(
+    withForeignRule.envelope.data.triples.some(
       (triple: { predicate: { value: string } }) => triple.predicate.value === foreignFillColor,
     ),
   );
-  assert.equal(Object.hasOwn(shown.envelope.data.rules[0].appearance, "fillColor"), false);
+  assert.equal(
+    Object.hasOwn(withForeignRule.envelope.data.rules[0].appearance, "fillColor"),
+    false,
+  );
 });
 
 test("design import creates new rule identities and provenance without choosing the design", async () => {

@@ -12,7 +12,7 @@
     "node": "24.14.1",
     "npm": "11.17.0"
   },
-  "rawLocalEvidenceDirectory": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-test-diagnostic-720d349",
+  "rawLocalEvidenceDirectory": "%TEMP%\\tbspec-test-diagnostic-720d349",
   "timingNotes": [
     "Local full-suite sample deliberately interrupted after 21 completed results; not a passing full-suite run.",
     "All profiling spans are inclusive elapsed wall time; nested spans and subprocess/process lifetimes must not be summed.",
@@ -347,7 +347,7 @@
           "seconds": 2.5851988,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "model",
             "create",
             "schema.ttl",
@@ -360,7 +360,7 @@
           "seconds": 2.5811363000000003,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "model",
             "create",
             "model.ttl",
@@ -375,7 +375,7 @@
           "seconds": 3.0350479000000004,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "model",
             "schema",
             "add",
@@ -388,7 +388,7 @@
           "seconds": 3.0248475,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "shapes",
             "create",
             "model.ttl",
@@ -399,7 +399,7 @@
           "seconds": 2.1520249000000002,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "model",
             "schema",
             "list",
@@ -411,7 +411,7 @@
           "seconds": 2.222595400000002,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "shapes",
             "list",
             "--source",
@@ -423,7 +423,7 @@
           "seconds": 3.029146000000001,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "validate",
             "model.ttl",
             "--json"
@@ -433,7 +433,7 @@
           "seconds": 3.6391738000000005,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "model",
             "schema",
             "remove",
@@ -446,7 +446,7 @@
           "seconds": 3.5906694000000026,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "model",
             "schema",
             "remove",
@@ -462,7 +462,7 @@
           "seconds": 2.850970300000001,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "validate",
             "model.ttl",
             "--json"
@@ -472,7 +472,7 @@
           "seconds": 6.715620500000001,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "validate",
             "--json"
           ]
@@ -481,7 +481,7 @@
           "seconds": 0.7764276000000027,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "validate",
             "one",
             "two",
@@ -492,7 +492,7 @@
           "seconds": 0.7707918999999965,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "validate",
             "--confirm",
             "--json"
@@ -502,7 +502,7 @@
           "seconds": 0.803847600000001,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "model",
             "schema",
             "add",
@@ -514,7 +514,7 @@
           "seconds": 0.8040782000000035,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "model",
             "schema",
             "list",
@@ -528,7 +528,7 @@
           "seconds": 0.8467955999999977,
           "arguments": [
             "--import",
-            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "<repo>\\app\\src\\cli.ts",
             "shapes",
             "create",
             "model.ttl",

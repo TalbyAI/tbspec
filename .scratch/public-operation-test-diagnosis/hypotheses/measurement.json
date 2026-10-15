@@ -645,5 +645,5 @@
     "Compiled and source startup measured in separate batches; no claimed controlled TypeScript speedup.",
     "Constructor microbenchmark is not an end-to-end validation saving."
   ],
-  "rawLocalEvidenceDirectory": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-hypotheses-720d349"
+  "rawLocalEvidenceDirectory": "%TEMP%\\tbspec-hypotheses-720d349"
 }

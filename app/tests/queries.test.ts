@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,52 @@ import test from "node:test";
 import { inspectProject } from "../src/inspection.ts";
 import { initializeProject } from "../src/project.ts";
 import { listQueries, queryRemove, queryRun, querySave, showQuery } from "../src/query.ts";
+
+test("saved query management does not load execution dependencies and reports loader failures", () => {
+  const script = `
+    import assert from "node:assert/strict";
+    import { mkdtemp } from "node:fs/promises";
+    import { registerHooks } from "node:module";
+    import { tmpdir } from "node:os";
+    import { join } from "node:path";
+    const { initializeProject } = await import(${JSON.stringify(new URL("../src/project.ts", import.meta.url).href)});
+    const root = await mkdtemp(join(tmpdir(), "tb-query-management-loading-"));
+    assert.equal((await initializeProject({ directory: root })).status, "ok");
+    registerHooks({ resolve(specifier, context, nextResolve) {
+      assert.ok(!specifier.startsWith("@comunica/"), "Execution dependency unavailable: " + specifier);
+      return nextResolve(specifier, context);
+    }});
+    const { listQueries, queryRemove, queryRun, querySave, showQuery } = await import(${JSON.stringify(new URL("../src/query.ts", import.meta.url).href)});
+    assert.equal((await querySave({ project: root, name: "healthy", queryText: "ASK {}" })).status, "ok");
+    assert.deepEqual((await listQueries({ project: root })).data.items.map(item => item.name), ["healthy"]);
+    assert.equal((await showQuery({ project: root, name: "healthy" })).data.queryText, "ASK {}");
+    assert.equal((await querySave({ project: root, name: "unsafe", queryText: "ASK { SERVICE <https://example.org/> {} }" })).status, "invalid_arguments");
+    assert.equal((await queryRemove({ project: root, name: "healthy" })).status, "preview");
+    const run = await queryRun({ project: root, saved: "healthy" });
+    assert.equal(run.status, "unavailable", JSON.stringify(run));
+    assert.equal(run.diagnostics[0].code, "IO_FAILURE");
+    assert.match(run.diagnostics[0].message, /Execution dependency unavailable/);
+    assert.equal((await queryRemove({ project: root, name: "healthy", confirm: true })).status, "ok");
+    assert.deepEqual((await listQueries({ project: root })).data.items, []);
+  `;
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      new URL("fixtures/offline.ts", import.meta.url).href,
+      "--input-type=module",
+      "--eval",
+      script,
+    ],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      env: { ...process.env, PATH: "" },
+      timeout: 20000,
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
 
 test("saved query listing isolates broken entries and warns for each", async () => {
   const root = await mkdtemp(join(tmpdir(), "tbspec-query-broken-"));

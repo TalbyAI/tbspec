@@ -73,6 +73,41 @@ test("CLI preparation defers project work and query file reads", () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("CLI inventory and config commands do not load validation or query engines", () => {
+  const script = `
+    import assert from "node:assert/strict";
+    import { mkdtemp } from "node:fs/promises";
+    import { registerHooks } from "node:module";
+    import { tmpdir } from "node:os";
+    import { join } from "node:path";
+    const { initializeProject } = await import(${JSON.stringify(new URL("../src/project.ts", import.meta.url).href)});
+    const root = await mkdtemp(join(tmpdir(), "tb-cli-inventory-loading-"));
+    assert.equal((await initializeProject({ directory: root })).status, "ok");
+    registerHooks({ resolve(specifier, context, nextResolve) {
+      assert.ok(!/(?:support|validation|shacl-profile|shacl-execution|shacl-regex)\\.ts$/.test(specifier)
+        && !/^(?:@comunica\\/|@traqula\\/|xspattern$)/.test(specifier),
+        "Unexpected validation dependency: " + specifier);
+      return nextResolve(specifier, context);
+    }});
+    const { parseCli } = await import(${JSON.stringify(new URL("../src/cli-command.ts", import.meta.url).href)});
+    for (const args of [["config", "show"], ["model", "list"], ["ontology", "list"], ["graph", "list"]]) {
+      const result = await parseCli([...args, "--project", root]).execute();
+      assert.equal(result.status, "ok", JSON.stringify(result));
+    }
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ["--import", offline, "--input-type=module", "--eval", script],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      env: { ...process.env, PATH: "" },
+      timeout: 20000,
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("CLI process preserves plain help and version output", () => {
   for (const args of [["--help"], ["--version"]]) {
     const result = spawnSync(process.execPath, ["--import", offline, cli, ...args], {
@@ -622,84 +657,6 @@ test("dependency CLI accepts canonical source forms and resolves omitted support
   );
 });
 
-test("CLI dependency update previews the reacquired source before changing its snapshot", async () => {
-  const root = await mkdtemp(join(tmpdir(), "tb-cli-dependency-update-"));
-  const source = join(root, "source");
-  const project = join(root, "project");
-  await mkdir(source);
-  await initializeProject({ directory: project, baseIri: "urn:dependency-update-cli:/" });
-  const graph = (label: string) =>
-    `@prefix owl: <http://www.w3.org/2002/07/owl#> .\n<https://example.org/update> a owl:Ontology; <urn:label> "${label}" .\n`;
-  await writeFile(join(source, "shop.ttl"), graph("first"));
-  const firstPreview = invoke(
-    ["dependency", "add", "shop", "--source", source, "--kind", "ontology"],
-    project,
-  );
-  assert.equal(firstPreview.status, 3, firstPreview.stderr);
-  assert.equal(
-    invoke(
-      [
-        "dependency",
-        "add",
-        "shop",
-        "--source",
-        source,
-        "--kind",
-        "ontology",
-        "--accepted-preview",
-        firstPreview.envelope.data.preview.fingerprint,
-      ],
-      project,
-    ).status,
-    0,
-  );
-
-  const lockBeforeUpdate = await readFile(join(project, "tbspec.lock"));
-  await writeFile(join(source, "shop.ttl"), graph("second"));
-  const preview = invoke(["dependency", "update", "shop"], project);
-  assert.equal(preview.status, 0, preview.stderr);
-  assert.equal(preview.envelope.status, "preview");
-  assert.equal(preview.envelope.data.preview.operation, "dependency.update");
-  assert.equal(preview.envelope.data.preview.acquired.length, 1);
-  assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBeforeUpdate);
-
-  await writeFile(join(source, "shop.ttl"), graph("third"));
-  const changed = invoke(
-    [
-      "dependency",
-      "update",
-      "shop",
-      "--apply",
-      "--accepted-preview",
-      preview.envelope.data.preview.fingerprint,
-    ],
-    project,
-  );
-  assert.equal(changed.status, 3, changed.stderr);
-  assert.ok(
-    changed.envelope.diagnostics.some((item: { code: string }) => item.code === "PREVIEW_CHANGED"),
-  );
-  assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBeforeUpdate);
-
-  const applied = invoke(
-    [
-      "dependency",
-      "update",
-      "shop",
-      "--apply",
-      "--accepted-preview",
-      changed.envelope.data.preview.fingerprint,
-    ],
-    project,
-  );
-  assert.equal(applied.status, 0, applied.stderr);
-  assert.equal(applied.envelope.data.applied, true);
-  assert.equal(
-    await readFile(join(project, ".tbspec/dependencies/shop/source/shop.ttl"), "utf8"),
-    graph("third"),
-  );
-});
-
 test("CLI manual support uses an accepted source preview and remains attached through update and clear", async () => {
   const root = await mkdtemp(join(tmpdir(), "tb-cli-dependency-support-"));
   const source = join(root, "source");
@@ -895,20 +852,34 @@ test("CLI manual support uses an accepted source preview and remains attached th
     ".tbspec/dependencies/manual-model/manual/attachment-1/source/rules.ttl",
   );
   assert.equal(await readFile(supportPath, "utf8"), updatedShape);
-  await writeFile(join(source, "model.ttl"), model("updated", false));
-  const update = invoke(["dependency", "update", "manual-model"], project);
-  assert.equal(update.status, 0, update.stderr);
-  assert.deepEqual(update.envelope.data.preview.impact.acceptance, ["apply", "accept-impact"]);
   const lockBeforeImpactAcceptance = await readFile(join(project, "tbspec.lock"));
   const modelSnapshotPath = join(project, ".tbspec/dependencies/manual-model/source/model.ttl");
   const modelSnapshotBeforeImpactAcceptance = await readFile(modelSnapshotPath);
+  await writeFile(join(source, "model.ttl"), model("updated", false));
+  const update = invoke(["dependency", "update", "manual-model"], project);
+  assert.equal(update.status, 0, update.stderr);
+  assert.equal(update.envelope.status, "preview");
+  assert.equal(update.envelope.data.preview.operation, "dependency.update");
+  assert.deepEqual(
+    update.envelope.data.preview.acquired.map((item: { selector: string }) => item.selector).sort(),
+    [
+      "dep:manual-model/manual/attachment-1/source/rules.ttl",
+      "dep:manual-model/manual/attachment-2/source/design.ttl",
+      "dep:manual-model/source/model.ttl",
+    ],
+  );
+  assert.deepEqual(update.envelope.data.preview.impact.acceptance, ["apply", "accept-impact"]);
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBeforeImpactAcceptance);
+  assert.deepEqual(await readFile(modelSnapshotPath), modelSnapshotBeforeImpactAcceptance);
   assert.ok(
     update.envelope.data.dependency.attachments.some(
       (attachment: { id: string; active: boolean }) =>
         attachment.id === "attachment-1" && attachment.active,
     ),
   );
-  const withoutImpactAcceptance = invoke(
+  const reacquiredModel = model("reacquired", false);
+  await writeFile(join(source, "model.ttl"), reacquiredModel);
+  const changedUpdate = invoke(
     [
       "dependency",
       "update",
@@ -916,6 +887,26 @@ test("CLI manual support uses an accepted source preview and remains attached th
       "--apply",
       "--accepted-preview",
       update.envelope.data.preview.fingerprint,
+      "--accept-impact",
+    ],
+    project,
+  );
+  assert.equal(changedUpdate.status, 3, changedUpdate.stderr);
+  assert.ok(
+    changedUpdate.envelope.diagnostics.some(
+      (item: { code: string }) => item.code === "PREVIEW_CHANGED",
+    ),
+  );
+  assert.deepEqual(await readFile(join(project, "tbspec.lock")), lockBeforeImpactAcceptance);
+  assert.deepEqual(await readFile(modelSnapshotPath), modelSnapshotBeforeImpactAcceptance);
+  const withoutImpactAcceptance = invoke(
+    [
+      "dependency",
+      "update",
+      "manual-model",
+      "--apply",
+      "--accepted-preview",
+      changedUpdate.envelope.data.preview.fingerprint,
     ],
     project,
   );
@@ -934,13 +925,14 @@ test("CLI manual support uses an accepted source preview and remains attached th
       "manual-model",
       "--apply",
       "--accepted-preview",
-      update.envelope.data.preview.fingerprint,
+      changedUpdate.envelope.data.preview.fingerprint,
       "--accept-impact",
     ],
     project,
   );
   assert.equal(appliedUpdate.status, 0, appliedUpdate.stderr);
   assert.equal(appliedUpdate.envelope.data.applied, true);
+  assert.equal(await readFile(modelSnapshotPath, "utf8"), reacquiredModel);
   assert.ok(
     appliedUpdate.envelope.data.dependency.attachments.some(
       (attachment: { id: string; active: boolean }) =>

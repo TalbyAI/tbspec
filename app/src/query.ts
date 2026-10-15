@@ -1,8 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
-import { QueryEngine } from "@comunica/query-sparql-rdfjs-lite";
-import { BindingsFactory } from "@comunica/utils-bindings-factory";
 import type { Quad, Term } from "@rdfjs/types";
 import { DataFactory, Store } from "n3";
 import { parse as parseToml } from "smol-toml";
@@ -1163,6 +1161,10 @@ export async function queryRun(options: {
       ? queryDataset(await loadSelected(root, options.graph))
       : await loadFullDataset(root);
     if (queryReads) await verifyReads(root, queryReads.reads);
+    const [{ QueryEngine }, { BindingsFactory }] = await Promise.all([
+      import("@comunica/query-sparql-rdfjs-lite"),
+      import("@comunica/utils-bindings-factory"),
+    ]);
     const context = {
       sources: [dataset],
       unionDefaultGraph: false,
