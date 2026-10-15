@@ -5,18 +5,66 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      packed_only:
+        description: Skip the source test job and verify the packed artifact matrix only.
+        type: boolean
+        required: false
+        default: false
+      macos_regressions_only:
+        description: Run focused ownership, transaction rollback and browser checks on both macOS architectures only.
+        type: boolean
+        required: false
+        default: false
+      macos_regression_set:
+        description: Select all focused Mac checks or the two slow HTTP regressions; used only with macos_regressions_only.
+        type: choice
+        required: false
+        default: all
+        options: [all, slow-http]
+      macos_intel_source_only:
+        description: Run application source tests in serial partitions on macOS Intel only; select all or one partition below.
+        type: boolean
+        required: false
+        default: false
+      macos_intel_partition:
+        description: Select all Intel source partitions or rerun one partition; used only with macos_intel_source_only.
+        type: choice
+        required: false
+        default: all
+        options: [all, "0", "1", "2"]
 
 permissions:
   contents: read
 
 jobs:
   application:
-    name: Node 24 application (${{ matrix.os }})
-    timeout-minutes: 20
+    name: Node 24 application (${{ matrix.label }})
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.packed_only != true && inputs.macos_regressions_only != true && inputs.macos_intel_source_only != true) }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
+        include:
+          - os: ubuntu-latest
+            label: Ubuntu
+            source_partition: full
+          - os: windows-latest
+            label: Windows standard user
+            source_partition: full
+          - os: macos-latest
+            label: macOS ARM
+            source_partition: full
+          - os: macos-15-intel
+            label: macOS Intel source partition 1/3
+            source_partition: 0
+          - os: macos-15-intel
+            label: macOS Intel source partition 2/3
+            source_partition: 1
+          - os: macos-15-intel
+            label: macOS Intel source partition 3/3
+            source_partition: 2
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -37,11 +85,14 @@ jobs:
       - name: Typecheck and compile
         run: npm run typecheck && npm run build
       - name: Verify native macOS process identity
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.source_partition == 'full'
         run: node --test tests/macos-ownership.test.ts
       - name: Test public operations and processes
-        if: runner.os != 'Windows'
-        run: npm test
+        if: runner.os != 'Windows' && matrix.source_partition == 'full'
+        run: npm run test:serial
+      - name: Test public operations and processes in an Intel source partition
+        if: matrix.source_partition != 'full'
+        run: node scripts/test-source.mjs ${{ matrix.source_partition }} 3
       - name: Test public operations and processes as a standard Windows user
         if: runner.os == 'Windows'
         shell: pwsh
@@ -59,7 +110,184 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the test user temporary directory.' }
           $env:TEMP = $env:TMP = $testTemp
           $node = (Get-Command node).Source
-          $tests = Start-Process -FilePath $node -ArgumentList '--test', 'tests/*.test.ts' -WorkingDirectory $PWD.Path -Credential $credential -LoadUserProfile -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -Wait -PassThru
+          $tests = Start-Process -FilePath $node -ArgumentList '--test-concurrency=1', '--test', 'tests/*.test.ts' -WorkingDirectory $PWD.Path -Credential $credential -LoadUserProfile -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -Wait -PassThru
           Get-Content -LiteralPath $stdout
           Get-Content -LiteralPath $stderr
           exit $tests.ExitCode
+
+  package-artifact:
+    name: Pack the release candidate once
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.macos_regressions_only != true && inputs.macos_intel_source_only != true) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install application build dependencies
+        working-directory: app
+        run: npm ci
+      - name: Build and pack one npm artifact
+        working-directory: app
+        run: |
+          mkdir -p ../packed-application
+          npm pack --pack-destination ../packed-application
+          node scripts/write-artifact-digest.mjs ../packed-application
+      - name: Publish workflow artifact for the platform matrix
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tbspec-packed-application
+          path: packed-application/*
+          if-no-files-found: error
+          retention-days: 1
+
+  packed-application:
+    name: Install one packed artifact (${{ matrix.os }})
+    needs: package-artifact
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
+    steps:
+      - name: Check out verification harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Download the same packed artifact and SHA-256 file
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tbspec-packed-application
+          path: packed-application
+      - name: Install the artifact offline and verify public workflows
+        if: runner.os != 'Windows'
+        working-directory: app
+        run: npm run verify:packed -- ../packed-application ../packed-evidence/${{ matrix.os }}.json
+      - name: Install and verify as a standard Windows user
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $password = ConvertTo-SecureString ("Tbspec!" + [guid]::NewGuid().ToString('N')) -AsPlainText -Force
+          $user = New-LocalUser -Name 'tbspec-packed' -Password $password
+          Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
+          $credential = [pscredential]::new("$env:COMPUTERNAME\tbspec-packed", $password)
+          $sharedTemp = Join-Path $env:PUBLIC 'tbspec-packed-tests'
+          New-Item -ItemType Directory -Path $sharedTemp | Out-Null
+          & icacls.exe $sharedTemp /grant 'tbspec-packed:(OI)(CI)F'
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the standard-user test directory.' }
+          $artifactTarget = Join-Path $sharedTemp 'packed-application'
+          Copy-Item -LiteralPath (Join-Path $PWD.Path 'packed-application') -Destination $sharedTemp -Recurse
+          $stdout = Join-Path $sharedTemp 'verify.stdout'
+          $stderr = Join-Path $sharedTemp 'verify.stderr'
+          $node = (Get-Command node).Source
+          $nodeDirectory = Split-Path -Parent $node
+          $npmCli = Join-Path $nodeDirectory 'node_modules\npm\bin\npm-cli.js'
+          if (-not (Test-Path -LiteralPath $npmCli)) { throw 'Cannot locate the pinned Node npm CLI.' }
+          $env:TEMP = $env:TMP = $sharedTemp
+          $env:TBSPEC_NPM_CLI = $npmCli
+          $env:TBSPEC_VERIFIER_SCRIPT = (Join-Path $PWD.Path 'app\scripts\verify-packed-application.mjs')
+          $env:TBSPEC_EVIDENCE_PATH = (Join-Path $sharedTemp 'windows-latest.json')
+          $arguments = @($env:TBSPEC_VERIFIER_SCRIPT, $artifactTarget)
+          $result = Start-Process -FilePath $node -ArgumentList $arguments -WorkingDirectory (Join-Path $PWD.Path 'app') -Credential $credential -LoadUserProfile -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -Wait -PassThru
+          Get-Content -LiteralPath $stdout
+          Get-Content -LiteralPath $stderr
+          exit $result.ExitCode
+      - name: Upload installed-artifact evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tbspec-installed-evidence-${{ matrix.os }}
+          path: ${{ runner.os == 'Windows' && 'C:\Users\Public\tbspec-packed-tests\windows-latest.json' || format('packed-evidence/{0}.json', matrix.os) }}
+          if-no-files-found: warn
+          retention-days: 30
+
+  macos-regressions:
+    name: Node 24 focused macOS regressions (${{ matrix.os }})
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_regressions_only == true }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install isolated application dependencies
+        run: npm ci
+      - name: Typecheck and compile
+        run: npm run typecheck && npm run build
+      - name: Test native macOS process identity
+        if: ${{ inputs.macos_regression_set == 'all' }}
+        run: node --test tests/macos-ownership.test.ts
+      - name: Test transaction rollback on both macOS architectures
+        if: ${{ inputs.macos_regression_set == 'all' }}
+        run: node --test --test-concurrency=1 tests/dependencies-transaction.test.ts tests/transactions.test.ts
+      - name: Test locked editor design resolution and read-only behavior
+        if: ${{ inputs.macos_regression_set == 'all' }}
+        run: node --test --test-name-pattern='locked model editor inspection resolves manual design support and remains read-only' tests/editor-design-web.test.ts
+      - name: Test authenticated view membership and presentation over HTTP
+        if: ${{ inputs.macos_regression_set == 'all' }}
+        run: node --test --test-name-pattern='authenticated views keep independent membership and presentation and include exact endpoints' tests/views-web.test.ts
+      - name: Test authenticated dependency acquisition over HTTP
+        if: ${{ inputs.macos_regression_set == 'all' || inputs.macos_regression_set == 'slow-http' }}
+        run: node --test --test-name-pattern='authenticated HTTP stages, applies, lists and shows an acquired directory dependency' tests/web.test.ts
+      - name: Test authenticated repair API staging and application
+        if: ${{ inputs.macos_regression_set == 'all' || inputs.macos_regression_set == 'slow-http' }}
+        run: node --test --test-name-pattern='authenticated repair API stages IRI refactor, scoped removal and separately selected GC' tests/repair-web.test.ts
+
+  macos-intel-source:
+    name: Node 24 Intel source partition ${{ matrix.partition }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_intel_source_only == true && inputs.packed_only != true && inputs.macos_regressions_only != true }}
+    runs-on: macos-15-intel
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        partition: ${{ fromJSON(inputs.macos_intel_partition == 'all' && '[0,1,2]' || inputs.macos_intel_partition == '0' && '[0]' || inputs.macos_intel_partition == '1' && '[1]' || '[2]') }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install isolated application dependencies
+        run: npm ci
+      - name: Typecheck and compile
+        run: npm run typecheck && npm run build
+      - name: Test public operations and processes in a source partition
+        run: node scripts/test-source.mjs ${{ matrix.partition }} 3

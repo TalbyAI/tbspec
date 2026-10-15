@@ -1,0 +1,1101 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-15",
+  "baselineCommit": "720d3496595f74c1f5c52785965dc7b3b1d33412",
+  "rawLocalEvidenceDirectory": "%TEMP%\\tbspec-performance-implementation-720d349",
+  "method": {
+    "startup": "Five sequential fresh processes per case and mode; PATH and NODE_OPTIONS empty; warm filesystem caches; no concurrent test/pack benchmark from this task. Earlier baseline batch was collected on the same machine before implementation.",
+    "comparison": "Original HEAD sources supplied by an in-memory loader hook versus current sources. Both modes preload the same hook and source map, including subprocesses. CLI order baseline,current,current,baseline; dependency and HTTP order baseline,current (one observation each). No timing profiler in these comparisons. Normal desktop activity is uncontrolled.",
+    "profiles": "Existing inclusive completion-span hook plus passive real QueryEngine constructor/queryBindings counters; current workloads only. Earlier eager engine counts are inferred from one constructor per runShapes call, not independently counted. Spans overlap and cannot be added into total savings.",
+    "suite": "Complete serial source suite; build/pack/install/quality work overlapped part of execution. Wall duration is functional evidence, not an isolated before/after timing."
+  },
+  "startup": [
+    {
+      "mode": "source",
+      "name": "help",
+      "baseline": {
+        "n": 5,
+        "minMs": 767.3082999999988,
+        "medianMs": 879.5272999999997,
+        "maxMs": 898.9905999999999
+      },
+      "current": {
+        "n": 5,
+        "minMs": 105.88200000000006,
+        "medianMs": 107.0338999999999,
+        "maxMs": 120.5951
+      },
+      "reductionPercent": 87.83051987129906
+    },
+    {
+      "mode": "source",
+      "name": "version",
+      "baseline": {
+        "n": 5,
+        "minMs": 791.7526999999991,
+        "medianMs": 809.0503999999992,
+        "maxMs": 858.7779999999984
+      },
+      "current": {
+        "n": 5,
+        "minMs": 103.9697000000001,
+        "medianMs": 109.7765,
+        "maxMs": 120.81719999999996
+      },
+      "reductionPercent": 86.43143863472535
+    },
+    {
+      "mode": "source",
+      "name": "guidance",
+      "baseline": {
+        "n": 5,
+        "minMs": 758.7687999999998,
+        "medianMs": 789.1623999999974,
+        "maxMs": 824.9490999999998
+      },
+      "current": {
+        "n": 5,
+        "minMs": 106.9024000000004,
+        "medianMs": 109.10500000000002,
+        "maxMs": 117.68550000000005
+      },
+      "reductionPercent": 86.17458206321027
+    },
+    {
+      "mode": "source",
+      "name": "invalid",
+      "baseline": {
+        "n": 5,
+        "minMs": 743.3722000000016,
+        "medianMs": 822.8332999999998,
+        "maxMs": 881.6318000000028
+      },
+      "current": {
+        "n": 5,
+        "minMs": 103.81939999999986,
+        "medianMs": 110.4081000000001,
+        "maxMs": 123.22740000000022
+      },
+      "reductionPercent": 86.5819601613109
+    },
+    {
+      "mode": "compiled",
+      "name": "help",
+      "baseline": {
+        "n": 5,
+        "minMs": 648.6973000000016,
+        "medianMs": 661.4400000000005,
+        "maxMs": 722.9432
+      },
+      "current": {
+        "n": 5,
+        "minMs": 64.34550000000013,
+        "medianMs": 66.26720000000023,
+        "maxMs": 68.16960000000006
+      },
+      "reductionPercent": 89.98137397193999
+    },
+    {
+      "mode": "compiled",
+      "name": "version",
+      "baseline": {
+        "n": 5,
+        "minMs": 645.8077999999996,
+        "medianMs": 667.0162999999993,
+        "maxMs": 676.4391
+      },
+      "current": {
+        "n": 5,
+        "minMs": 62.483600000000024,
+        "medianMs": 65.35749999999996,
+        "maxMs": 68.69210000000021
+      },
+      "reductionPercent": 90.20151381607916
+    },
+    {
+      "mode": "compiled",
+      "name": "guidance",
+      "baseline": {
+        "n": 5,
+        "minMs": 664.4067,
+        "medianMs": 669.6453999999994,
+        "maxMs": 682.5331999999999
+      },
+      "current": {
+        "n": 5,
+        "minMs": 62.49240000000009,
+        "medianMs": 64.97469999999998,
+        "maxMs": 68.91420000000005
+      },
+      "reductionPercent": 90.2971483116288
+    },
+    {
+      "mode": "compiled",
+      "name": "invalid",
+      "baseline": {
+        "n": 5,
+        "minMs": 642.1476000000002,
+        "medianMs": 654.2440999999999,
+        "maxMs": 683.4166999999998
+      },
+      "current": {
+        "n": 5,
+        "minMs": 62.947200000000066,
+        "medianMs": 67.4690999999998,
+        "maxMs": 68.68049999999994
+      },
+      "reductionPercent": 89.68747291721854
+    }
+  ],
+  "comparisons": [
+    {
+      "name": "cli",
+      "baseline": {
+        "n": 2,
+        "minMs": 40518.242,
+        "medianMs": 41060.0677,
+        "maxMs": 41601.8934
+      },
+      "current": {
+        "n": 2,
+        "minMs": 28512.6671,
+        "medianMs": 28866.228649999997,
+        "maxMs": 29219.7902
+      },
+      "reductionPercent": 29.697561969679857
+    },
+    {
+      "name": "dependency",
+      "baseline": {
+        "n": 1,
+        "minMs": 74509.2502,
+        "medianMs": 74509.2502,
+        "maxMs": 74509.2502
+      },
+      "current": {
+        "n": 1,
+        "minMs": 63013.682,
+        "medianMs": 63013.682,
+        "maxMs": 63013.682
+      },
+      "reductionPercent": 15.428377240601993
+    },
+    {
+      "name": "repair-http",
+      "baseline": {
+        "n": 1,
+        "minMs": 58584.2179,
+        "medianMs": 58584.2179,
+        "maxMs": 58584.2179
+      },
+      "current": {
+        "n": 1,
+        "minMs": 47272.9715,
+        "medianMs": 47272.9715,
+        "maxMs": 47272.9715
+      },
+      "reductionPercent": 19.307668183447753
+    }
+  ],
+  "engineDemand": [
+    {
+      "name": "dependency",
+      "runShapesCalls": 552,
+      "engines": 60,
+      "queryBindings": 10140,
+      "counterInstallations": 1
+    },
+    {
+      "name": "repair-http",
+      "runShapesCalls": 308,
+      "engines": 33,
+      "queryBindings": 5577,
+      "counterInstallations": 3
+    }
+  ],
+  "fullSuite": {
+    "exitCode": 0,
+    "wallSeconds": 2966.1012209,
+    "complete": true,
+    "timestamp": "2026-10-15T09:41:17.6894797Z",
+    "tests": 300,
+    "pass": 297,
+    "fail": 0,
+    "skipped": 3,
+    "topLevelCases": 298,
+    "files": [
+      {
+        "file": "cli.test.ts",
+        "tests": 18,
+        "bodyMs": 668506.9498000001
+      },
+      {
+        "file": "dependencies.test.ts",
+        "tests": 14,
+        "bodyMs": 321115.4142
+      },
+      {
+        "file": "web.test.ts",
+        "tests": 17,
+        "bodyMs": 312433.43970000005
+      },
+      {
+        "file": "repair.test.ts",
+        "tests": 18,
+        "bodyMs": 219803.08869999996
+      },
+      {
+        "file": "element-deletion-web.test.ts",
+        "tests": 8,
+        "bodyMs": 177515.1286
+      },
+      {
+        "file": "resource-lifecycle.test.ts",
+        "tests": 16,
+        "bodyMs": 162346.01559999998
+      },
+      {
+        "file": "views-cli.test.ts",
+        "tests": 5,
+        "bodyMs": 97110.11419999998
+      },
+      {
+        "file": "editing.test.ts",
+        "tests": 13,
+        "bodyMs": 90242.67670000001
+      },
+      {
+        "file": "views-layout-web.test.ts",
+        "tests": 2,
+        "bodyMs": 86005.3942
+      },
+      {
+        "file": "editor-design-web.test.ts",
+        "tests": 2,
+        "bodyMs": 56460.1559
+      },
+      {
+        "file": "web-process.test.ts",
+        "tests": 2,
+        "bodyMs": 54000.05
+      },
+      {
+        "file": "validation.test.ts",
+        "tests": 22,
+        "bodyMs": 51301.2046
+      },
+      {
+        "file": "views-transaction.test.ts",
+        "tests": 2,
+        "bodyMs": 50683.6319
+      },
+      {
+        "file": "repair-web.test.ts",
+        "tests": 1,
+        "bodyMs": 47428.3712
+      },
+      {
+        "file": "configuration.test.ts",
+        "tests": 6,
+        "bodyMs": 43855.48700000001
+      },
+      {
+        "file": "shacl-core.test.ts",
+        "tests": 27,
+        "bodyMs": 42674.8549
+      },
+      {
+        "file": "views-web.test.ts",
+        "tests": 1,
+        "bodyMs": 40978.3018
+      },
+      {
+        "file": "authoring-web.test.ts",
+        "tests": 4,
+        "bodyMs": 39676.3852
+      },
+      {
+        "file": "state-machine-web.test.ts",
+        "tests": 1,
+        "bodyMs": 33144.2915
+      },
+      {
+        "file": "editing-web.test.ts",
+        "tests": 2,
+        "bodyMs": 29916.2812
+      },
+      {
+        "file": "configuration-web.test.ts",
+        "tests": 1,
+        "bodyMs": 29456.1528
+      },
+      {
+        "file": "dependency-sources.test.ts",
+        "tests": 3,
+        "bodyMs": 28989.4566
+      },
+      {
+        "file": "authoring.test.ts",
+        "tests": 14,
+        "bodyMs": 26917.273
+      },
+      {
+        "file": "resource-lifecycle-web.test.ts",
+        "tests": 1,
+        "bodyMs": 24856.0495
+      },
+      {
+        "file": "inspection.test.ts",
+        "tests": 11,
+        "bodyMs": 24454.856600000003
+      },
+      {
+        "file": "validation-web.test.ts",
+        "tests": 1,
+        "bodyMs": 23334.1903
+      },
+      {
+        "file": "state-machine.test.ts",
+        "tests": 4,
+        "bodyMs": 23097.5495
+      },
+      {
+        "file": "dependencies-transaction.test.ts",
+        "tests": 1,
+        "bodyMs": 21918.2561
+      },
+      {
+        "file": "queries.test.ts",
+        "tests": 13,
+        "bodyMs": 20814.167999999998
+      },
+      {
+        "file": "runtime.test.ts",
+        "tests": 4,
+        "bodyMs": 19370.6732
+      },
+      {
+        "file": "schema-impact.test.ts",
+        "tests": 9,
+        "bodyMs": 17125.897399999998
+      },
+      {
+        "file": "element-deletion-transaction.test.ts",
+        "tests": 1,
+        "bodyMs": 15194.4657
+      },
+      {
+        "file": "ownership.test.ts",
+        "tests": 8,
+        "bodyMs": 14761.578999999998
+      },
+      {
+        "file": "inspection-retention.test.ts",
+        "tests": 6,
+        "bodyMs": 14236.100699999999
+      },
+      {
+        "file": "resources.test.ts",
+        "tests": 4,
+        "bodyMs": 4185.0078
+      },
+      {
+        "file": "schemas.test.ts",
+        "tests": 5,
+        "bodyMs": 4041.5532000000003
+      },
+      {
+        "file": "project.test.ts",
+        "tests": 1,
+        "bodyMs": 2371.9494
+      },
+      {
+        "file": "transactions.test.ts",
+        "tests": 8,
+        "bodyMs": 1934.8721000000003
+      },
+      {
+        "file": "paths.test.ts",
+        "tests": 3,
+        "bodyMs": 1751.7169000000001
+      },
+      {
+        "file": "locator-policy.test.ts",
+        "tests": 3,
+        "bodyMs": 137.7867
+      },
+      {
+        "file": "shacl-regex.test.ts",
+        "tests": 3,
+        "bodyMs": 27.9883
+      },
+      {
+        "file": "previews.test.ts",
+        "tests": 1,
+        "bodyMs": 20.9502
+      },
+      {
+        "file": "views-workspace.test.ts",
+        "tests": 1,
+        "bodyMs": 10.9054
+      },
+      {
+        "file": "rdfxml-security.test.ts",
+        "tests": 2,
+        "bodyMs": 7.787100000000001
+      },
+      {
+        "file": "diagnostic-impact.test.ts",
+        "tests": 5,
+        "bodyMs": 4.608700000000001
+      },
+      {
+        "file": "macos-ownership.test.ts",
+        "tests": 3,
+        "bodyMs": 2.9191000000000003
+      },
+      {
+        "file": "editor-drafts.test.ts",
+        "tests": 1,
+        "bodyMs": 0.8621
+      }
+    ]
+  },
+  "installedArtifact": {
+    "offlineInstall": true,
+    "nodeOnlyInvocation": true,
+    "checks": [
+      {
+        "args": [
+          "--version"
+        ],
+        "blockNetwork": true
+      },
+      {
+        "args": [
+          "--help"
+        ],
+        "blockNetwork": true
+      },
+      {
+        "args": [
+          "llms",
+          "views",
+          "designs"
+        ],
+        "blockNetwork": true
+      },
+      {
+        "args": [
+          "init",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "--base-iri",
+          "urn:installed:/"
+        ],
+        "blockNetwork": true
+      },
+      {
+        "args": [
+          "--project",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "config",
+          "show"
+        ],
+        "blockNetwork": true
+      },
+      {
+        "args": [
+          "--project",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "ontology",
+          "create",
+          "domain.ttl"
+        ],
+        "blockNetwork": true
+      },
+      {
+        "args": [
+          "--project",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "model",
+          "create",
+          "model.ttl",
+          "--type",
+          "data"
+        ],
+        "blockNetwork": true
+      },
+      {
+        "args": [
+          "--project",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "shapes",
+          "create",
+          "model.ttl"
+        ],
+        "blockNetwork": true
+      },
+      {
+        "args": [
+          "--project",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "query",
+          "save",
+          "sample",
+          "--file",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-sample.rq"
+        ],
+        "blockNetwork": true
+      },
+      {
+        "args": [
+          "--project",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "query",
+          "run",
+          "--saved",
+          "sample"
+        ],
+        "blockNetwork": true
+      },
+      {
+        "args": [
+          "--project",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "references",
+          "list",
+          "--target",
+          "urn:installed:/domain"
+        ],
+        "blockNetwork": true
+      },
+      {
+        "args": [
+          "--project",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "web",
+          "--background"
+        ],
+        "blockNetwork": false
+      },
+      {
+        "args": [
+          "--project",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "web",
+          "status"
+        ],
+        "blockNetwork": false
+      },
+      {
+        "args": [
+          "--project",
+          "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy",
+          "web",
+          "stop"
+        ],
+        "blockNetwork": false
+      }
+    ],
+    "consumer": "%TEMP%\\tbspec-performance-implementation-720d349\\consumer-complete",
+    "project": "%TEMP%\\tbspec-performance-implementation-720d349\\installed-project-hM9DNy"
+  },
+  "rawFollowup": {
+    "platform": "win32",
+    "node": "v24.14.1",
+    "startup": [
+      {
+        "mode": "source",
+        "name": "help",
+        "repeat": 0,
+        "ms": 105.97340000000003
+      },
+      {
+        "mode": "source",
+        "name": "version",
+        "repeat": 0,
+        "ms": 109.7765
+      },
+      {
+        "mode": "source",
+        "name": "guidance",
+        "repeat": 0,
+        "ms": 107.2294
+      },
+      {
+        "mode": "source",
+        "name": "invalid",
+        "repeat": 0,
+        "ms": 109.74090000000001
+      },
+      {
+        "mode": "compiled",
+        "name": "help",
+        "repeat": 0,
+        "ms": 68.16960000000006
+      },
+      {
+        "mode": "compiled",
+        "name": "version",
+        "repeat": 0,
+        "ms": 65.35749999999996
+      },
+      {
+        "mode": "compiled",
+        "name": "guidance",
+        "repeat": 0,
+        "ms": 68.91420000000005
+      },
+      {
+        "mode": "compiled",
+        "name": "invalid",
+        "repeat": 0,
+        "ms": 67.26890000000003
+      },
+      {
+        "mode": "source",
+        "name": "help",
+        "repeat": 1,
+        "ms": 120.5951
+      },
+      {
+        "mode": "source",
+        "name": "version",
+        "repeat": 1,
+        "ms": 120.81719999999996
+      },
+      {
+        "mode": "source",
+        "name": "guidance",
+        "repeat": 1,
+        "ms": 109.10500000000002
+      },
+      {
+        "mode": "source",
+        "name": "invalid",
+        "repeat": 1,
+        "ms": 103.81939999999986
+      },
+      {
+        "mode": "compiled",
+        "name": "help",
+        "repeat": 1,
+        "ms": 64.34550000000013
+      },
+      {
+        "mode": "compiled",
+        "name": "version",
+        "repeat": 1,
+        "ms": 63.00819999999999
+      },
+      {
+        "mode": "compiled",
+        "name": "guidance",
+        "repeat": 1,
+        "ms": 64.97469999999998
+      },
+      {
+        "mode": "compiled",
+        "name": "invalid",
+        "repeat": 1,
+        "ms": 68.40719999999988
+      },
+      {
+        "mode": "source",
+        "name": "help",
+        "repeat": 2,
+        "ms": 107.0338999999999
+      },
+      {
+        "mode": "source",
+        "name": "version",
+        "repeat": 2,
+        "ms": 103.9697000000001
+      },
+      {
+        "mode": "source",
+        "name": "guidance",
+        "repeat": 2,
+        "ms": 116.20699999999988
+      },
+      {
+        "mode": "source",
+        "name": "invalid",
+        "repeat": 2,
+        "ms": 122.5673999999999
+      },
+      {
+        "mode": "compiled",
+        "name": "help",
+        "repeat": 2,
+        "ms": 65.47780000000012
+      },
+      {
+        "mode": "compiled",
+        "name": "version",
+        "repeat": 2,
+        "ms": 68.69210000000021
+      },
+      {
+        "mode": "compiled",
+        "name": "guidance",
+        "repeat": 2,
+        "ms": 62.49240000000009
+      },
+      {
+        "mode": "compiled",
+        "name": "invalid",
+        "repeat": 2,
+        "ms": 62.947200000000066
+      },
+      {
+        "mode": "source",
+        "name": "help",
+        "repeat": 3,
+        "ms": 105.88200000000006
+      },
+      {
+        "mode": "source",
+        "name": "version",
+        "repeat": 3,
+        "ms": 109.33939999999984
+      },
+      {
+        "mode": "source",
+        "name": "guidance",
+        "repeat": 3,
+        "ms": 106.9024000000004
+      },
+      {
+        "mode": "source",
+        "name": "invalid",
+        "repeat": 3,
+        "ms": 123.22740000000022
+      },
+      {
+        "mode": "compiled",
+        "name": "help",
+        "repeat": 3,
+        "ms": 67.0299
+      },
+      {
+        "mode": "compiled",
+        "name": "version",
+        "repeat": 3,
+        "ms": 62.483600000000024
+      },
+      {
+        "mode": "compiled",
+        "name": "guidance",
+        "repeat": 3,
+        "ms": 66.80540000000019
+      },
+      {
+        "mode": "compiled",
+        "name": "invalid",
+        "repeat": 3,
+        "ms": 67.4690999999998
+      },
+      {
+        "mode": "source",
+        "name": "help",
+        "repeat": 4,
+        "ms": 108.49530000000004
+      },
+      {
+        "mode": "source",
+        "name": "version",
+        "repeat": 4,
+        "ms": 115.39010000000007
+      },
+      {
+        "mode": "source",
+        "name": "guidance",
+        "repeat": 4,
+        "ms": 117.68550000000005
+      },
+      {
+        "mode": "source",
+        "name": "invalid",
+        "repeat": 4,
+        "ms": 110.4081000000001
+      },
+      {
+        "mode": "compiled",
+        "name": "help",
+        "repeat": 4,
+        "ms": 66.26720000000023
+      },
+      {
+        "mode": "compiled",
+        "name": "version",
+        "repeat": 4,
+        "ms": 66.07400000000007
+      },
+      {
+        "mode": "compiled",
+        "name": "guidance",
+        "repeat": 4,
+        "ms": 62.71600000000035
+      },
+      {
+        "mode": "compiled",
+        "name": "invalid",
+        "repeat": 4,
+        "ms": 68.68049999999994
+      }
+    ],
+    "comparison": [
+      {
+        "name": "cli",
+        "mode": "baseline",
+        "ms": 42424.1155,
+        "bodyMs": 41601.8934,
+        "testBodies": [
+          {
+            "name": "CLI validates, lists shapes and confirms schema removal offline with exact signatures",
+            "ms": 41601.8934
+          }
+        ],
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-0-baseline.tap"
+      },
+      {
+        "name": "cli",
+        "mode": "current",
+        "ms": 30140.795899999997,
+        "bodyMs": 29219.7902,
+        "testBodies": [
+          {
+            "name": "CLI validates, lists shapes and confirms schema removal offline with exact signatures",
+            "ms": 29219.7902
+          }
+        ],
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-1-current.tap"
+      },
+      {
+        "name": "cli",
+        "mode": "current",
+        "ms": 29359.61540000001,
+        "bodyMs": 28512.6671,
+        "testBodies": [
+          {
+            "name": "CLI validates, lists shapes and confirms schema removal offline with exact signatures",
+            "ms": 28512.6671
+          }
+        ],
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-2-current.tap"
+      },
+      {
+        "name": "cli",
+        "mode": "baseline",
+        "ms": 41361.428100000005,
+        "bodyMs": 40518.242,
+        "testBodies": [
+          {
+            "name": "CLI validates, lists shapes and confirms schema removal offline with exact signatures",
+            "ms": 40518.242
+          }
+        ],
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-3-baseline.tap"
+      },
+      {
+        "name": "dependency",
+        "mode": "baseline",
+        "ms": 75410.4099,
+        "bodyMs": 74509.2502,
+        "testBodies": [
+          {
+            "name": "dependency update requires impact acceptance for a new manual SHACL violation",
+            "ms": 74509.2502
+          }
+        ],
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-4-baseline.tap"
+      },
+      {
+        "name": "dependency",
+        "mode": "current",
+        "ms": 63868.75490000003,
+        "bodyMs": 63013.682,
+        "testBodies": [
+          {
+            "name": "dependency update requires impact acceptance for a new manual SHACL violation",
+            "ms": 63013.682
+          }
+        ],
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-5-current.tap"
+      },
+      {
+        "name": "repair-http",
+        "mode": "baseline",
+        "ms": 58905.9215,
+        "bodyMs": 58584.2179,
+        "testBodies": [
+          {
+            "name": "authenticated repair API stages IRI refactor, scoped removal and separately selected GC",
+            "ms": 58584.2179
+          }
+        ],
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-6-baseline.tap"
+      },
+      {
+        "name": "repair-http",
+        "mode": "current",
+        "ms": 47564.5453,
+        "bodyMs": 47272.9715,
+        "testBodies": [
+          {
+            "name": "authenticated repair API stages IRI refactor, scoped removal and separately selected GC",
+            "ms": 47272.9715
+          }
+        ],
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\comparison-7-current.tap"
+      }
+    ],
+    "profiles": [
+      {
+        "name": "dependency",
+        "wallMs": 75076.8859,
+        "metrics": {
+          "QueryEngine.counterReady": {
+            "calls": 1,
+            "inclusiveMs": 0
+          },
+          "parseRdf": {
+            "calls": 6978,
+            "inclusiveMs": 6792.014700000169
+          },
+          "parseGraph": {
+            "calls": 6957,
+            "inclusiveMs": 10652.919499999967
+          },
+          "loadStarters": {
+            "calls": 61,
+            "inclusiveMs": 3315.5253999999923
+          },
+          "execFile.identity": {
+            "calls": 1,
+            "inclusiveMs": 1477.1067999999998
+          },
+          "initializeProject": {
+            "calls": 1,
+            "inclusiveMs": 2288.2835
+          },
+          "readProject": {
+            "calls": 10,
+            "inclusiveMs": 2140.4295000000025
+          },
+          "captureInspection": {
+            "calls": 10,
+            "inclusiveMs": 1092.5689000000061
+          },
+          "prepareShapes": {
+            "calls": 626,
+            "inclusiveMs": 2825.676299999992
+          },
+          "QueryEngine.constructor": {
+            "calls": 60,
+            "inclusiveMs": 2431.515699999983
+          },
+          "QueryEngine.queryBindings": {
+            "calls": 10140,
+            "inclusiveMs": 0
+          },
+          "runShapes": {
+            "calls": 552,
+            "inclusiveMs": 29204.752199999944
+          },
+          "validateInspection": {
+            "calls": 20,
+            "inclusiveMs": 64088.93690000001
+          },
+          "process.lifetime": {
+            "calls": 1,
+            "inclusiveMs": 74878.2575
+          }
+        },
+        "trace": "%TEMP%\\tbspec-performance-implementation-720d349\\dependency-profile.ndjson",
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\dependency-profile.tap"
+      },
+      {
+        "name": "repair-http",
+        "wallMs": 54808.38909999997,
+        "metrics": {
+          "QueryEngine.counterReady": {
+            "calls": 3,
+            "inclusiveMs": 0
+          },
+          "execFile.privateDirectory": {
+            "calls": 1,
+            "inclusiveMs": 762.9731999999999
+          },
+          "parseRdf": {
+            "calls": 3913,
+            "inclusiveMs": 4857.9021000000985
+          },
+          "parseGraph": {
+            "calls": 3828,
+            "inclusiveMs": 7331.348899999791
+          },
+          "loadStarters": {
+            "calls": 30,
+            "inclusiveMs": 1809.9736999999946
+          },
+          "execFile.identity": {
+            "calls": 2,
+            "inclusiveMs": 3041.940200000001
+          },
+          "initializeProject": {
+            "calls": 1,
+            "inclusiveMs": 2363.4816
+          },
+          "execFile.permissions": {
+            "calls": 10,
+            "inclusiveMs": 7453.408699999998
+          },
+          "captureInspection": {
+            "calls": 7,
+            "inclusiveMs": 2358.8316000000004
+          },
+          "prepareShapes": {
+            "calls": 350,
+            "inclusiveMs": 2324.0520999999662
+          },
+          "QueryEngine.constructor": {
+            "calls": 33,
+            "inclusiveMs": 1851.524799999992
+          },
+          "QueryEngine.queryBindings": {
+            "calls": 5577,
+            "inclusiveMs": 0
+          },
+          "runShapes": {
+            "calls": 308,
+            "inclusiveMs": 14464.426800000005
+          },
+          "validateInspection": {
+            "calls": 11,
+            "inclusiveMs": 34324.2619
+          },
+          "listReferences": {
+            "calls": 3,
+            "inclusiveMs": 14890.275100000003
+          },
+          "prepareRepair": {
+            "calls": 4,
+            "inclusiveMs": 27078.2895
+          },
+          "publishRepair": {
+            "calls": 3,
+            "inclusiveMs": 423.4880000000012
+          },
+          "process.lifetime": {
+            "calls": 1,
+            "inclusiveMs": 54624.6987
+          }
+        },
+        "trace": "%TEMP%\\tbspec-performance-implementation-720d349\\repair-http-profile.ndjson",
+        "log": "%TEMP%\\tbspec-performance-implementation-720d349\\repair-http-profile.tap"
+      }
+    ]
+  }
+}

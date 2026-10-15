@@ -153,6 +153,69 @@ section {
 .model-type button {
   font-size: 0.8rem;
 }
+.view-canvas {
+  height: 28rem;
+  margin: 1rem 0;
+  border: 1px solid #d9e0dc;
+  border-radius: 5px;
+  background: #fff;
+}
+.canvas-explorer {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.canvas-explorer > label {
+  display: grid;
+  gap: 0.4rem;
+}
+.canvas-layout-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.canvas-layout-actions [role="status"] {
+  flex: 1 1 20rem;
+  overflow-wrap: anywhere;
+}
+.canvas-search-results,
+.neighborhood-list {
+  max-height: 14rem;
+  overflow: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.canvas-search-results button,
+.neighborhood-list button {
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.canvas-neighborhood {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: 1rem;
+}
+.canvas-neighborhood section {
+  min-width: 0;
+}
+.canvas-neighborhood h4,
+.canvas-neighborhood h5 {
+  margin-bottom: 0.5rem;
+}
+.view-node-label {
+  display: grid;
+  gap: 0.25rem;
+  overflow-wrap: anywhere;
+}
+.view-node-label small {
+  opacity: 0.75;
+}
+.canvas-warnings {
+  color: #70440d;
+}
 .empty {
   padding: 4rem 1rem;
   text-align: center;

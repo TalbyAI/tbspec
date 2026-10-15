@@ -26,7 +26,6 @@ import {
   selector,
 } from "./schemas.ts";
 import { loadStarters } from "./starters.ts";
-import { listSupport } from "./support.ts";
 import type { Snapshot } from "./transactions.ts";
 
 export type InspectionCommand =
@@ -70,9 +69,25 @@ export interface Validation extends Record<string, unknown> {
   validity: "valid" | "invalid";
   validationComplete: boolean;
   resources: { selector: string; state: "passed" | "failed" | "partial"; checks: Check[] }[];
+  effectivePresentation?: {
+    nodes: Record<string, { iri: string; appearance: Record<string, Row> }>;
+    relationships: Record<string, { iri: string; appearance: Record<string, Row> }>;
+  };
+  designRuleOptions?: {
+    nodes: Record<
+      string,
+      { iri: string; targetConcept: string; appearance: Record<string, Row> }[]
+    >;
+    relationships: Record<
+      string,
+      { iri: string; targetConcept: string; appearance: Record<string, Row> }[]
+    >;
+  };
 }
 export interface InspectionData extends Record<string, unknown> {
   resources?: Validation["resources"];
+  effectivePresentation?: Validation["effectivePresentation"];
+  designRuleOptions?: Validation["designRuleOptions"];
   items?: Resource[];
   resource?: Resource;
   sourceText?: string;
@@ -278,8 +293,10 @@ export async function inspectProject(options: {
       selector: options.selector,
     })) as unknown as Result<InspectionData>;
   }
-  if (options.command === "shapes.list" || options.command === "model.schema.list")
+  if (options.command === "shapes.list" || options.command === "model.schema.list") {
+    const { listSupport } = await import("./support.ts");
     return listSupport(options);
+  }
   if (options.command.startsWith("ontology.") || options.command.startsWith("model.")) {
     const family = options.command.split(".")[0];
     const show = options.command.endsWith(".show");

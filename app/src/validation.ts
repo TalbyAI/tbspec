@@ -6,6 +6,7 @@ import { digest, graphSignature, utf8Compare } from "./canonical.ts";
 import { equalRevision, fileBytes, revision, verifyReads } from "./filesystem.ts";
 import type { Check, Resource, Validation } from "./inspection.ts";
 import { rdfTerm as encodeTerm } from "./inspection.ts";
+import { dependencyDistances, resolveOntologyCandidates } from "./ontology-resolution.ts";
 import { type Diagnostic, failure, ok, ProjectError, type Result } from "./output.ts";
 import { safePath } from "./paths.ts";
 import { classifyGraph, parseGraph, parseRdf, rdfFormats } from "./rdf.ts";
@@ -28,6 +29,42 @@ const propertyTypes = [
   ),
 ];
 export const vocabularyTypes = { class: classTypes, property: propertyTypes, datatype: classTypes };
+
+function dependencyDistanceFrom(
+  dependency: NonNullable<Lock>["dependencies"][string],
+  start: string,
+  target: string,
+): number {
+  const distances = new Map<string, number>([[start, 0]]);
+  const queue = [start];
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current) continue;
+    const distance = distances.get(current) ?? 0;
+    if (current === target) return distance;
+    const context = dependency.files.find((file) => file.key === current)?.context;
+    const neighbors = new Set<string>();
+    for (const edge of dependency.edges)
+      if (edge.from === current && edge.context === context && typeof edge.to === "string")
+        neighbors.add(edge.to);
+    for (const binding of dependency.bindings)
+      if (binding.resource === current && binding.context === context)
+        for (const key of [
+          ...((binding.ontologies as string[] | undefined) ?? []),
+          ...((binding.schemas as string[] | undefined) ?? []),
+        ])
+          neighbors.add(key);
+    for (const association of dependency.associations)
+      if (association.resource === current && association.context === context && association.active)
+        neighbors.add(String(association.support));
+    for (const neighbor of neighbors)
+      if (!distances.has(neighbor)) {
+        distances.set(neighbor, distance + 1);
+        queue.push(neighbor);
+      }
+  }
+  return Infinity;
+}
 export function vocabularyUses(statement: Quad) {
   const uses: { term: Term; role: keyof typeof vocabularyTypes; position: string }[] = [
     { term: statement.predicate, role: "property", position: "predicate" },
@@ -139,6 +176,21 @@ export async function validateInspection(input: {
     );
     validation.resources = validation.resources.filter((row) => selection.has(row.selector));
   }
+  const diagnosticIdentityKey = (selector: string, code: string, identity: unknown) =>
+    JSON.stringify([selector, code, identity]);
+  const knownDiagnosticIdentities = new Set(
+    diagnostics.flatMap((diagnostic) =>
+      diagnostic.selector === undefined
+        ? []
+        : [
+            diagnosticIdentityKey(
+              diagnostic.selector,
+              diagnostic.code,
+              diagnostic.details?.identity,
+            ),
+          ],
+    ),
+  );
   function rowFor(resource: Resource) {
     let row = rows.get(resource.selector);
     if (!row) {
@@ -155,17 +207,20 @@ export async function validateInspection(input: {
     message: string,
     identity: Row = { kind: "file" },
   ) {
+    const identityKey = diagnosticIdentityKey(resource.selector, code, identity);
     if (
       ["file", "setting", "association", "collision"].includes(String(identity.kind)) &&
+      knownDiagnosticIdentities.has(identityKey) &&
       diagnostics.some(
-        (d) =>
-          d.selector === resource.selector &&
-          d.code === code &&
-          d.check?.kind === kind &&
-          JSON.stringify(d.details?.identity) === JSON.stringify(identity),
+        (diagnostic) =>
+          diagnostic.selector === resource.selector &&
+          diagnostic.code === code &&
+          diagnostic.check?.kind === kind &&
+          JSON.stringify(diagnostic.details?.identity) === JSON.stringify(identity),
       )
     )
       return;
+    knownDiagnosticIdentities.add(identityKey);
     diagnostics.push({
       code,
       severity: "error",
@@ -177,6 +232,19 @@ export async function validateInspection(input: {
     });
     for (const existing of rowFor(resource).checks)
       if (existing.kind === kind && existing.state === "passed") existing.state = "failed";
+  }
+  function warn(resource: Resource, code: string, message: string, identity: Row) {
+    const identityKey = diagnosticIdentityKey(resource.selector, code, identity);
+    if (knownDiagnosticIdentities.has(identityKey)) return;
+    knownDiagnosticIdentities.add(identityKey);
+    diagnostics.push({
+      code,
+      severity: "warning",
+      message,
+      file: resource.file,
+      selector: resource.selector,
+      details: { identity },
+    });
   }
   function check(
     resource: Resource,
@@ -350,8 +418,10 @@ export async function validateInspection(input: {
         const type = Object.hasOwn(types, typeNames[0].value)
           ? types[typeNames[0].value]
           : undefined;
-        if (type) result.push({ role: "ontology", selector: type.ontology });
-        else
+        if (type) {
+          result.push({ role: "ontology", selector: type.ontology });
+          if (type.design) result.push({ role: "design", selector: type.design });
+        } else
           emit(
             resource,
             "ASSOCIATION_BROKEN",
@@ -399,56 +469,64 @@ export async function validateInspection(input: {
     });
   const distances = new Map<string, number>();
   if (lock)
-    for (const [id, dep] of Object.entries(lock.dependencies)) {
-      const queue = [{ key: dep.primary, distance: 1 }];
-      for (const { key, distance } of queue) {
-        const selector = `dep:${id}/${key}`;
-        if ((distances.get(selector) ?? Infinity) <= distance) continue;
-        distances.set(selector, distance);
-        for (const edge of dep.edges)
-          if (
-            edge.from === key &&
-            edge.context === records.get(selector)?.context &&
-            typeof edge.to === "string"
-          )
-            queue.push({ key: edge.to, distance: distance + 1 });
-      }
-    }
+    for (const [id, dependency] of Object.entries(lock.dependencies))
+      for (const [key, distance] of dependencyDistances(dependency, 1))
+        distances.set(`dep:${id}/${key}`, distance);
   function ontologyCandidates(iri: string, owner: Resource) {
     let candidates = resources.filter((r) => r.graphIri === iri && r.kind === "ontology");
     const configured = manifest?.ontology_choices as Record<string, string> | undefined;
-    const choice = configured && Object.hasOwn(configured, iri) ? configured[iri] : undefined;
     candidates = candidates.filter((r) => {
-      if (!r.dependencyId || !lock) return !choice;
-      if (choice && r.dependencyId !== choice) return false;
+      if (!r.dependencyId || !lock) return true;
+      if (!distances.has(r.selector)) return false;
       const dep = lock.dependencies[r.dependencyId];
       const sourceChoice = dep?.choices.find(
         (c) =>
           c.kind === "ontology" &&
           c.target_iri === iri &&
-          c.context === records.get(`dep:${r.dependencyId}/${dep.primary}`)?.context,
+          c.context === records.get(r.selector)?.context,
       );
-      return !sourceChoice || sourceChoice.selected === records.get(r.selector)?.key;
+      const selectedIsReachable =
+        sourceChoice !== undefined &&
+        distances.has(`dep:${r.dependencyId}/${String(sourceChoice.selected)}`);
+      return !selectedIsReachable || sourceChoice?.selected === records.get(r.selector)?.key;
     });
-    const rank = (r: Resource) =>
-      r.ownership === "project" ? 0 : (distances.get(r.selector) ?? Infinity);
-    const best = candidates.reduce((value, r) => Math.min(value, rank(r)), Infinity);
-    if (!choice) candidates = candidates.filter((r) => rank(r) === best && best !== Infinity);
-    if (new Set(candidates.map(signature)).size > 1) {
+    const ranked = candidates.map((candidate) => ({
+      selector: candidate.selector,
+      graphIri: iri,
+      signature: signature(candidate),
+      rank: candidate.ownership === "project" ? 0 : (distances.get(candidate.selector) ?? Infinity),
+      ...(candidate.dependencyId ? { dependencyId: candidate.dependencyId } : {}),
+      resource: candidate,
+    }));
+    const resolution = resolveOntologyCandidates(
+      iri,
+      ranked,
+      owner.ownership === "project" ? (configured ?? {}) : {},
+    );
+    if (resolution.state !== "resolved" && resolution.state !== "none") {
       emit(
         owner,
         "ONTOLOGY_CONFLICT",
         "association",
-        "Effective ontology candidates have different content at the winning priority.",
+        resolution.state === "broken-choice"
+          ? "Configured ontology choice has no matching dependency candidate."
+          : resolution.state === "ambiguous-choice"
+            ? "Configured dependency contains multiple different versions of this ontology."
+            : "Effective ontology candidates have different content at the winning priority.",
         {
           kind: "collision",
           iri: { kind: "iri", value: iri },
-          candidates: candidates.map((r) => r.selector).sort(utf8Compare),
+          candidates: resolution.conflicted
+            .map((candidate) => candidate.selector)
+            .sort(utf8Compare),
         },
       );
       return [];
     }
-    return candidates;
+    return resolution.effective.flatMap((candidate) => {
+      const resource = ranked.find((item) => item.selector === candidate.selector)?.resource;
+      return resource ? [resource] : [];
+    });
   }
   async function supportedShapes(resource: Resource) {
     if (shapeGraphs.has(resource.selector)) return shapeGraphs.get(resource.selector);
@@ -504,6 +582,7 @@ export async function validateInspection(input: {
     const seen = new Set<string>();
     async function include(selected: string, role: string, owner: Resource, bound = false) {
       let linked = resources.find((r) => r.selector === expand(selected));
+      let sameContentCandidates: Resource[] = [];
       if (
         linked?.kind === "ontology" &&
         !bound &&
@@ -527,7 +606,11 @@ export async function validateInspection(input: {
           blockers.push(selected);
           return;
         }
-        linked = candidates[0];
+        const sorted = [...candidates].sort((left, right) =>
+          utf8Compare(left.selector, right.selector),
+        );
+        linked = sorted[0];
+        sameContentCandidates = sorted.slice(1);
       }
       const allowed =
         role === "schema"
@@ -629,6 +712,8 @@ export async function validateInspection(input: {
             blockers.push(linked.file);
           }
         }
+      for (const candidate of sameContentCandidates)
+        await include(candidate.selector, "ontology", linked, true);
     }
     if (lock) await include(lock.starters.common_contract, "ontology", resource, true);
     if (resource.kind === "design" && lock) {
@@ -723,6 +808,217 @@ export async function validateInspection(input: {
       const graph = await load(selected);
       return graph ? { resource: selected, graph } : undefined;
     }
+    type VisualRule = { iri: string; targetConcept: string; design: Resource; store: Store };
+    async function rulesForDesign(
+      design: Resource,
+      targetIri: string,
+      kind: "node" | "edge",
+    ): Promise<VisualRule[]> {
+      const graph = await load(design);
+      if (!graph || !design.graphIri) return [];
+      const expectedType = `${t}${kind === "node" ? "NodeVisualRule" : "EdgeVisualRule"}`;
+      const rules: VisualRule[] = [];
+      for (const rule of graph.getObjects(design.graphIri, `${t}rule`, null)) {
+        if (rule.termType !== "NamedNode") continue;
+        const types = graph.getObjects(rule, `${rdf}type`, null);
+        const targets = graph.getObjects(rule, `${t}targetConcept`, null);
+        if (
+          types.length === 1 &&
+          types[0]?.termType === "NamedNode" &&
+          types[0].value === expectedType &&
+          targets.length === 1 &&
+          targets[0]?.termType === "NamedNode" &&
+          targets[0].value === targetIri
+        )
+          rules.push({ iri: rule.value, targetConcept: targetIri, design, store: graph });
+      }
+      return rules;
+    }
+    async function winningDesignRules(
+      owner: Resource,
+      targetIri: string,
+      kind: "node" | "edge",
+      diagnosticOwner: Resource = owner,
+    ): Promise<{ rules: VisualRule[]; conflict: boolean }> {
+      const bySelector = new Map<string, { design: Resource; rank: number }>();
+      const add = (design: Resource | undefined, rank: number) => {
+        if (design?.kind !== "design") return;
+        const previous = bySelector.get(design.selector);
+        if (!previous || rank < previous.rank) bySelector.set(design.selector, { design, rank });
+      };
+      const explicit = (manifest?.design_choices as Record<string, string> | undefined)?.[
+        targetIri
+      ];
+      if (explicit !== undefined) {
+        const selected = resources.find((candidate) => candidate.selector === expand(explicit));
+        if (selected?.kind !== "design") {
+          emit(
+            diagnosticOwner,
+            "DESIGN_CONFLICT",
+            "association",
+            "Configured design choice is unavailable or is not a visual design.",
+            { kind: "setting", path: `design_choices.${targetIri}` },
+          );
+          return { rules: [], conflict: true };
+        }
+        const rules = await rulesForDesign(selected, targetIri, kind);
+        if (!rules.length) {
+          emit(
+            diagnosticOwner,
+            "DESIGN_CONFLICT",
+            "association",
+            "Configured design has no linked exact-type rule for its target concept.",
+            { kind: "setting", path: `design_choices.${targetIri}` },
+          );
+          return { rules: [], conflict: true };
+        }
+        return { rules, conflict: false };
+      }
+
+      if (owner.dependencyId && lock) {
+        const dependency = lock.dependencies[owner.dependencyId];
+        const ownerFile = records.get(owner.selector);
+        const sourceChoice = dependency?.choices.find(
+          (choice) =>
+            choice.kind === "design" &&
+            choice.target_iri === targetIri &&
+            choice.context === ownerFile?.context,
+        );
+        if (sourceChoice) {
+          const selected = resources.find(
+            (candidate) =>
+              candidate.selector === `dep:${owner.dependencyId}/${sourceChoice.selected}`,
+          );
+          if (selected?.kind !== "design") {
+            emit(
+              diagnosticOwner,
+              "DESIGN_CONFLICT",
+              "association",
+              "Recorded source design choice is unavailable in its locked context.",
+              {
+                kind: "association",
+                owner: owner.graphIri ?? owner.selector,
+                role: "design",
+                target: targetIri,
+              },
+            );
+            return { rules: [], conflict: true };
+          }
+          const rules = await rulesForDesign(selected, targetIri, kind);
+          if (!rules.length) {
+            emit(
+              diagnosticOwner,
+              "DESIGN_CONFLICT",
+              "association",
+              "Recorded source design has no linked exact-type rule for its target concept.",
+              {
+                kind: "association",
+                owner: owner.graphIri ?? owner.selector,
+                role: "design",
+                target: targetIri,
+              },
+            );
+            return { rules: [], conflict: true };
+          }
+          return { rules, conflict: false };
+        }
+      }
+
+      if (owner.ownership === "project")
+        for (const design of resources.filter((candidate) => candidate.kind === "design"))
+          if (design.ownership === "project") add(design, 0);
+
+      for (const association of associations(owner))
+        if (association.role === "design")
+          add(
+            resources.find((candidate) => candidate.selector === association.selector),
+            1,
+          );
+
+      for (const ontologyAssociation of associations(owner))
+        if (ontologyAssociation.role === "ontology") {
+          const linked = resources.find(
+            (candidate) => candidate.selector === ontologyAssociation.selector,
+          );
+          if (linked?.kind !== "ontology" || !linked.graphIri) continue;
+          const effective =
+            owner.ownership === "project" ? ontologyCandidates(linked.graphIri, owner) : [linked];
+          for (const ontology of effective)
+            for (const association of associations(ontology))
+              if (association.role === "design")
+                add(
+                  resources.find((candidate) => candidate.selector === association.selector),
+                  1,
+                );
+        }
+
+      if (owner.dependencyId && lock) {
+        const dependency = lock.dependencies[owner.dependencyId];
+        const ownerKey = records.get(owner.selector)?.key;
+        for (const design of resources.filter(
+          (candidate) =>
+            candidate.kind === "design" && candidate.dependencyId === owner.dependencyId,
+        )) {
+          const key = records.get(design.selector)?.key;
+          if (dependency && ownerKey && key) {
+            const distance = dependencyDistanceFrom(dependency, ownerKey, key);
+            if (Number.isFinite(distance)) add(design, 2 + distance);
+          }
+        }
+      } else if (owner.ownership === "project") {
+        for (const design of resources.filter(
+          (candidate) => candidate.kind === "design" && candidate.dependencyId,
+        )) {
+          const distance = distances.get(design.selector);
+          if (distance !== undefined) add(design, 2 + distance);
+        }
+      }
+
+      const ranked = (
+        await Promise.all(
+          [...bySelector.values()].map(async (entry) => ({
+            ...entry,
+            rules: await rulesForDesign(entry.design, targetIri, kind),
+          })),
+        )
+      ).filter((entry) => entry.rules.length);
+      if (!ranked.length) return { rules: [], conflict: false };
+      const bestRank = Math.min(...ranked.map((entry) => entry.rank));
+      const winners = ranked.filter((entry) => entry.rank === bestRank);
+      const signatures = new Set(winners.map((entry) => signature(entry.design)));
+      if (signatures.size > 1) {
+        emit(
+          diagnosticOwner,
+          "DESIGN_CONFLICT",
+          "association",
+          "Visual designs tied at the winning precedence for this exact target concept.",
+          {
+            kind: "collision",
+            iri: { kind: "iri", value: targetIri },
+            candidates: winners.map((entry) => entry.design.selector).sort(utf8Compare),
+          },
+        );
+        return { rules: [], conflict: true };
+      }
+      return {
+        rules: winners.flatMap((entry) => entry.rules),
+        conflict: false,
+      };
+    }
+    function effectiveRule(rule: VisualRule, fields: string[]) {
+      return {
+        iri: rule.iri,
+        appearance: Object.fromEntries(
+          fields.flatMap((field) => {
+            const value = rule.store.getObjects(rule.iri, `${t}${field}`, null)[0];
+            return value ? [[field, rdfTerm(value, rule.design.selector)]] : [];
+          }),
+        ),
+      };
+    }
+    function ruleOption(rule: VisualRule, fields: string[]) {
+      return { ...effectiveRule(rule, fields), targetConcept: rule.targetConcept };
+    }
     if (resource.kind === "view") {
       const sourceIri = store.getObjects(resource.graphIri, `${t}sourceGraph`, null)[0];
       const source = await requiredGraph(sourceIri, `${t}sourceGraph`, [
@@ -785,6 +1081,16 @@ export async function validateInspection(input: {
           );
     }
     if (resource.kind === "presentation") {
+      const effectivePresentation = validation.effectivePresentation ?? {
+        nodes: {},
+        relationships: {},
+      };
+      validation.effectivePresentation = effectivePresentation;
+      const designRuleOptions = validation.designRuleOptions ?? {
+        nodes: {},
+        relationships: {},
+      };
+      validation.designRuleOptions = designRuleOptions;
       const viewIri = store.getObjects(resource.graphIri, `${t}forView`, null)[0];
       const view = await requiredGraph(viewIri, `${t}forView`, ["view"]);
       if (view) {
@@ -809,8 +1115,396 @@ export async function validateInspection(input: {
               "Manifest presentation association contradicts RDF.",
               { kind: "setting", path: `views.${configured.view}.presentation` },
             );
+        const sourceIri = view.graph.getObjects(view.resource.graphIri, `${t}sourceGraph`, null)[0];
+        const source = await requiredGraph(sourceIri, `${t}sourceGraph`, [
+          "ontology",
+          "model",
+          "conceptual-data-model",
+          "concrete-data-model",
+          "process-model",
+          "state-machine-model",
+        ]);
+        if (source) {
+          const appearanceFields = [
+            "nodeShape",
+            "fillColor",
+            "strokeColor",
+            "textColor",
+            "strokeWidth",
+            "fontFamily",
+            "fontSize",
+            "fontWeight",
+            "fontStyle",
+            "lineStyle",
+            "edgeRouting",
+            "arrowHead",
+            "labelMode",
+            "labelProperty",
+            "labelText",
+          ];
+          const validateLabelChoice = (
+            record: Term,
+            candidates: VisualRule[],
+            chosen: VisualRule | undefined,
+          ) => {
+            if (record.termType === "Literal") return;
+            const local = new Map(
+              appearanceFields.map((field) => [
+                field,
+                store.getObjects(record, `${t}${field}`, null),
+              ]),
+            );
+            const ruleTerms = (field: string) =>
+              chosen?.store.getObjects(chosen.iri, `${t}${field}`, null) ?? [];
+            const localMode = local.get("labelMode")?.[0];
+            const inheritedMode = ruleTerms("labelMode")[0];
+            const modeChanged =
+              localMode?.termType === "Literal" &&
+              localMode.value !==
+                (inheritedMode?.termType === "Literal" ? inheritedMode.value : "property");
+            const mode =
+              localMode?.termType === "Literal"
+                ? localMode.value
+                : inheritedMode?.termType === "Literal"
+                  ? inheritedMode.value
+                  : "property";
+            const localProperty = local.get("labelProperty")?.[0];
+            const localText = local.get("labelText")?.[0];
+            const property =
+              localProperty ?? (modeChanged ? undefined : ruleTerms("labelProperty")[0]);
+            const text = localText ?? (modeChanged ? undefined : ruleTerms("labelText")[0]);
+            const issue = (field: "labelMode" | "labelProperty" | "labelText", message: string) => {
+              const value = local.get(field)?.[0];
+              emit(
+                resource,
+                "PRESENTATION_INVALID",
+                "presentation",
+                message,
+                value
+                  ? statementIdentity(record as Term, `${t}${field}`, value)
+                  : { kind: "term", term: rdfTerm(record, resource.selector) },
+              );
+            };
+            if (localProperty && mode !== "property")
+              issue(
+                "labelProperty",
+                "A local labelProperty requires the effective property label mode.",
+              );
+            if (localText && mode !== "text")
+              issue("labelText", "A local labelText requires the effective text label mode.");
+            if (mode === "text" && text?.termType !== "Literal")
+              issue("labelText", "The effective text label mode requires one literal labelText.");
+            if (mode === "property" && property && property.termType !== "NamedNode")
+              issue(
+                "labelProperty",
+                "The effective property label mode requires an IRI labelProperty.",
+              );
+            if (candidates.length > 1 && !chosen)
+              warn(
+                resource,
+                "DESIGN_RULE_AMBIGUOUS",
+                "Several exact-type visual rules apply; this element uses generic appearance until a rule is chosen.",
+                { kind: "term", term: rdfTerm(record, resource.selector) },
+              );
+          };
+
+          for (const record of store.getObjects(resource.graphIri, `${t}nodePresentation`, null)) {
+            if (record.termType === "Literal") continue;
+            const element = store.getObjects(record, `${t}element`, null)[0];
+            if (element?.termType !== "NamedNode") continue;
+            const exactTypes = source.graph
+              .getObjects(element, `${rdf}type`, null)
+              .filter((type) => type.termType === "NamedNode");
+            const applicable: VisualRule[] = [];
+            for (const type of exactTypes) {
+              const resolved = await winningDesignRules(
+                source.resource,
+                type.value,
+                "node",
+                resource,
+              );
+              applicable.push(...resolved.rules);
+            }
+            const deduplicated = [...new Map(applicable.map((rule) => [rule.iri, rule])).values()];
+            designRuleOptions.nodes[element.value] = deduplicated.map((rule) =>
+              ruleOption(rule, [
+                "nodeShape",
+                "fillColor",
+                "strokeColor",
+                "textColor",
+                "strokeWidth",
+                "fontFamily",
+                "fontSize",
+                "fontWeight",
+                "fontStyle",
+                "lineStyle",
+                "labelMode",
+                "labelProperty",
+                "labelText",
+              ]),
+            );
+            const selectedRule = store.getObjects(record, `${t}chosenRule`, null)[0];
+            let chosen: VisualRule | undefined;
+            if (selectedRule) {
+              chosen =
+                selectedRule.termType === "NamedNode"
+                  ? deduplicated.find((rule) => rule.iri === selectedRule.value)
+                  : undefined;
+              if (!chosen)
+                emit(
+                  resource,
+                  "PRESENTATION_INVALID",
+                  "presentation",
+                  "Saved chosenRule is unavailable, belongs to a losing design, or does not apply to an exact explicit type.",
+                  statementIdentity(record, `${t}chosenRule`, selectedRule),
+                );
+            } else if (deduplicated.length === 1) chosen = deduplicated[0];
+            if (chosen)
+              effectivePresentation.nodes[element.value] = effectiveRule(chosen, [
+                "nodeShape",
+                "fillColor",
+                "strokeColor",
+                "textColor",
+                "strokeWidth",
+                "fontFamily",
+                "fontSize",
+                "fontWeight",
+                "fontStyle",
+                "lineStyle",
+                "labelMode",
+                "labelProperty",
+                "labelText",
+              ]);
+            if (deduplicated.length === 0)
+              warn(
+                resource,
+                "DESIGN_RULE_UNCOVERED",
+                "No winning exact-type visual rule covers this node; it uses generic appearance.",
+                { kind: "term", term: rdfTerm(element, source.resource.selector) },
+              );
+            validateLabelChoice(record, deduplicated, chosen);
+          }
+
+          for (const record of store.getObjects(
+            resource.graphIri,
+            `${t}relationshipPresentation`,
+            null,
+          )) {
+            if (record.termType === "Literal") continue;
+            const predicate = store.getObjects(record, `${rdf}predicate`, null)[0];
+            if (predicate?.termType !== "NamedNode") continue;
+            const resolved = await winningDesignRules(
+              source.resource,
+              predicate.value,
+              "edge",
+              resource,
+            );
+            if (!resolved.rules.length && !resolved.conflict)
+              warn(
+                resource,
+                "DESIGN_RULE_UNCOVERED",
+                "No winning exact-predicate visual rule covers this edge; it uses generic appearance.",
+                { kind: "term", term: rdfTerm(predicate, source.resource.selector) },
+              );
+            const rules = [...new Map(resolved.rules.map((rule) => [rule.iri, rule])).values()];
+            const subject = store.getObjects(record, `${rdf}subject`, null)[0];
+            const object = store.getObjects(record, `${rdf}object`, null)[0];
+            const tuple =
+              subject?.termType === "NamedNode" && object?.termType === "NamedNode"
+                ? JSON.stringify([subject.value, predicate.value, object.value])
+                : undefined;
+            if (tuple)
+              designRuleOptions.relationships[tuple] = rules.map((rule) =>
+                ruleOption(rule, [
+                  "strokeColor",
+                  "textColor",
+                  "strokeWidth",
+                  "fontFamily",
+                  "fontSize",
+                  "fontWeight",
+                  "fontStyle",
+                  "lineStyle",
+                  "edgeRouting",
+                  "arrowHead",
+                  "labelMode",
+                  "labelProperty",
+                  "labelText",
+                ]),
+              );
+            const selectedRule = store.getObjects(record, `${t}chosenRule`, null)[0];
+            let chosen: VisualRule | undefined;
+            if (selectedRule) {
+              chosen =
+                selectedRule.termType === "NamedNode"
+                  ? rules.find((rule) => rule.iri === selectedRule.value)
+                  : undefined;
+              if (!chosen)
+                emit(
+                  resource,
+                  "PRESENTATION_INVALID",
+                  "presentation",
+                  "Saved chosenRule is unavailable or belongs to a losing design for this exact predicate.",
+                  statementIdentity(record, `${t}chosenRule`, selectedRule),
+                );
+            } else if (rules.length === 1) chosen = rules[0];
+            if (chosen) {
+              if (tuple) {
+                effectivePresentation.relationships[tuple] = effectiveRule(chosen, [
+                  "strokeColor",
+                  "textColor",
+                  "strokeWidth",
+                  "fontFamily",
+                  "fontSize",
+                  "fontWeight",
+                  "fontStyle",
+                  "lineStyle",
+                  "edgeRouting",
+                  "arrowHead",
+                  "labelMode",
+                  "labelProperty",
+                  "labelText",
+                ]);
+              }
+            }
+            validateLabelChoice(record, rules, chosen);
+          }
+        }
       }
       check(resource, "presentation", view ? [] : [viewIri?.value ?? resource.file]);
+    }
+    if (
+      selection?.has(resource.selector) &&
+      !["design", "presentation", "view", "shapes"].includes(resource.kind)
+    ) {
+      const effectivePresentation = validation.effectivePresentation ?? {
+        nodes: {},
+        relationships: {},
+      };
+      validation.effectivePresentation = effectivePresentation;
+      const designRuleOptions = validation.designRuleOptions ?? {
+        nodes: {},
+        relationships: {},
+      };
+      validation.designRuleOptions = designRuleOptions;
+      const nodeFields = [
+        "nodeShape",
+        "fillColor",
+        "strokeColor",
+        "textColor",
+        "strokeWidth",
+        "fontFamily",
+        "fontSize",
+        "fontWeight",
+        "fontStyle",
+        "lineStyle",
+        "labelMode",
+        "labelProperty",
+        "labelText",
+      ];
+      const edgeFields = [
+        "strokeColor",
+        "textColor",
+        "strokeWidth",
+        "fontFamily",
+        "fontSize",
+        "fontWeight",
+        "fontStyle",
+        "lineStyle",
+        "edgeRouting",
+        "arrowHead",
+        "labelMode",
+        "labelProperty",
+        "labelText",
+      ];
+      const nodes = new Set<string>();
+      for (const statement of store) {
+        if (statement.subject.termType === "NamedNode") nodes.add(statement.subject.value);
+        if (statement.object.termType === "NamedNode") nodes.add(statement.object.value);
+      }
+      for (const iri of [...nodes].sort(utf8Compare)) {
+        const element = DataFactory.namedNode(iri);
+        const types = store
+          .getObjects(element, `${rdf}type`, null)
+          .filter((type) => type.termType === "NamedNode");
+        const rules: VisualRule[] = [];
+        let conflict = false;
+        for (const type of types) {
+          const resolved = await winningDesignRules(resource, type.value, "node");
+          rules.push(...resolved.rules);
+          conflict ||= resolved.conflict;
+        }
+        const applicable = [...new Map(rules.map((rule) => [rule.iri, rule])).values()].sort(
+          (left, right) =>
+            utf8Compare(left.targetConcept, right.targetConcept) ||
+            utf8Compare(left.iri, right.iri),
+        );
+        const options = applicable.map((rule) => ruleOption(rule, nodeFields));
+        designRuleOptions.nodes[iri] = options;
+        if (applicable.length === 1) {
+          const selected = applicable[0];
+          if (selected) effectivePresentation.nodes[iri] = effectiveRule(selected, nodeFields);
+        } else if (applicable.length > 1)
+          warn(
+            resource,
+            "DESIGN_RULE_AMBIGUOUS",
+            "Several exact-type visual rules apply; this element uses generic appearance until a rule is chosen.",
+            { kind: "term", term: rdfTerm(element, resource.selector) },
+          );
+        else {
+          warn(
+            resource,
+            "DESIGN_RULE_UNCOVERED",
+            conflict
+              ? "No rule wins for this exact type because its designs conflict; the node uses generic appearance."
+              : "No winning exact-type visual rule covers this node; it uses generic appearance.",
+            { kind: "term", term: rdfTerm(element, resource.selector) },
+          );
+        }
+      }
+      for (const statement of store) {
+        if (
+          statement.predicate.termType !== "NamedNode" ||
+          statement.object.termType === "Literal" ||
+          !["NamedNode", "BlankNode"].includes(statement.subject.termType)
+        )
+          continue;
+        const resolved = await winningDesignRules(resource, statement.predicate.value, "edge");
+        const applicable = [
+          ...new Map(resolved.rules.map((rule) => [rule.iri, rule])).values(),
+        ].sort(
+          (left, right) =>
+            utf8Compare(left.targetConcept, right.targetConcept) ||
+            utf8Compare(left.iri, right.iri),
+        );
+        const endpoint = (term: Term) =>
+          term.termType === "NamedNode" ? term.value : rdfTerm(term, resource.selector);
+        const tuple = JSON.stringify([
+          endpoint(statement.subject),
+          statement.predicate.value,
+          endpoint(statement.object),
+        ]);
+        designRuleOptions.relationships[tuple] = applicable.map((rule) =>
+          ruleOption(rule, edgeFields),
+        );
+        if (applicable.length === 1) {
+          const selected = applicable[0];
+          if (selected)
+            effectivePresentation.relationships[tuple] = effectiveRule(selected, edgeFields);
+        } else if (applicable.length > 1)
+          warn(
+            resource,
+            "DESIGN_RULE_AMBIGUOUS",
+            "Several exact-predicate visual rules apply; this relationship uses generic appearance until a rule is chosen.",
+            { kind: "term", term: rdfTerm(statement.subject, resource.selector) },
+          );
+        else if (!resolved.conflict)
+          warn(
+            resource,
+            "DESIGN_RULE_UNCOVERED",
+            "No winning exact-predicate visual rule covers this edge; it uses generic appearance.",
+            { kind: "term", term: rdfTerm(statement.predicate, resource.selector) },
+          );
+      }
     }
     if (["design", "presentation"].includes(resource.kind)) {
       for (const statement of store)

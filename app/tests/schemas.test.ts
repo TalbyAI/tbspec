@@ -5,7 +5,38 @@ import { join } from "node:path";
 import test from "node:test";
 import { canonical, digest, graphSignature, hash, sortedSet } from "../src/canonical.ts";
 import { initializeProject, readProject, setProjectBaseIri } from "../src/project.ts";
-import { interpretationSignature, parseLock, writeToml } from "../src/schemas.ts";
+import {
+  editDesignChoice,
+  editManifestSelectors,
+  editModelType,
+  editOntologyChoice,
+  interpretationSignature,
+  parseLock,
+  parseManifest,
+  removeDependencyChoices,
+  removeModelType,
+  writeToml,
+} from "../src/schemas.ts";
+
+test("manifest editors preserve unrelated TOML floats and datetimes", () => {
+  const custom =
+    "# keep custom values\r\n[custom]\r\nratio = 1.5\r\npositive = inf\r\nnegative = -inf\r\nundefined = nan\r\ndate = 2026-10-14\r\ntime = 13:45:11\r\nstamp = 2026-10-14T13:45:11Z\r\n";
+  const text =
+    'schema_version = 1\r\n[model_types.custom]\r\nontology = "ontology.ttl"\r\nenabled = true\r\n[ontology_choices]\r\n"urn:ontology" = "chosen"\r\n[design_choices]\r\n"urn:concept" = "dep:chosen"\r\n' +
+    custom;
+  for (const edit of [
+    () => editOntologyChoice(text, "urn:ontology", "other"),
+    () => editDesignChoice(text, "urn:concept", "design.ttl"),
+    () => editModelType(text, "custom", { ontology: "ontology.ttl", enabled: false }),
+    () => removeModelType(text, "custom"),
+    () => editManifestSelectors(text, { "ontology.ttl": "moved.ttl" }),
+    () => removeDependencyChoices(text, "chosen"),
+  ]) {
+    const changed = edit();
+    assert.ok(changed.endsWith(custom));
+    assert.deepEqual(parseManifest(changed).custom, parseManifest(text).custom);
+  }
+});
 
 test("canonical signature golden vectors retain UTF-8, null, integer and escape semantics", () => {
   assert.equal(
@@ -46,6 +77,25 @@ test("human configuration edits preserve unrelated keys, comments and CRLF exact
   const project = await readProject({ project: root });
   assert.equal(project.lock.starters.common_contract, "dep:tbspec-metadata");
   assert.equal(project.manifest.custom, "untouched");
+});
+test("ontology choices are edited surgically without changing neighboring TOML", () => {
+  const text =
+    '# owner comment\r\nschema_version = 1\r\n\r\n[ontology_choices] # winners\r\n"urn:old" = "old" # keep me\r\n"urn:keep" = "keep"\r\n\r\n[custom_table]\r\nvalue = 7\r\n';
+  const selected = editOntologyChoice(text, "urn:old", "new");
+  assert.equal(
+    selected,
+    text.replace('"urn:old" = "old" # keep me', '"urn:old" = "new" # keep me'),
+  );
+  const cleared = editOntologyChoice(selected, "urn:old");
+  assert.equal(cleared, selected.replace('"urn:old" = "new" # keep me', " # keep me"));
+  assert.equal(
+    canonical(parseManifest(cleared).ontology_choices),
+    canonical({ "urn:keep": "keep" }),
+  );
+  assert.equal(
+    editOntologyChoice("schema_version = 1\n", "urn:new", "dependency"),
+    'schema_version = 1\n[ontology_choices]\n"urn:new" = "dependency"\n',
+  );
 });
 test("missing and incompatible schemas, malformed semantic locks and corruption fail without repair", async () => {
   const root = await mkdtemp(join(tmpdir(), "tbspec-schema-"));

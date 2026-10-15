@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { QueryEngine } from "@comunica/query-sparql-rdfjs-lite";
-import { BindingsFactory } from "@comunica/utils-bindings-factory";
+import type { QueryEngine } from "@comunica/query-sparql-rdfjs-lite";
+import type { BindingsFactory } from "@comunica/utils-bindings-factory";
 import type { Quad, Term } from "@rdfjs/types";
 import { DataFactory, type Term as N3Term, Store } from "n3";
 import { Validator } from "shacl-engine";
@@ -157,8 +157,21 @@ export async function runShapes(prepared: Store, data: Store) {
     }
   }
   const dataset = paths.size ? new PathDataset([...data]) : data;
-  const engine = new QueryEngine();
-  const bindings = new BindingsFactory(DataFactory);
+  let queryContext: Promise<{ engine: QueryEngine; bindings: BindingsFactory }> | undefined;
+  const queryBindings = async (query: string, values: Record<string, Term>) => {
+    queryContext ??= Promise.all([
+      import("@comunica/query-sparql-rdfjs-lite"),
+      import("@comunica/utils-bindings-factory"),
+    ]).then(([{ QueryEngine }, { BindingsFactory }]) => ({
+      engine: new QueryEngine(),
+      bindings: new BindingsFactory(DataFactory),
+    }));
+    const { engine, bindings } = await queryContext;
+    return engine.queryBindings(query, {
+      sources: [data],
+      initialBindings: bindings.fromRecord(values),
+    });
+  };
   const localSparql = DataFactory.namedNode(`urn:tbspec:sparql:${randomUUID()}`);
   const queries = new Map<string, { query: string; messages: Term[] }[]>();
   for (const statement of shapes.getQuads(null, `${sh}sparql`, null, null)) {
@@ -180,10 +193,7 @@ export async function runShapes(prepared: Store, data: Store) {
   const compile = (shape: { ptr: { term: Term } }) => {
     const validate = async (context: ConstraintContext) => {
       for (const constraint of queries.get(key(shape.ptr.term)) ?? []) {
-        const stream = await engine.queryBindings(constraint.query, {
-          sources: [data],
-          initialBindings: bindings.fromRecord({ this: context.focusNode.term }),
-        });
+        const stream = await queryBindings(constraint.query, { this: context.focusNode.term });
         for (const row of await stream.toArray())
           context.violation(DataFactory.namedNode(`${sh}SPARQLConstraintComponent`), {
             args: Object.fromEntries([...row].map(([variable, term]) => [variable.value, term])),
@@ -209,6 +219,7 @@ export async function runShapes(prepared: Store, data: Store) {
     }
     return values;
   };
+  const comparisons = new Map<string, boolean | null>();
   const compare = async (
     left: Term,
     operator: "<" | "<=" | ">" | ">=",
@@ -252,21 +263,23 @@ export async function runShapes(prepared: Store, data: Store) {
               : order >= 0;
       }
     }
+    const comparisonKey = JSON.stringify([key(left), operator, key(right)]);
+    const cached = comparisons.get(comparisonKey);
+    if (cached !== undefined) return cached;
     try {
-      const stream = await engine.queryBindings(
-        `SELECT (?left ${operator} ?right AS ?result) WHERE {}`,
-        {
-          sources: [data],
-          initialBindings: bindings.fromRecord({ left, right }),
-        },
-      );
+      const stream = await queryBindings(`SELECT (?left ${operator} ?right AS ?result) WHERE {}`, {
+        left,
+        right,
+      });
       const result = (await stream.toArray())[0]?.get("result");
-      if (
-        result?.termType !== "Literal" ||
-        result.datatype.value !== "http://www.w3.org/2001/XMLSchema#boolean"
-      )
-        return null;
-      return result.value === "true" || result.value === "1";
+      const valid =
+        result?.termType === "Literal" &&
+        result.datatype.value === "http://www.w3.org/2001/XMLSchema#boolean"
+          ? result.value === "true" || result.value === "1"
+          : null;
+      if (comparisonKey.length <= 2048 && comparisons.size < 256)
+        comparisons.set(comparisonKey, valid);
+      return valid;
     } catch {
       return null;
     }

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Result } from "../src/output.ts";
+import { DependenciesPanel } from "./dependencies-ui.tsx";
 import type { EditorDraft } from "./drafts.ts";
-import { GraphEditor } from "./editor.tsx";
+import { type CanvasDesignChoices, GraphEditor } from "./editor.tsx";
+import { RepairPanel } from "./repair-ui.tsx";
+import { ViewsPanel } from "./views-ui.tsx";
 import "./style.css";
 
 declare global {
@@ -13,6 +16,7 @@ interface Diagnostic {
   severity: string;
   message: string;
   file: string | null;
+  details?: Record<string, unknown>;
   shacl?: {
     selector: string;
     graphIri: string;
@@ -46,6 +50,24 @@ interface ModelType {
   design: string | null;
   origin: string;
 }
+interface QueryParameter {
+  name: string;
+  kind: "iri" | "literal";
+  required: boolean;
+  datatype?: string;
+  language?: string;
+}
+interface SavedQuery {
+  name: string;
+  queryFile: string;
+  parametersFile: string;
+  parameters: QueryParameter[];
+}
+type QueryFileRevision = { state: "absent" } | { state: "present"; digest: string };
+interface QueryRevisions {
+  query: QueryFileRevision;
+  parameters: QueryFileRevision;
+}
 interface Term {
   kind: string;
   value: string;
@@ -58,9 +80,59 @@ interface Triple {
   predicate: Term;
   object: Term;
 }
+
+function removableBrokenQuery(
+  diagnostic: Diagnostic,
+): { name: string; expectedRevisions: QueryRevisions } | null {
+  const details = diagnostic.details;
+  if (!details || typeof details.name !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(details.name))
+    return null;
+  const value = details.expectedRevisions;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const revisions = value as Record<string, unknown>;
+  if (Object.keys(revisions).sort().join(",") !== "parameters,query") return null;
+  const parseRevision = (entry: unknown): QueryFileRevision | null => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const revision = entry as Record<string, unknown>;
+    if (revision.state === "absent" && Object.keys(revision).length === 1)
+      return { state: "absent" };
+    if (
+      revision.state === "present" &&
+      Object.keys(revision).sort().join(",") === "digest,state" &&
+      typeof revision.digest === "string" &&
+      /^sha256:[a-f0-9]{64}$/.test(revision.digest)
+    )
+      return { state: "present", digest: revision.digest };
+    return null;
+  };
+  const query = parseRevision(revisions.query);
+  const parameters = parseRevision(revisions.parameters);
+  if (!query || !parameters) return null;
+  return { name: details.name, expectedRevisions: { query, parameters } };
+}
+
 interface Preview {
   changes: { file: string; action: string }[];
   arguments: {
+    affectedModels?: {
+      selector: string;
+      file?: string;
+      ontologyBefore?: string | null;
+      ontologyAfter?: string | null;
+      validityBefore?: string;
+      validityAfter?: string;
+    }[];
+    identityChanges?: { selector: string; identity: string; before: string; after: string }[];
+    targetIris?: string[];
+    references?: {
+      file: string;
+      selector?: string;
+      position: string;
+      targetIri: string;
+      subject?: Term;
+      predicate?: Term;
+      object?: Term;
+    }[];
     removedVocabulary?: Term[];
     removedVocabularyRoles?: { term: Term; roles: string[] }[];
     affectedReferences?: Triple[];
@@ -74,6 +146,15 @@ interface Preview {
     worsenedErrors: Diagnostic[];
     skippedChecks: Diagnostic[];
   };
+}
+interface ImpactOccurrence {
+  file: string;
+  selector?: string;
+  position: string;
+  targetIri: string;
+  subject?: Term;
+  predicate?: Term;
+  object?: Term;
 }
 interface Validation {
   validity: string;
@@ -176,6 +257,9 @@ function App() {
   const graphSelector = useRef("");
   // shortcut: drafts live only in this page; add session recovery if reload persistence is required.
   const [drafts] = useState(() => new Map<string, EditorDraft>());
+  const [temporaryDesignChoices, setTemporaryDesignChoices] = useState<
+    Record<string, CanvasDesignChoices>
+  >({});
   const [hasDrafts, setHasDrafts] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const draftChanged = useCallback(() => {
@@ -199,15 +283,31 @@ function App() {
   const [operation, setOperation] = useState("model.create");
   const [receivingType, setReceivingType] = useState("data");
   const [profile, setProfile] = useState("conceptual");
+  const [modelTypeName, setModelTypeName] = useState("");
+  const [modelTypeOntology, setModelTypeOntology] = useState("");
+  const [designSelectors, setDesignSelectors] = useState<Record<string, string>>({});
+  const [acceptedImpact, setAcceptedImpact] = useState(false);
   const [authored, setAuthored] = useState<Envelope | null>(null);
   const [validation, setValidation] = useState<Envelope | null>(null);
   const [validationTarget, setValidationTarget] = useState<string | undefined>();
   const [supportList, setSupportList] = useState<Envelope | null>(null);
+  const [lifecycleImpact, setLifecycleImpact] = useState<Envelope | null>(null);
+  const [moveDestination, setMoveDestination] = useState("");
+  const [queries, setQueries] = useState<SavedQuery[]>([]);
+  const [queryDiagnostics, setQueryDiagnostics] = useState<Diagnostic[]>([]);
+  const [queryName, setQueryName] = useState("");
+  const [queryText, setQueryText] = useState("SELECT * WHERE { ?subject ?predicate ?object }");
+  const [parametersText, setParametersText] = useState("");
+  const [bindingsText, setBindingsText] = useState("{}");
+  const [queryGraph, setQueryGraph] = useState("");
+  const [queryDetails, setQueryDetails] = useState<Record<string, unknown> | null>(null);
+  const [queryResult, setQueryResult] = useState<Envelope | null>(null);
   const [pendingPreview, setPendingPreview] = useState<{
     schemaVersion: 1;
     handle: string;
     fingerprint: string;
     accept: string[];
+    route?: string;
   } | null>(null);
   const refresh = useCallback(async (token: string, saved = false) => {
     const selectedSelector = graphSelector.current;
@@ -282,7 +382,15 @@ function App() {
     setError("");
     if (!apply) setPendingPreview(null);
     try {
-      const result = await request(apply ? "resource/apply" : route, session, body);
+      const requestBody = apply
+        ? {
+            schemaVersion: body.schemaVersion,
+            handle: body.handle,
+            fingerprint: body.fingerprint,
+            accept: body.accept,
+          }
+        : body;
+      const result = await request(apply ? "resource/apply" : route, session, requestBody);
       setAuthored(result);
       if (
         apply &&
@@ -298,19 +406,55 @@ function App() {
           accept:
             (result.data.preview as { impact?: { acceptance?: string[] } }).impact?.acceptance ??
             [],
+          route,
         });
+      if (result.status === "preview") setAcceptedImpact(false);
       else if (result.status === "ok") {
+        const lifecycleRemoval = apply && pendingPreview?.route === "resources/remove";
+        if (lifecycleRemoval) {
+          graphSelector.current = "";
+          setGraph(null);
+        }
         await refresh(session);
-        const resource = result.data?.resource as Resource;
-        await show(resource.selector, resource.kind);
+        const resource = result.data?.resource as Resource | undefined;
+        if (resource && !lifecycleRemoval) await show(resource.selector, resource.kind);
       }
     } catch (problem) {
+      if (apply) {
+        setPendingPreview(null);
+        setAuthored(null);
+        setAcceptedImpact(false);
+      }
       setError(
         `${problem instanceof Error ? problem.message : "Resource operation failed."} Inspect the project before trying another write.`,
       );
     } finally {
       setBusy(false);
     }
+  }
+  async function reviewImpact(kind: string, target: string) {
+    setBusy(true);
+    setError("");
+    try {
+      setLifecycleImpact(
+        await request(
+          `impact?kind=${encodeURIComponent(kind)}&selector=${encodeURIComponent(target)}`,
+          session,
+        ),
+      );
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Impact inspection failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  function configureModelType(command: string, name: string, fields: Record<string, string> = {}) {
+    setTab("resources");
+    void author(
+      { command: `config.model-type.${command}`, name, ...fields },
+      false,
+      "model-types/configure",
+    );
   }
   async function validate(selector?: string) {
     setBusy(true);
@@ -346,11 +490,124 @@ function App() {
       setBusy(false);
     }
   }
+  async function refreshQueries() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await request("queries", session);
+      const items = (result.data?.items as SavedQuery[]) ?? [];
+      setQueries(items);
+      setQueryDiagnostics(result.diagnostics);
+      if (!items.some((item) => item.name === queryName)) setQueryName(items[0]?.name ?? "");
+    } catch (problem) {
+      setQueryDiagnostics([]);
+      setError(problem instanceof Error ? problem.message : "Saved queries are unavailable.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function inspectQuery(name = queryName, keepDraft = false) {
+    if (!name) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await request(`query?name=${encodeURIComponent(name)}`, session);
+      setQueryDetails(result.data);
+      setQueryName(name);
+      if (!keepDraft) {
+        setQueryText(String(result.data?.queryText ?? ""));
+        setParametersText("");
+      }
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Saved query is unavailable.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function refreshQueryReview() {
+    if (!queryName) return;
+    await inspectQuery(queryName, true);
+  }
+  function reviewedQueryRevisions(name: string): QueryRevisions {
+    if (queryDetails?.name === name && queryDetails.revisions)
+      return queryDetails.revisions as QueryRevisions;
+    return { query: { state: "absent" }, parameters: { state: "absent" } };
+  }
+  async function saveQuery() {
+    if (queries.some((query) => query.name === queryName) && queryDetails?.name !== queryName) {
+      await refreshQueryReview();
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await request("query/save", session, {
+        name: queryName,
+        queryText,
+        expectedRevisions: reviewedQueryRevisions(queryName),
+        ...(parametersText.trim() ? { parametersText } : {}),
+      });
+      setQueryResult(result);
+      if (result.status === "ok") {
+        setParametersText("");
+        await refreshQueries();
+        await inspectQuery(queryName);
+      }
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Saved query could not be written.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function runQuery(saved?: string) {
+    setBusy(true);
+    setError("");
+    try {
+      setQueryResult(
+        await request("query/run", session, {
+          ...(saved ? { saved } : { queryText }),
+          ...(queryGraph.trim() ? { graph: queryGraph.trim() } : {}),
+          ...(bindingsText.trim() ? { bindingsText } : {}),
+        }),
+      );
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Query execution failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function removeQuery(name = queryName, expectedRevisions?: QueryRevisions) {
+    if (!name) return;
+    if (!expectedRevisions && queryDetails?.name !== name) {
+      if (name === queryName) await refreshQueryReview();
+      return;
+    }
+    if (!window.confirm(`Remove saved query “${name}” and its declaration if present?`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await request("query/remove", session, {
+        name,
+        confirm: true,
+        expectedRevisions: expectedRevisions ?? reviewedQueryRevisions(name),
+      });
+      setQueryResult(result);
+      if (result.status === "ok") {
+        if (queryDetails?.name === name) setQueryDetails(null);
+        await refreshQueries();
+      }
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Saved query could not be removed.");
+    } finally {
+      setBusy(false);
+    }
+  }
   async function cancelPreview() {
     if (!pendingPreview) return;
     const handle = pendingPreview.handle;
     setPendingPreview(null);
     setAuthored(null);
+    setAcceptedImpact(false);
     setBusy(true);
     try {
       const result = await request("resource/cancel", session, { schemaVersion: 1, handle });
@@ -378,6 +635,15 @@ function App() {
     await refresh(session, true);
   }, [refresh, session]);
   const selected = graph?.data?.resource as Resource | undefined;
+  const lifecycleKind = selected
+    ? selected.kind === "ontology"
+      ? "ontology"
+      : selected.kind === "shapes"
+        ? "shapes"
+        : selected.kind === "model" || selected.kind.endsWith("-model")
+          ? "model"
+          : undefined
+    : undefined;
   const associations = selected
     ? [
         ...new Map(
@@ -446,13 +712,24 @@ function App() {
         {session && (
           <>
             <nav aria-label="Workspace sections">
-              {["resources", "configuration", "diagnostics"].map((name) => (
+              {[
+                "resources",
+                "views",
+                "queries",
+                "dependencies",
+                "repair",
+                "configuration",
+                "diagnostics",
+              ].map((name) => (
                 <button
                   type="button"
                   key={name}
                   aria-current={tab === name ? "page" : undefined}
                   disabled={busy}
-                  onClick={() => setTab(name)}
+                  onClick={() => {
+                    setTab(name);
+                    if (name === "queries") void refreshQueries();
+                  }}
                 >
                   {name[0]?.toUpperCase()}
                   {name.slice(1)}
@@ -673,23 +950,67 @@ function App() {
                   {authored && (
                     <section aria-label="Authoring result">
                       <h3>
-                        {authored.status === "preview" ? "Resource preview" : "Resource result"}
+                        {"modelType" in (authored.data ?? {})
+                          ? authored.status === "preview"
+                            ? "Model-type configuration preview"
+                            : "Model-type configuration result"
+                          : authored.status === "preview"
+                            ? "Resource preview"
+                            : "Resource result"}
                       </h3>
-                      <pre>{JSON.stringify(authored.data?.resource, null, 2)}</pre>
+                      <pre>
+                        {JSON.stringify(
+                          "modelType" in (authored.data ?? {})
+                            ? {
+                                modelType: authored.data?.modelType,
+                                affectedModels: authored.data?.affectedModels,
+                                projectValidity: authored.data?.projectValidity,
+                                validationComplete: authored.data?.validationComplete,
+                              }
+                            : authored.data?.resource,
+                          null,
+                          2,
+                        )}
+                      </pre>
                       <Diagnostics items={authored.diagnostics} />
                       {pendingPreview && (
-                        <p>Preview expires at {String(authored.data?.expiresAt)}.</p>
+                        <p>
+                          This server-held preview expires after 15 minutes, at{" "}
+                          {String(authored.data?.expiresAt)}.
+                        </p>
                       )}
                       {pendingPreview && (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void author(pendingPreview, true)}
-                        >
-                          {pendingPreview.accept.includes("confirm")
-                            ? "Confirm schema removal"
-                            : "Apply reviewed resource"}
-                        </button>
+                        <>
+                          {pendingPreview.accept.includes("accept-impact") && (
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={acceptedImpact}
+                                disabled={busy}
+                                onChange={(event) => setAcceptedImpact(event.target.checked)}
+                              />
+                              I accept the disclosed model validity impact.
+                            </label>
+                          )}
+                          <button
+                            type="button"
+                            disabled={
+                              busy ||
+                              (pendingPreview.accept.includes("accept-impact") && !acceptedImpact)
+                            }
+                            onClick={() => void author(pendingPreview, true)}
+                          >
+                            {pendingPreview.accept.includes("confirm")
+                              ? pendingPreview.route === "resources/remove"
+                                ? "Confirm removal"
+                                : "Confirm schema removal"
+                              : pendingPreview.accept.includes("accept-impact")
+                                ? "Apply reviewed configuration"
+                                : "modelType" in (authored.data ?? {})
+                                  ? "Apply reviewed configuration"
+                                  : "Apply reviewed resource"}
+                          </button>
+                        </>
                       )}
                       {pendingPreview && (
                         <button type="button" disabled={busy} onClick={() => void cancelPreview()}>
@@ -712,6 +1033,71 @@ function App() {
                                     </li>
                                   ))}
                                 </ul>
+                                <h4>Affected files</h4>
+                                <ul>
+                                  {preview.impact.affectedFiles.map((file) => (
+                                    <li key={file}>{file}</li>
+                                  ))}
+                                </ul>
+                                {preview.arguments.targetIris && (
+                                  <>
+                                    <h4>Managed IRIs in scope</h4>
+                                    <ul>
+                                      {preview.arguments.targetIris.map((iri) => (
+                                        <li key={iri}>
+                                          <code>{iri}</code>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
+                                {preview.arguments.references && (
+                                  <>
+                                    <h4>Known reference occurrences</h4>
+                                    {preview.arguments.references.length ? (
+                                      <ul>
+                                        {preview.arguments.references.map((item) => (
+                                          <li
+                                            key={JSON.stringify([
+                                              item.file,
+                                              item.selector,
+                                              item.position,
+                                              item.targetIri,
+                                              item.subject,
+                                              item.predicate,
+                                              item.object,
+                                            ])}
+                                          >
+                                            <code>{item.file}</code>
+                                            {item.selector && <> · {item.selector}</>}
+                                            {` · ${item.position} · `}
+                                            <code>{item.targetIri}</code>
+                                            {item.subject && item.predicate && item.object && (
+                                              <pre>
+                                                {`${termText(item.subject)} ${termText(item.predicate)} ${termText(item.object)}`}
+                                              </pre>
+                                            )}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p>None</p>
+                                    )}
+                                  </>
+                                )}
+                                {preview.arguments.identityChanges && (
+                                  <>
+                                    <h4>Generated identity changes</h4>
+                                    <ul>
+                                      {preview.arguments.identityChanges.map((item) => (
+                                        <li key={`${item.selector}:${item.before}`}>
+                                          {item.selector}: <code>{item.before}</code> →{" "}
+                                          <code>{item.after}</code>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
                                 {preview.arguments.removedVocabulary && (
                                   <>
                                     <h4>Lost vocabulary roles</h4>
@@ -761,6 +1147,27 @@ function App() {
                                             key={`${check.target}:${check.kind}:${check.shapesSelector}`}
                                           >
                                             {check.target}: {check.kind} from {check.shapesSelector}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p>None</p>
+                                    )}
+                                  </>
+                                )}
+                                {preview.arguments.affectedModels && (
+                                  <>
+                                    <h4>Affected model bindings</h4>
+                                    {preview.arguments.affectedModels.length ? (
+                                      <ul>
+                                        {preview.arguments.affectedModels.map((model) => (
+                                          <li key={model.selector}>
+                                            {model.selector}
+                                            {model.file ? ` (${model.file})` : ""}
+                                            {model.ontologyBefore !== undefined &&
+                                              `: ${model.ontologyBefore ?? "unbound"} → ${model.ontologyAfter ?? "unbound"}`}
+                                            {model.validityBefore !== undefined &&
+                                              `; validity ${model.validityBefore} → ${model.validityAfter}`}
                                           </li>
                                         ))}
                                       </ul>
@@ -872,6 +1279,103 @@ function App() {
                             </button>
                           </form>
                         )}
+                      {selected.ownership === "project" && (
+                        <section aria-label="Resource lifecycle">
+                          <h3>Resource lifecycle</h3>
+                          {lifecycleKind && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void reviewImpact(lifecycleKind, selected.selector)}
+                              >
+                                Review known references
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy || !!pendingPreview}
+                                onClick={() =>
+                                  void author(
+                                    { kind: lifecycleKind, selector: selected.selector },
+                                    false,
+                                    "resources/remove",
+                                  )
+                                }
+                              >
+                                Preview removal
+                              </button>
+                            </>
+                          )}
+                          <form
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              void author(
+                                { selector: selected.selector, destination: moveDestination },
+                                false,
+                                "resources/move",
+                              );
+                            }}
+                          >
+                            <label htmlFor="move-destination">Move destination</label>
+                            <input
+                              id="move-destination"
+                              value={moveDestination}
+                              onChange={(event) => setMoveDestination(event.target.value)}
+                              placeholder="archive/resource.ttl"
+                              required
+                              disabled={busy || !!pendingPreview}
+                            />
+                            <button type="submit" disabled={busy || !!pendingPreview}>
+                              Preview move
+                            </button>
+                          </form>
+                          {lifecycleImpact && (
+                            <section aria-label="Known resource references">
+                              <h4>Known references</h4>
+                              <p>
+                                {String(
+                                  (lifecycleImpact.data?.items as unknown[] | undefined)?.length ??
+                                    0,
+                                )}{" "}
+                                exact occurrences across{" "}
+                                {String(
+                                  (lifecycleImpact.data?.affectedFiles as string[] | undefined)
+                                    ?.length ?? 0,
+                                )}
+                                known files.
+                              </p>
+                              <ul>
+                                {((lifecycleImpact.data?.items as ImpactOccurrence[]) ?? []).map(
+                                  (item) => (
+                                    <li
+                                      key={JSON.stringify([
+                                        item.file,
+                                        item.selector,
+                                        item.position,
+                                        item.targetIri,
+                                        item.subject,
+                                        item.predicate,
+                                        item.object,
+                                      ])}
+                                    >
+                                      <code>{item.file}</code>
+                                      {item.selector && <> · {item.selector}</>}
+                                      {` · ${item.position} · `}
+                                      <code>{item.targetIri}</code>
+                                      {item.subject && item.predicate && item.object && (
+                                        <pre>
+                                          {`${termText(item.subject)} ${termText(item.predicate)} ${termText(item.object)}`}
+                                        </pre>
+                                      )}
+                                    </li>
+                                  ),
+                                )}
+                              </ul>
+                              <Diagnostics items={lifecycleImpact.diagnostics} />
+                            </section>
+                          )}
+                        </section>
+                      )}
                       <dl>
                         <dt>Graph IRI</dt>
                         <dd>
@@ -931,6 +1435,28 @@ function App() {
                         onDraftChange={draftChanged}
                         onBusyChange={setEditorBusy}
                         disabled={busy}
+                        designChoices={
+                          temporaryDesignChoices[selected.selector] ?? {
+                            nodes: {},
+                            relationships: {},
+                          }
+                        }
+                        onTemporaryDesignChoice={(kind, element, rule) =>
+                          setTemporaryDesignChoices((current) => {
+                            const choices = current[selected.selector] ?? {
+                              nodes: {},
+                              relationships: {},
+                            };
+                            const field = kind === "node" ? "nodes" : "relationships";
+                            const next = { ...choices[field] };
+                            if (rule) next[element] = rule;
+                            else delete next[element];
+                            return {
+                              ...current,
+                              [selected.selector]: { ...choices, [field]: next },
+                            };
+                          })
+                        }
                       />
                       <details>
                         <summary>Exact RDF terms ({triples.length} statements)</summary>
@@ -971,6 +1497,26 @@ function App() {
                 </section>
               </div>
             )}
+            {tab === "dependencies" && (
+              <DependenciesPanel session={session} onApplied={() => void refresh(session, true)} />
+            )}
+            {tab === "repair" && (
+              <RepairPanel session={session} onApplied={() => void refresh(session, true)} />
+            )}
+            {tab === "views" && (
+              <ViewsPanel
+                session={session}
+                onApplied={() => void refresh(session, true)}
+                temporaryChoicesBySource={temporaryDesignChoices}
+                onTemporaryChoicesConsumed={(source) =>
+                  setTemporaryDesignChoices((current) => {
+                    const next = { ...current };
+                    delete next[source];
+                    return next;
+                  })
+                }
+              />
+            )}
             {tab === "configuration" && (
               <section>
                 <h2>Effective configuration</h2>
@@ -991,7 +1537,27 @@ function App() {
                     <tbody>
                       {modelTypes.map((type) => (
                         <tr key={type.name}>
-                          <td>{type.name}</td>
+                          <td>
+                            <details>
+                              <summary>{type.name}</summary>
+                              <pre>{JSON.stringify(type, null, 2)}</pre>
+                            </details>
+                            {type.origin === "manifest" && (
+                              <button
+                                type="button"
+                                disabled={busy || !!pendingPreview}
+                                onClick={() =>
+                                  void author(
+                                    { kind: "model-type", selector: type.name },
+                                    false,
+                                    "resources/remove",
+                                  )
+                                }
+                              >
+                                Preview removal
+                              </button>
+                            )}
+                          </td>
                           <td>{type.enabled ? "Enabled" : "Disabled"}</td>
                           <td>
                             <code>{type.ontology}</code>
@@ -1005,8 +1571,278 @@ function App() {
                     </tbody>
                   </table>
                 </div>
+                <h3>Add or replace a model-type ontology</h3>
+                <p>Choose an owned path or an exact retained selector such as dep:id/file-key.</p>
+                <form
+                  onChange={() => void cancelPreview()}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    configureModelType("set", modelTypeName, { ontology: modelTypeOntology });
+                  }}
+                >
+                  <label htmlFor="model-type-name">Model-type name</label>
+                  <input
+                    id="model-type-name"
+                    value={modelTypeName}
+                    onChange={(event) => setModelTypeName(event.target.value)}
+                    required
+                    disabled={busy}
+                  />
+                  <label htmlFor="model-type-ontology">Ontology graph selector</label>
+                  <input
+                    id="model-type-ontology"
+                    value={modelTypeOntology}
+                    onChange={(event) => setModelTypeOntology(event.target.value)}
+                    placeholder="ontologies/custom.ttl or dep:id/source/file.ttl"
+                    required
+                    disabled={busy}
+                  />
+                  <button type="submit" disabled={busy || !!pendingPreview}>
+                    Preview model-type change
+                  </button>
+                </form>
+                <h3>Model-type actions</h3>
+                <ul className="resource-list">
+                  {modelTypes.map((type) => (
+                    <li key={`${type.name}:configuration`}>
+                      <strong>{type.name}</strong>
+                      <span>
+                        {type.origin === "locked-default" ? "Locked default" : "Manifest row"}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={busy || !!pendingPreview}
+                        onClick={() =>
+                          configureModelType(type.enabled ? "disable" : "enable", type.name)
+                        }
+                      >
+                        {type.enabled ? "Disable creation" : "Enable creation"}
+                      </button>
+                      {["data", "process", "state-machine"].includes(type.name) && (
+                        <button
+                          type="button"
+                          disabled={busy || !!pendingPreview}
+                          onClick={() => configureModelType("reset", type.name)}
+                        >
+                          Reset to project-locked default
+                        </button>
+                      )}
+                      <form
+                        onChange={() => void cancelPreview()}
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          const design = designSelectors[type.name] ?? "";
+                          if (design) configureModelType("design.set", type.name, { design });
+                        }}
+                      >
+                        <label htmlFor={`design-${type.name}`}>Design graph selector</label>
+                        <input
+                          id={`design-${type.name}`}
+                          value={designSelectors[type.name] ?? ""}
+                          onChange={(event) =>
+                            setDesignSelectors((values) => ({
+                              ...values,
+                              [type.name]: event.target.value,
+                            }))
+                          }
+                          placeholder="dep:id/file-key or owned/path.ttl"
+                          disabled={busy}
+                        />
+                        <button
+                          type="submit"
+                          disabled={busy || !!pendingPreview || !designSelectors[type.name]}
+                        >
+                          Set design independently
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy || !!pendingPreview}
+                          onClick={() => {
+                            setDesignSelectors((values) => ({ ...values, [type.name]: "" }));
+                            configureModelType("design.clear", type.name);
+                          }}
+                        >
+                          Clear design
+                        </button>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
                 <h3>All settings</h3>
                 <pre>{JSON.stringify(config, null, 2)}</pre>
+              </section>
+            )}
+            {tab === "queries" && (
+              <section aria-label="Saved queries and SPARQL">
+                <h2>Saved queries</h2>
+                <p>
+                  Run SELECT, ASK, CONSTRUCT or DESCRIBE against the local project dataset or one
+                  exact graph. Bind RDF terms through JSON; query text is never substituted.
+                </p>
+                <div className="form-row">
+                  <label htmlFor="saved-query">Saved query</label>
+                  <select
+                    id="saved-query"
+                    value={queryName}
+                    onChange={(event) => setQueryName(event.target.value)}
+                    disabled={busy}
+                  >
+                    <option value="">Choose a saved query</option>
+                    {queries.map((item) => (
+                      <option key={item.name} value={item.name}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" disabled={busy} onClick={() => void refreshQueries()}>
+                    Refresh saved queries
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !queryName}
+                    onClick={() => void inspectQuery()}
+                  >
+                    Inspect saved query
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !queryName}
+                    onClick={() => void refreshQueryReview()}
+                  >
+                    Refresh revision review; keep current draft
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !queryName || queryDetails?.name !== queryName}
+                    onClick={() => void removeQuery()}
+                  >
+                    Remove saved query
+                  </button>
+                </div>
+                {queryDiagnostics.length > 0 && (
+                  <section aria-label="Saved query warnings">
+                    <h3>Warnings for unavailable saved queries</h3>
+                    <Diagnostics items={queryDiagnostics} />
+                    <ul>
+                      {queryDiagnostics.map((diagnostic) => {
+                        const broken = removableBrokenQuery(diagnostic);
+                        return broken ? (
+                          <li key={`${diagnostic.file}:${broken.name}`}>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() =>
+                                void removeQuery(broken.name, broken.expectedRevisions)
+                              }
+                            >
+                              Remove broken saved query {broken.name}
+                            </button>
+                          </li>
+                        ) : null;
+                      })}
+                    </ul>
+                  </section>
+                )}
+                {queryDetails && (
+                  <details open>
+                    <summary>Saved declaration and file revisions</summary>
+                    <p>
+                      {String(queryDetails.queryFile)} · {String(queryDetails.parametersFile)}
+                    </p>
+                    <ul>
+                      {((queryDetails.parameters as QueryParameter[]) ?? []).map((parameter) => (
+                        <li key={parameter.name}>
+                          <code>{parameter.name}</code>: {parameter.kind},{" "}
+                          {parameter.required ? "required" : "optional"}
+                          {parameter.datatype ? `, datatype ${parameter.datatype}` : ""}
+                          {parameter.language ? `, language ${parameter.language}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                    {!((queryDetails.parameters as QueryParameter[]) ?? []).length && (
+                      <p>No parameters declared.</p>
+                    )}
+                    <pre>{JSON.stringify(queryDetails.revisions, null, 2)}</pre>
+                    <details>
+                      <summary>Server query text at this reviewed revision</summary>
+                      <pre>{String(queryDetails.queryText ?? "")}</pre>
+                    </details>
+                  </details>
+                )}
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void saveQuery();
+                  }}
+                >
+                  <h3>Query text</h3>
+                  <label htmlFor="query-name">Saved query name</label>
+                  <input
+                    id="query-name"
+                    value={queryName}
+                    onChange={(event) => setQueryName(event.target.value)}
+                    placeholder="orders-by-customer"
+                    required
+                    disabled={busy}
+                  />
+                  <label htmlFor="query-text">SPARQL query</label>
+                  <textarea
+                    id="query-text"
+                    value={queryText}
+                    onChange={(event) => setQueryText(event.target.value)}
+                    rows={10}
+                    required
+                    disabled={busy}
+                  />
+                  <label htmlFor="query-parameters">Parameter declaration TOML (optional)</label>
+                  <textarea
+                    id="query-parameters"
+                    value={parametersText}
+                    onChange={(event) => setParametersText(event.target.value)}
+                    rows={5}
+                    placeholder="Leave blank to keep existing declaration bytes or use an empty declaration for a new query."
+                    disabled={busy}
+                  />
+                  <button type="submit" disabled={busy}>
+                    Save query
+                  </button>
+                </form>
+                <h3>Run query</h3>
+                <label htmlFor="query-graph">Exact graph selector (optional)</label>
+                <input
+                  id="query-graph"
+                  value={queryGraph}
+                  onChange={(event) => setQueryGraph(event.target.value)}
+                  placeholder="models/orders.ttl or dep:id/file-key"
+                  disabled={busy}
+                />
+                <label htmlFor="query-bindings">Typed RDF-term bindings JSON</label>
+                <textarea
+                  id="query-bindings"
+                  value={bindingsText}
+                  onChange={(event) => setBindingsText(event.target.value)}
+                  rows={4}
+                  disabled={busy}
+                />
+                <div className="form-row">
+                  <button type="button" disabled={busy} onClick={() => void runQuery()}>
+                    Run ad hoc query
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !queryName}
+                    onClick={() => void runQuery(queryName)}
+                  >
+                    Run saved query
+                  </button>
+                </div>
+                {queryResult && (
+                  <section aria-label="Query result">
+                    <h3>Query result · {queryResult.status}</h3>
+                    <Diagnostics items={queryResult.diagnostics} />
+                    {queryResult.data && <pre>{JSON.stringify(queryResult.data, null, 2)}</pre>}
+                  </section>
+                )}
               </section>
             )}
             {tab === "diagnostics" && (

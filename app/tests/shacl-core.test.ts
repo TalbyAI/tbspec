@@ -1,12 +1,152 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { Parser, Store } from "n3";
 import { inspectProject } from "../src/inspection.ts";
+import { ProjectError } from "../src/output.ts";
 import { initializeProject } from "../src/project.ts";
+import { runShapes } from "../src/shacl-execution.ts";
+import { prepareShapes } from "../src/shacl-profile.ts";
 
 const prefixes = `@prefix t: <https://talby.ai/ontology/tbspec#> . @prefix sh: <http://www.w3.org/ns/shacl#> . @prefix ex: <urn:ex:> . @prefix owl: <http://www.w3.org/2002/07/owl#> . @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .`;
+
+test("Core count validation does not load SPARQL execution dependencies", () => {
+  const script = `
+    import assert from "node:assert/strict";
+    import { registerHooks } from "node:module";
+    import { Parser, Store } from "n3";
+    registerHooks({ resolve(specifier, context, nextResolve) {
+      assert.ok(!specifier.startsWith("@comunica/"), "Unexpected SPARQL dependency: " + specifier);
+      return nextResolve(specifier, context);
+    }});
+    const { runShapes } = await import(${JSON.stringify(new URL("../src/shacl-execution.ts", import.meta.url).href)});
+    const { prepareShapes } = await import(${JSON.stringify(new URL("../src/shacl-profile.ts", import.meta.url).href)});
+    const graph = text => new Store(new Parser().parse(${JSON.stringify(prefixes)} + text));
+    const report = await runShapes(prepareShapes(graph("ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:minCount 2 .")), graph("ex:item ex:value 1 ."));
+    assert.equal(report.conforms, false);
+    assert.equal(report.results.length, 1);
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 20000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("SHACL constructs query engines only for actual SELECT or Core comparison work", () => {
+  const script = `
+    import assert from "node:assert/strict";
+    import { createRequire } from "node:module";
+    import { Parser, Store } from "n3";
+    const require = createRequire(import.meta.url);
+    const dependency = require("@comunica/query-sparql-rdfjs-lite/lib/QueryEngine.js");
+    const Original = dependency.QueryEngine;
+    let engines = 0;
+    dependency.QueryEngine = class extends Original {
+      constructor(...args) { super(...args); engines++; }
+    };
+    const { runShapes } = await import(${JSON.stringify(new URL("../src/shacl-execution.ts", import.meta.url).href)});
+    const { prepareShapes } = await import(${JSON.stringify(new URL("../src/shacl-profile.ts", import.meta.url).href)});
+    const graph = (text) => new Store(new Parser().parse(${JSON.stringify(prefixes)} + text));
+    const data = graph("ex:item ex:value 1 .");
+    const validate = (shapes) => runShapes(prepareShapes(graph(shapes)), data);
+    try {
+      const count = await validate("ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:minCount 2 .");
+      assert.equal(count.conforms, false);
+      assert.equal(engines, 0, "Core count constraints must not construct a query engine");
+      const range = await validate("ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:minExclusive 2 .");
+      assert.equal(range.conforms, false);
+      assert.equal(engines, 1, "Typed Core comparison must still execute its query fallback");
+      const sparql = await validate('ex:shape a sh:NodeShape; sh:targetNode ex:item; sh:sparql [ sh:select "SELECT $this WHERE { $this <urn:ex:value> ?value }" ] .');
+      assert.equal(sparql.conforms, false);
+      assert.equal(engines, 2, "SELECT work must use an engine local to that validation");
+      const conforming = await validate("ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:minCount 1 .");
+      assert.equal(conforming.conforms, true);
+      assert.equal(engines, 2);
+    } finally { dependency.QueryEngine = Original; }
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 20000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("SHACL comparison reuse preserves exact terms, bounded retention and independent runs", () => {
+  const script = `
+    import assert from "node:assert/strict";
+    import { createRequire } from "node:module";
+    import { Parser, Store } from "n3";
+    const require = createRequire(import.meta.url);
+    const dependency = require("@comunica/query-sparql-rdfjs-lite/lib/QueryEngine.js");
+    const Original = dependency.QueryEngine;
+    let calls = 0, failNext = false;
+    dependency.QueryEngine = class extends Original {
+      async queryBindings(...args) {
+        calls++;
+        if(failNext) { failNext = false; throw new Error("Transient query failure"); }
+        return super.queryBindings(...args);
+      }
+    };
+    const { runShapes } = await import(${JSON.stringify(new URL("../src/shacl-execution.ts", import.meta.url).href)});
+    const { prepareShapes } = await import(${JSON.stringify(new URL("../src/shacl-profile.ts", import.meta.url).href)});
+    const graph = text => new Store(new Parser().parse(${JSON.stringify(prefixes)} + text));
+    const validate = (data, limit = "0", extra = "") => runShapes(prepareShapes(graph(
+      "ex:shape a sh:PropertyShape; sh:targetSubjectsOf ex:value; sh:path ex:value; sh:minInclusive " + limit + " . " + extra
+    )), graph(data));
+    const repeated = (term, count = 12) => Array.from({length:count}, (_, i) => "ex:item" + i + " ex:value " + term + " .").join(" ");
+    try {
+      const first = await validate(repeated("1"));
+      assert.equal(first.conforms, true);
+      assert.equal(calls, 1, "Repeated typed comparisons should execute once per run");
+      const before = calls;
+      const concurrent = await Promise.all([validate(repeated("1")), validate(repeated("-1"))]);
+      assert.deepEqual(concurrent.map(r => r.conforms), [true, false]);
+      assert.equal(calls - before, 2, "Concurrent runs must not share comparison results");
+
+      for(const [term, limit, conforms, expectedCalls] of [
+        ['"01"^^xsd:integer', '0', true, 1],
+        ['"1"^^xsd:decimal', '0', true, 1],
+        ['"bad"^^xsd:integer', '0', false, 1],
+        ['"INF"^^xsd:double', '0', true, 1],
+        ['"NaN"^^xsd:double', '0', false, 1],
+        ['"2026-01-01T01:00:00+01:00"^^xsd:dateTime', '"2026-01-01T00:00:00Z"^^xsd:dateTime', true, 1],
+        ['"2026-01-01T00:00:00"^^xsd:dateTime', '"2026-01-01T00:00:00Z"^^xsd:dateTime', false, 0],
+      ]) {
+        const start = calls;
+        assert.equal((await validate(repeated(term), limit)).conforms, conforms, term);
+        assert.equal(calls - start, expectedCalls, term);
+      }
+      const start = calls;
+      assert.equal((await validate('ex:a ex:value "1"^^xsd:integer . ex:b ex:value "01"^^xsd:integer . ex:c ex:value "1"^^xsd:decimal . ex:d ex:value "1"@en . ex:e ex:value "1"@fr .')).conforms, false);
+      assert.equal(calls - start, 5, "Lexical forms, datatypes and languages must remain distinct");
+
+      const capacityStart = calls;
+      const many = Array.from({length:300}, (_, i) => "ex:item" + i + " ex:value " + i + " .").join(" ");
+      assert.equal((await validate(many, "0", "ex:other a sh:PropertyShape; sh:targetSubjectsOf ex:value; sh:path ex:value; sh:minInclusive 0 .")).conforms, true);
+      assert.equal(calls - capacityStart, 344, "Only 256 comparison entries may be retained");
+      const largeStart = calls;
+      assert.equal((await validate(repeated('"' + '9'.repeat(3000) + '"^^xsd:integer', 2))).conforms, true);
+      assert.equal(calls - largeStart, 2, "Oversized keys must not be retained");
+      failNext = true;
+      const transientStart = calls;
+      const transient = await validate(repeated("1", 2));
+      assert.equal(transient.results.length, 1);
+      assert.equal(calls - transientStart, 2, "Transient failures must not become cached results");
+    } finally { dependency.QueryEngine = Original; }
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
 
 async function project() {
   const root = await mkdtemp(join(tmpdir(), "tb-shacl-core-"));
@@ -29,17 +169,34 @@ async function inspect(root: string, data: string, shapes: string) {
   return inspectProject({ project: root, command: "validate", selector: "model.ttl" });
 }
 
-async function inspectPattern(root: string, pattern: string, value: string, flags = "") {
+function graph(text: string) {
+  return new Store(new Parser().parse(`${prefixes} ${text}`));
+}
+
+function rejectShapes(shapes: string) {
+  assert.throws(
+    () => prepareShapes(graph(shapes)),
+    (error: unknown) =>
+      error instanceof ProjectError &&
+      error.status === "invalid" &&
+      error.diagnostic.code === "SHACL_GRAPH_INVALID",
+    shapes,
+  );
+}
+
+function patternShape(pattern: string, flags = "") {
   const flag = flags ? `; sh:flags ${JSON.stringify(flags)}` : "";
-  return inspect(
-    root,
-    `ex:item ex:value ${JSON.stringify(value)} .`,
-    `ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:pattern ${JSON.stringify(pattern)}${flag} .`,
+  return `ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:pattern ${JSON.stringify(pattern)}${flag} .`;
+}
+
+function runPattern(pattern: string, value: string, flags = "") {
+  return runShapes(
+    prepareShapes(graph(patternShape(pattern, flags))),
+    graph(`ex:item ex:value ${JSON.stringify(value)} .`),
   );
 }
 
 test("SHACL patterns accept XPath XML name escapes, class subtraction, Unicode categories, and blocks", async () => {
-  const root = await project();
   const accepted: [string, string][] = [
     ["^\\i\\c*$", "é-name9"],
     ["^\\I+$", "123"],
@@ -48,21 +205,20 @@ test("SHACL patterns accept XPath XML name escapes, class subtraction, Unicode c
     ["^\\p{IsGreek}+$", "Ωβ"],
     ["^\\P{IsGreek}+$", "abc"],
   ];
-  const mismatches: string[] = [];
   for (const [pattern, value] of accepted) {
-    const result = await inspectPattern(root, pattern, value);
-    if (result.status !== "ok" || result.data?.validationComplete !== true)
-      mismatches.push(`${pattern}: ${JSON.stringify(result.diagnostics)}`);
+    const report = await runPattern(pattern, value);
+    assert.equal(report.conforms, true, pattern);
   }
-  assert.deepEqual(mismatches, []);
 
-  const subtraction = await inspectPattern(root, "^[a-z-[aeiou]]+$", "ae");
-  assert.equal(subtraction.status, "invalid");
-  assert.ok(subtraction.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_RESULT"));
+  const subtraction = await runPattern("^[a-z-[aeiou]]+$", "ae");
+  assert.equal(subtraction.conforms, false);
+  assert.equal(
+    subtraction.results[0]?.constraintComponent.value,
+    "http://www.w3.org/ns/shacl#PatternConstraintComponent",
+  );
 });
 
 test("SHACL patterns keep XPath substring, anchor, flag, and back-reference semantics", async () => {
-  const root = await project();
   const accepted: [string, string, string][] = [
     ["^b$", "a\nb\nc", "m"],
     ["^a.b$", "a\nb", "s"],
@@ -73,38 +229,25 @@ test("SHACL patterns keep XPath substring, anchor, flag, and back-reference sema
     ["^a#b$", "a#b", "x"],
   ];
   for (const [pattern, value, flags] of accepted) {
-    const result = await inspectPattern(root, pattern, value, flags);
-    assert.equal(result.status, "ok", `${pattern}/${flags}: ${JSON.stringify(result.diagnostics)}`);
+    const report = await runPattern(pattern, value, flags);
+    assert.equal(report.conforms, true, `${pattern}/${flags}`);
   }
 
-  const anchored = await inspectPattern(root, "^b$", "a\nb\nc");
-  assert.equal(anchored.status, "invalid");
-  assert.ok(anchored.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_RESULT"));
-  const backReference = await inspectPattern(root, "^(ab)\\1$", "abba");
-  assert.equal(backReference.status, "invalid");
-  assert.ok(backReference.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_RESULT"));
-
-  const longestBackReference = await inspectPattern(root, "^(a)\\12$", "a2");
-  assert.equal(longestBackReference.status, "invalid");
-  assert.ok(
-    longestBackReference.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_RESULT"),
-  );
+  for (const [pattern, value] of [
+    ["^b$", "a\nb\nc"],
+    ["^(ab)\\1$", "abba"],
+    ["^(a)\\12$", "a2"],
+  ] as const)
+    assert.equal((await runPattern(pattern, value)).conforms, false, pattern);
 });
 
 test("SHACL XPath patterns keep Unicode i semantics distinct from JavaScript", async () => {
-  const root = await project();
   const matching: [string, string][] = [
     ["^I$", "ı"],
     ["^(I)\\1$", "Iı"],
   ];
   for (const [pattern, value] of matching) {
-    const result = await inspectPattern(root, pattern, value, "i");
-    assert.equal(result.status, "ok", `${pattern}: ${JSON.stringify(result.diagnostics)}`);
-    assert.equal(
-      result.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_RESULT"),
-      false,
-      `${pattern}: ${JSON.stringify(result.diagnostics)}`,
-    );
+    assert.equal((await runPattern(pattern, value, "i")).conforms, true, pattern);
   }
 
   const nonmatching: [string, string][] = [
@@ -114,79 +257,69 @@ test("SHACL XPath patterns keep Unicode i semantics distinct from JavaScript", a
     ["^\\i$", "ͅ"],
   ];
   for (const [pattern, value] of nonmatching) {
-    const result = await inspectPattern(root, pattern, value, "i");
-    assert.equal(result.status, "invalid", `${pattern}: ${JSON.stringify(result.diagnostics)}`);
-    assert.ok(
-      result.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_RESULT"),
-      `${pattern}: ${JSON.stringify(result.diagnostics)}`,
-    );
+    assert.equal((await runPattern(pattern, value, "i")).conforms, false, pattern);
   }
 });
 
 test("SHACL XPath patterns keep line terminators, free-spacing escapes, and bounded parser work", async () => {
-  const root = await project();
   const nonmatching: [string, string, string][] = [
     ["^b$", "a\rb", "m"],
     ["a{1000000000}", "a", ""],
   ];
   for (const [pattern, value, flags] of nonmatching) {
-    const result = await inspectPattern(root, pattern, value, flags);
-    assert.equal(
-      result.status,
-      "invalid",
-      `${pattern}/${flags}: ${JSON.stringify(result.diagnostics)}`,
-    );
-    assert.ok(
-      result.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_RESULT"),
-      `${pattern}/${flags}: ${JSON.stringify(result.diagnostics)}`,
-    );
+    assert.equal((await runPattern(pattern, value, flags)).conforms, false, `${pattern}/${flags}`);
   }
 
-  const dotCarriageReturn = await inspectPattern(root, ".", "\r");
-  assert.equal(dotCarriageReturn.status, "ok", JSON.stringify(dotCarriageReturn.diagnostics));
-  assert.equal(
-    dotCarriageReturn.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_RESULT"),
-    false,
-  );
-
-  const freeSpacing = await inspectPattern(root, "^a\\ sb$", "a\tb", "x");
-  assert.equal(freeSpacing.status, "ok", JSON.stringify(freeSpacing.diagnostics));
-  assert.equal(
-    freeSpacing.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_RESULT"),
-    false,
-  );
+  assert.equal((await runPattern(".", "\r")).conforms, true);
+  assert.equal((await runPattern("^a\\ sb$", "a\tb", "x")).conforms, true);
 
   for (const pattern of ["(?:a)", "(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)(l\\12)"]) {
-    const result = await inspectPattern(root, pattern, "a", "");
-    assert.equal(result.status, "invalid", pattern);
-    assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_GRAPH_INVALID"));
+    rejectShapes(patternShape(pattern));
   }
 
-  const reluctant = await inspectPattern(root, "a+?", "a");
-  assert.equal(reluctant.status, "ok", JSON.stringify(reluctant.diagnostics));
-  assert.equal(
-    reluctant.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_RESULT"),
-    false,
-  );
+  assert.equal((await runPattern("a+?", "a")).conforms, true);
 });
 
-test("SHACL patterns reject JavaScript-only or malformed regex forms during preflight", async () => {
-  const root = await project();
+test("SHACL patterns reject JavaScript-only or malformed regex forms during preflight", () => {
   const rejected: [string, string][] = [
     ["(?=a)", ""],
     ["\\p{NoSuchCategory}", ""],
     ["[z-a]", ""],
     ["a", "q"],
   ];
-  for (const [pattern, flags] of rejected) {
-    const result = await inspectPattern(root, pattern, "a", flags);
-    assert.equal(result.status, "invalid", `${pattern}/${flags}`);
-    assert.equal(result.data?.validationComplete, false, `${pattern}/${flags}`);
-    assert.ok(
-      result.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_GRAPH_INVALID"),
-      `${pattern}/${flags}: ${JSON.stringify(result.diagnostics)}`,
-    );
-  }
+  for (const [pattern, flags] of rejected) rejectShapes(patternShape(pattern, flags));
+});
+
+test("public SHACL validation attributes pattern violations and malformed shapes", async () => {
+  const root = await project();
+  const data = 'ex:item ex:value "ae" .';
+  const matching = await inspect(root, data, patternShape("^\\i+$"));
+  assert.equal(matching.status, "ok", JSON.stringify(matching.diagnostics));
+  assert.equal(matching.data?.validationComplete, true);
+
+  const violated = await inspect(root, data, patternShape("^[a-z-[aeiou]]+$"));
+  assert.equal(violated.status, "invalid");
+  assert.equal(violated.data?.validationComplete, true);
+  const diagnostic = violated.diagnostics.find((item) => item.code === "SHACL_RESULT");
+  assert.ok(diagnostic, JSON.stringify(violated.diagnostics));
+  assert.equal(diagnostic.file, "model.ttl");
+  assert.equal(diagnostic.selector, "model.ttl");
+  assert.equal(diagnostic.shacl?.selector, "model.shacl.ttl");
+  assert.equal(diagnostic.shacl?.focusNode?.value, "urn:ex:item");
+  assert.equal(
+    diagnostic.shacl?.constraintComponent?.value,
+    "http://www.w3.org/ns/shacl#PatternConstraintComponent",
+  );
+
+  const malformed = await inspect(root, data, patternShape("(?=a)"));
+  assert.equal(malformed.status, "invalid");
+  assert.equal(malformed.data?.validationComplete, false);
+  assert.ok(
+    malformed.diagnostics.some(
+      (item) => item.code === "SHACL_GRAPH_INVALID" && item.file === "model.shacl.ttl",
+    ),
+    JSON.stringify(malformed.diagnostics),
+  );
 });
 
 test("Unicode SHACL string length counts Unicode code points", async () => {
@@ -365,8 +498,7 @@ test("SHACL dateTime range constraints reject values incomparable by timezone", 
   assert.equal(violations.length, 1, JSON.stringify(result.diagnostics));
 });
 
-test("SHACL preflight rejects repeated Core singleton parameters", async () => {
-  const root = await project();
+test("SHACL preflight rejects repeated Core singleton parameters", () => {
   const malformed = [
     'ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:pattern "a", "b" .',
     "ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:maxInclusive 1, 2 .",
@@ -383,15 +515,7 @@ test("SHACL preflight rejects repeated Core singleton parameters", async () => {
     "ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:qualifiedValueShape [ ]; sh:qualifiedValueShapesDisjoint true, false .",
     "ex:shape sh:targetNode ex:item; sh:severity sh:Warning, sh:Violation .",
   ];
-  for (const shapes of malformed) {
-    const result = await inspect(root, 'ex:item ex:value "x" .', shapes);
-    assert.equal(result.status, "invalid", shapes);
-    assert.equal(result.data?.validationComplete, false, shapes);
-    assert.ok(
-      result.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_GRAPH_INVALID"),
-      JSON.stringify(result.diagnostics),
-    );
-  }
+  for (const shapes of malformed) rejectShapes(shapes);
 });
 
 test("SHACL preflight validates target nodes, severity, and messages", async () => {
@@ -401,15 +525,7 @@ test("SHACL preflight validates target nodes, severity, and messages", async () 
     'ex:shape sh:severity "warning" .',
     'ex:shape sh:message "message"^^ex:customString .',
   ];
-  for (const shapes of malformed) {
-    const result = await inspect(root, "", shapes);
-    assert.equal(result.status, "invalid", shapes);
-    assert.equal(result.data?.validationComplete, false, shapes);
-    assert.ok(
-      result.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_GRAPH_INVALID"),
-      `${shapes}: ${JSON.stringify(result.diagnostics)}`,
-    );
-  }
+  for (const shapes of malformed) rejectShapes(shapes);
 
   const valid = await inspect(
     root,
@@ -443,15 +559,7 @@ test("SHACL preflight enforces literal range values and property-only parameters
     "ex:shape sh:targetNode ex:item; sh:path [ sh:inversePath ex:value; ex:extra true ] .",
     `ex:shape sh:targetNode ex:item; sh:sparql [ sh:prefixes [ sh:declare [ sh:prefix "ex: <urn:x:> PREFIX y"; sh:namespace "urn:ex:"^^xsd:anyURI ] ]; sh:select "SELECT $this WHERE { $this <urn:ex:p> ?value }" ] .`,
   ];
-  for (const shapes of malformed) {
-    const result = await inspect(root, "ex:item ex:value 1 .", shapes);
-    assert.equal(result.status, "invalid", shapes);
-    assert.equal(result.data?.validationComplete, false, shapes);
-    assert.ok(
-      result.diagnostics.some((diagnostic) => diagnostic.code === "SHACL_GRAPH_INVALID"),
-      `${shapes}: ${JSON.stringify(result.diagnostics)}`,
-    );
-  }
+  for (const shapes of malformed) rejectShapes(shapes);
 
   const orphanQualifiedCounts = await inspect(
     root,

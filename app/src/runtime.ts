@@ -9,8 +9,9 @@ import { combineErrors, hasCode, ProjectError } from "./output.ts";
 import { type ProcessIdentity, processIdentity, token } from "./ownership.ts";
 import { safePath } from "./paths.ts";
 import { opaqueToken, validOwnershipRecord } from "./recovery.ts";
+import { applicationVersion } from "./version.ts";
 
-export const applicationVersion = "0.1.0";
+export { applicationVersion } from "./version.ts";
 export const runtimePath = ".tbspec/runtime/web.json";
 const execute = promisify(execFile);
 const registrationLock = ".tbspec/runtime/registration.lock";

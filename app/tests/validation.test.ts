@@ -5,7 +5,12 @@ import { join } from "node:path";
 import test from "node:test";
 import { authorResource, prepareResource, publishResource } from "../src/authoring.ts";
 import { digest, graphSignature } from "../src/canonical.ts";
-import { captureInspection, inspectProject, inspectSnapshot } from "../src/inspection.ts";
+import {
+  captureInspection,
+  inspectProject,
+  inspectSnapshot,
+  type Validation,
+} from "../src/inspection.ts";
 import { exits } from "../src/output.ts";
 import { initializeProject } from "../src/project.ts";
 import { interpretationSignature, parseLock, writeToml } from "../src/schemas.ts";
@@ -380,6 +385,256 @@ test("view tuple membership and finite appearance conversion have separate diagn
   assert.ok(design.diagnostics.some((d) => d.code === "PRESENTATION_INVALID"));
 });
 
+test("complete graph validation resolves exact node and edge design rules for its canvas", async () => {
+  const root = await project();
+  await writeFile(
+    join(root, "model.ttl"),
+    `${prefixes} ex:model a t:ConcreteDataModel; t:modelType "data" . ex:item a ex:Child, ex:Other . ex:Child rdfs:subClassOf ex:Thing . ex:tied a ex:Thing . ex:plain ex:unknown ex:peer . ex:item ex:related ex:peer .`,
+  );
+  await writeFile(
+    join(root, "one.ttl"),
+    `${prefixes} ex:one a t:VisualDesignModel; t:rule ex:thingRule, ex:childRule, ex:otherRule, ex:edgeRule . ex:thingRule a t:NodeVisualRule; t:targetConcept ex:Thing; t:fillColor "#ddaa22" . ex:childRule a t:NodeVisualRule; t:targetConcept ex:Child; t:fillColor "#11aa22" . ex:otherRule a t:NodeVisualRule; t:targetConcept ex:Other; t:fillColor "#2244cc" . ex:edgeRule a t:EdgeVisualRule; t:targetConcept ex:related; t:strokeColor "#cc4422" .`,
+  );
+  await writeFile(
+    join(root, "two.ttl"),
+    `${prefixes} ex:two a t:VisualDesignModel; t:rule ex:thingRule . ex:thingRule a t:NodeVisualRule; t:targetConcept ex:Thing; t:fillColor "#9922aa" .`,
+  );
+
+  const result = await inspectProject({
+    project: root,
+    command: "validate",
+    selector: "model.ttl",
+  });
+  const data = result.data as unknown as
+    | {
+        effectivePresentation?: {
+          nodes: Record<string, { iri: string; appearance: Record<string, { value: string }> }>;
+          relationships: Record<
+            string,
+            { iri: string; appearance: Record<string, { value: string }> }
+          >;
+        };
+        designRuleOptions?: {
+          nodes: Record<
+            string,
+            { iri: string; targetConcept: string; appearance: Record<string, { value: string }> }[]
+          >;
+          relationships: Record<
+            string,
+            { iri: string; targetConcept: string; appearance: Record<string, { value: string }> }[]
+          >;
+        };
+      }
+    | undefined;
+
+  assert.deepEqual(
+    data?.designRuleOptions?.nodes["urn:ex:item"]?.map((rule) => rule.targetConcept).sort(),
+    ["urn:ex:Child", "urn:ex:Other"],
+    "only exact explicit types offer temporary choices; the subclass parent rule is excluded",
+  );
+  assert.equal(
+    data?.effectivePresentation?.nodes["urn:ex:item"],
+    undefined,
+    "the canvas waits for a temporary choice when multiple exact rules apply",
+  );
+  const edgeKey = JSON.stringify(["urn:ex:item", "urn:ex:related", "urn:ex:peer"]);
+  assert.equal(
+    data?.effectivePresentation?.relationships[edgeKey]?.appearance.strokeColor?.value,
+    "#cc4422",
+    "an unambiguous exact-predicate rule styles complete-graph edges",
+  );
+  assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "DESIGN_RULE_AMBIGUOUS"));
+  assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "DESIGN_RULE_UNCOVERED"));
+  assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "DESIGN_CONFLICT"));
+  assert.equal(
+    data?.effectivePresentation?.nodes["urn:ex:tied"],
+    undefined,
+    "a tied winning design leaves the complete-graph node generic",
+  );
+});
+
+test("persisted view rules must come from the exact target's winning design", async () => {
+  const root = await project();
+  const owl = "http://www.w3.org/2002/07/owl#";
+  await writeFile(
+    join(root, "model.ttl"),
+    `${prefixes} ex:model a t:ConcreteDataModel; t:modelType "data" . ex:Thing a owl:Class . ex:Child a owl:Class; rdfs:subClassOf ex:Thing .`,
+  );
+  await writeFile(
+    join(root, "winning.ttl"),
+    `${prefixes} ex:winning a t:VisualDesignModel; t:rule ex:winningRule, ex:winningEdgeRule . ex:winningRule a t:NodeVisualRule; t:targetConcept owl:Class . ex:winningEdgeRule a t:EdgeVisualRule; t:targetConcept <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> .`,
+  );
+  await writeFile(
+    join(root, "losing.ttl"),
+    `${prefixes} ex:losing a t:VisualDesignModel; t:rule ex:losingRule, ex:losingEdgeRule . ex:losingRule a t:NodeVisualRule; t:targetConcept owl:Class . ex:losingEdgeRule a t:EdgeVisualRule; t:targetConcept <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> .`,
+  );
+  await writeFile(
+    join(root, "view.ttl"),
+    `${prefixes} @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> . ex:view a t:ViewModel; t:sourceGraph ex:model; t:member ex:Thing, owl:Class; t:relationship [ rdf:subject ex:Thing; rdf:predicate rdf:type; rdf:object owl:Class ] .`,
+  );
+  await writeFile(
+    join(root, "presentation.ttl"),
+    `${prefixes} @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> . ex:presentation a t:PresentationGraph; t:forView ex:view; t:nodePresentation [ t:element ex:Thing; t:chosenRule ex:losingRule ]; t:relationshipPresentation [ rdf:subject ex:Thing; rdf:predicate rdf:type; rdf:object owl:Class; t:chosenRule ex:losingEdgeRule ] .`,
+  );
+  const manifest = await readFile(join(root, "tbspec.toml"), "utf8");
+  await writeFile(
+    join(root, "tbspec.toml"),
+    `${manifest}\n[design_choices]\n"${owl}Class" = "winning.ttl"\n"http://www.w3.org/1999/02/22-rdf-syntax-ns#type" = "winning.ttl"\n\n[[views]]\nview = "view.ttl"\nsource = "model.ttl"\npresentation = "presentation.ttl"\n`,
+  );
+
+  const invalid = await inspectProject({
+    project: root,
+    command: "validate",
+    selector: "presentation.ttl",
+  });
+  assert.equal(invalid.status, "invalid", JSON.stringify(invalid));
+  assert.ok(
+    invalid.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.code === "PRESENTATION_INVALID" && diagnostic.file === "presentation.ttl",
+    ),
+    JSON.stringify(invalid.diagnostics),
+  );
+
+  await writeFile(
+    join(root, "presentation.ttl"),
+    `${prefixes} @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> . ex:presentation a t:PresentationGraph; t:forView ex:view; t:nodePresentation [ t:element ex:Thing; t:chosenRule ex:winningRule ]; t:relationshipPresentation [ rdf:subject ex:Thing; rdf:predicate rdf:type; rdf:object owl:Class; t:chosenRule ex:winningEdgeRule ] .`,
+  );
+  const valid = await inspectProject({
+    project: root,
+    command: "validate",
+    selector: "presentation.ttl",
+  });
+  assert.equal(valid.status, "ok", JSON.stringify(valid));
+});
+
+test("visual rules match exact explicit types and chosen rules must apply to that type", async () => {
+  const root = await project();
+  await writeFile(
+    join(root, "ontology.ttl"),
+    `${prefixes} ex:ontology a owl:Ontology . ex:Thing a owl:Class . ex:Child a owl:Class; rdfs:subClassOf ex:Thing . ex:Other a owl:Class .`,
+  );
+  await writeFile(
+    join(root, "model.ttl"),
+    `${prefixes} ex:model a t:ConcreteDataModel; t:modelType "data" . ex:item a ex:Child, ex:Other . ex:generic a owl:Thing .`,
+  );
+  await writeFile(
+    join(root, "design.ttl"),
+    `${prefixes} ex:design a t:VisualDesignModel; t:rule ex:thingRule, ex:childRule, ex:otherRule . ex:thingRule a t:NodeVisualRule; t:targetConcept ex:Thing . ex:childRule a t:NodeVisualRule; t:targetConcept ex:Child . ex:otherRule a t:NodeVisualRule; t:targetConcept ex:Other .`,
+  );
+  await writeFile(
+    join(root, "view.ttl"),
+    `${prefixes} ex:view a t:ViewModel; t:sourceGraph ex:model; t:member ex:item, ex:generic .`,
+  );
+  await writeFile(
+    join(root, "presentation.ttl"),
+    `${prefixes} ex:presentation a t:PresentationGraph; t:forView ex:view; t:nodePresentation [ t:element ex:item ], [ t:element ex:generic ] .`,
+  );
+  const manifest = await readFile(join(root, "tbspec.toml"), "utf8");
+  await writeFile(
+    join(root, "tbspec.toml"),
+    `${manifest}\n[[associations]]\nresource = "model.ttl"\nsupport = "design.ttl"\nrole = "design"\n\n[[views]]\nview = "view.ttl"\nsource = "model.ttl"\npresentation = "presentation.ttl"\n`,
+  );
+
+  const ambiguous = await inspectProject({
+    project: root,
+    command: "validate",
+    selector: "presentation.ttl",
+  });
+  assert.equal(ambiguous.status, "ok", JSON.stringify(ambiguous.diagnostics));
+  assert.ok(
+    ambiguous.diagnostics.some((diagnostic) => diagnostic.code === "DESIGN_RULE_AMBIGUOUS"),
+  );
+  assert.ok(
+    ambiguous.diagnostics.some((diagnostic) => diagnostic.code === "DESIGN_RULE_UNCOVERED"),
+  );
+
+  await writeFile(
+    join(root, "presentation.ttl"),
+    `${prefixes} ex:presentation a t:PresentationGraph; t:forView ex:view; t:nodePresentation [ t:element ex:item; t:chosenRule ex:thingRule ] .`,
+  );
+  const ancestorChoice = await inspectProject({
+    project: root,
+    command: "validate",
+    selector: "presentation.ttl",
+  });
+  assert.equal(ancestorChoice.status, "invalid", JSON.stringify(ancestorChoice.diagnostics));
+  assert.ok(
+    ancestorChoice.diagnostics.some((diagnostic) => diagnostic.code === "PRESENTATION_INVALID"),
+  );
+
+  await writeFile(
+    join(root, "presentation.ttl"),
+    `${prefixes} ex:presentation a t:PresentationGraph; t:forView ex:view; t:nodePresentation [ t:element ex:item; t:chosenRule ex:childRule ] .`,
+  );
+  const exactChoice = await inspectProject({
+    project: root,
+    command: "validate",
+    selector: "presentation.ttl",
+  });
+  assert.equal(exactChoice.status, "ok", JSON.stringify(exactChoice.diagnostics));
+  const exactChoiceValidation = exactChoice.data as Validation | null;
+  assert.equal(
+    exactChoiceValidation?.effectivePresentation?.nodes["urn:ex:item"]?.iri,
+    "urn:ex:childRule",
+  );
+});
+
+test("equal-precedence owned designs conflict and an exact consuming choice resolves the tie", async () => {
+  const root = await project();
+  await writeFile(
+    join(root, "model.ttl"),
+    `${prefixes} ex:model a t:ConcreteDataModel; t:modelType "data" . ex:item a owl:Class .`,
+  );
+  for (const [name, rule] of [
+    ["one", "oneRule"],
+    ["two", "twoRule"],
+  ])
+    await writeFile(
+      join(root, `${name}.ttl`),
+      `${prefixes} ex:${name} a t:VisualDesignModel; t:rule ex:${rule} . ex:${rule} a t:NodeVisualRule; t:targetConcept owl:Class .`,
+    );
+  await writeFile(
+    join(root, "view.ttl"),
+    `${prefixes} ex:view a t:ViewModel; t:sourceGraph ex:model; t:member ex:item .`,
+  );
+  await writeFile(
+    join(root, "presentation.ttl"),
+    `${prefixes} ex:presentation a t:PresentationGraph; t:forView ex:view; t:nodePresentation [ t:element ex:item ] .`,
+  );
+  const original = await readFile(join(root, "tbspec.toml"), "utf8");
+  const views = `${original}\n[[views]]\nview = "view.ttl"\nsource = "model.ttl"\npresentation = "presentation.ttl"\n`;
+  await writeFile(join(root, "tbspec.toml"), views);
+
+  const tied = await inspectProject({
+    project: root,
+    command: "validate",
+    selector: "presentation.ttl",
+  });
+  assert.equal(tied.status, "invalid", JSON.stringify(tied.diagnostics));
+  assert.ok(tied.diagnostics.some((diagnostic) => diagnostic.code === "DESIGN_CONFLICT"));
+
+  await writeFile(
+    join(root, "tbspec.toml"),
+    `${views}\n[design_choices]\n"http://www.w3.org/2002/07/owl#Class" = "one.ttl"\n`,
+  );
+  await writeFile(
+    join(root, "presentation.ttl"),
+    `${prefixes} ex:presentation a t:PresentationGraph; t:forView ex:view; t:nodePresentation [ t:element ex:item; t:chosenRule ex:oneRule ] .`,
+  );
+  const selected = await inspectProject({
+    project: root,
+    command: "validate",
+    selector: "presentation.ttl",
+  });
+  assert.equal(selected.status, "ok", JSON.stringify(selected.diagnostics));
+  const selectedValidation = selected.data as Validation | null;
+  assert.equal(
+    selectedValidation?.effectivePresentation?.nodes["urn:ex:item"]?.iri,
+    "urn:ex:oneRule",
+  );
+});
+
 test("locked external models retain source bindings and selected validation excludes unused snapshots", async () => {
   const root = await project();
   const lock = parseLock(await readFile(join(root, "tbspec.lock"), "utf8"));
@@ -397,7 +652,7 @@ test("locked external models retain source bindings and selected validation excl
   assert.ok(primary);
   primary.graph_iri = "urn:external-model";
   const bytes = Buffer.from(
-    `${prefixes} @prefix p: <http://purl.org/net/p-plan#> . <${primary.graph_iri}> a t:ProcessModel, p:Plan; t:modelType "data" . ex:step a p:Step; p:isStepOfPlan <${primary.graph_iri}> .`,
+    `${prefixes} @prefix p: <http://purl.org/net/p-plan#> . <${primary.graph_iri}> a t:ProcessModel, p:Plan; t:modelType "data" . ex:step a p:Step; p:isStepOfPlan <${primary.graph_iri}> . ex:item a owl:Class .`,
   );
   dep.kind = "model";
   primary.kind = "process-model";
@@ -412,6 +667,53 @@ test("locked external models retain source bindings and selected validation excl
       schemas: [],
     },
   ];
+  const designFile = (key: string, sourceResource: string, graphIri: string, bytes: Buffer) => {
+    const file = {
+      ...primary,
+      key,
+      source_resource: sourceResource,
+      roles: ["design"],
+      kind: "design",
+      classification: "declared",
+      identity: "declared",
+      graph_iri: graphIri,
+      source_graph_iri: graphIri,
+      byte_digest: digest(bytes),
+      byte_length: bytes.length,
+    };
+    file.graph_signature = graphSignature(file);
+    return file;
+  };
+  const retainedDesign = Buffer.from(
+    `${prefixes} <urn:retained-design> a t:VisualDesignModel; t:rule ex:retainedRule . ex:retainedRule a t:NodeVisualRule; t:targetConcept owl:Class .`,
+  );
+  const retained = designFile(
+    "source/retained.design.ttl",
+    "retained.design.ttl",
+    "urn:retained-design",
+    retainedDesign,
+  );
+  dep.files.push(retained);
+  await writeFile(join(root, dep.snapshot_path, retained.key), retainedDesign);
+  const activeDesign = Buffer.from(
+    `${prefixes} @prefix p: <http://purl.org/net/p-plan#> . <urn:active-design> a t:VisualDesignModel; t:rule ex:activeRule . ex:activeRule a t:NodeVisualRule; t:targetConcept p:Step .`,
+  );
+  const active = designFile(
+    "source/active.design.ttl",
+    "active.design.ttl",
+    "urn:active-design",
+    activeDesign,
+  );
+  dep.files.push(active);
+  dep.associations.push({
+    context: primary.context,
+    resource: primary.key,
+    support: active.key,
+    role: "design",
+    origin: "source",
+    active: true,
+  });
+  await writeFile(join(root, dep.snapshot_path, active.key), activeDesign);
   dep.interpretation_signature = interpretationSignature(dep);
   parseLock(writeToml(lock));
   await writeFile(join(root, dep.snapshot_path, dep.primary), bytes);
@@ -429,6 +731,12 @@ test("locked external models retain source bindings and selected validation excl
     selector: "dep:source-model",
   });
   assert.equal(selected.status, "ok", JSON.stringify(selected));
+  const selectedValidation = selected.data as Validation | null;
+  assert.deepEqual(selectedValidation?.designRuleOptions?.nodes["urn:ex:item"], []);
+  assert.deepEqual(
+    selectedValidation?.designRuleOptions?.nodes["urn:ex:step"]?.map((rule) => rule.iri),
+    ["urn:ex:activeRule"],
+  );
   const whole = await inspectProject({ project: root, command: "validate" });
   assert.equal(whole.status, "invalid");
   assert.ok(whole.diagnostics.some((d) => d.code === "SNAPSHOT_INTEGRITY"));
@@ -678,10 +986,19 @@ test("whole validation keeps independently source-bound vocabulary versions out 
     const vocabulary = Buffer.from(
       `${prefixes} ex:vocabulary a owl:Ontology; rdfs:label "${id}" . ex:Thing a owl:Class .`,
     );
+    const vocabularyContext = id === "source-two" ? "vocabulary-context" : primary.context;
+    if (id === "source-two")
+      dep.sources.push({
+        id: vocabularyContext,
+        kind: "directory",
+        locator: root,
+        selected_resource: "vocabulary.ttl",
+      });
     const file = {
       ...primary,
       key: "source/vocabulary.ttl",
       source_resource: "vocabulary.ttl",
+      context: vocabularyContext,
       roles: ["vocabulary"],
       kind: "ontology",
       graph_iri: "urn:ex:vocabulary",
@@ -694,6 +1011,33 @@ test("whole validation keeps independently source-bound vocabulary versions out 
     dep.edges = [
       { context: primary.context, from: primary.key, relation: "vocabulary", to: file.key },
     ];
+    if (id === "source-two") {
+      const alternateVocabulary = Buffer.from(
+        `${prefixes} ex:vocabulary a owl:Ontology; rdfs:label "${id} alternate" . ex:Thing a owl:Class .`,
+      );
+      const alternate = {
+        ...file,
+        key: "source/vocabulary-alternate.ttl",
+        source_resource: "vocabulary-alternate.ttl",
+        byte_digest: digest(alternateVocabulary),
+        byte_length: alternateVocabulary.length,
+      };
+      alternate.graph_signature = graphSignature(alternate);
+      dep.files.push(alternate);
+      dep.edges.push({
+        context: primary.context,
+        from: primary.key,
+        relation: "vocabulary",
+        to: alternate.key,
+      });
+      dep.choices.push({
+        context: vocabularyContext,
+        kind: "ontology",
+        target_iri: "urn:ex:vocabulary",
+        selected: alternate.key,
+      });
+      await writeFile(join(root, dep.snapshot_path, alternate.key), alternateVocabulary);
+    }
     dep.bindings = [
       { context: primary.context, resource: primary.key, ontologies: [file.key], schemas: [] },
     ];
@@ -708,6 +1052,19 @@ test("whole validation keeps independently source-bound vocabulary versions out 
       (await inspectProject({ project: root, command: "validate", selector: `dep:${id}` })).status,
       "ok",
     );
+  await writeFile(
+    join(root, "tbspec.toml"),
+    `${await readFile(join(root, "tbspec.toml"), "utf8")}\n[ontology_choices]\n"urn:ex:vocabulary" = "source-two"\n\n[model_types."review-data"]\nenabled = true\nontology = "dep:source-two/source/vocabulary.ttl"\n`,
+  );
+  await writeFile(
+    join(root, "model.ttl"),
+    `${prefixes} ex:model a t:ConcreteDataModel; t:modelType "review-data" . ex:item a ex:Thing .`,
+  );
+  for (const id of ["source-one", "source-two"])
+    assert.equal(
+      (await inspectProject({ project: root, command: "validate", selector: `dep:${id}` })).status,
+      "ok",
+    );
   const whole = await inspectProject({ project: root, command: "validate" });
-  assert.equal(whole.status, "ok", JSON.stringify(whole.diagnostics));
+  assert.equal(whole.status, "ok", JSON.stringify(whole));
 });
