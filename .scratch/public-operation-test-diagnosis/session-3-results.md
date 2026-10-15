@@ -17,14 +17,14 @@ Five fresh-process samples per version, entry and command, alternating baseline/
 
 These measurements include complete command startup, project access and shutdown. They do not isolate import time or establish a latency guarantee for populated projects. No test, build, package verifier or other benchmark from this task overlapped these accepted command samples. Filesystem caches are warm and ordinary desktop activity is uncontrolled.
 
-| Entry    | Command       |          Before median (range) |       After median (range) | Median reduction |
-| -------- | ------------- | -----------------------------: | -------------------------: | ---------------: |
-| Source   | `config show` | 1,068.9 ms (1,037.6â€“1,133.7) |   860.4 ms (842.5â€“869.3) |            19.5% |
-| Source   | `model list`  | 1,150.4 ms (1,126.9â€“1,194.7) | 953.8 ms (931.7â€“1,031.1) |            17.1% |
-| Source   | `query list`  | 1,456.6 ms (1,385.6â€“1,478.8) | 983.1 ms (962.3â€“1,031.2) |            32.5% |
-| Compiled | `config show` |       952.1 ms (928.0â€“978.1) |   795.2 ms (769.4â€“834.8) |            16.5% |
-| Compiled | `model list`  | 1,047.4 ms (1,004.9â€“1,073.1) |   892.0 ms (851.3â€“956.7) |            14.8% |
-| Compiled | `query list`  | 1,370.3 ms (1,310.4â€“1,388.5) |   907.4 ms (875.9â€“948.6) |            33.8% |
+| Entry    | Command       |        Before median (range) |     After median (range) | Median reduction |
+| -------- | ------------- | ---------------------------: | -----------------------: | ---------------: |
+| Source   | `config show` | 1,068.9 ms (1,037.6–1,133.7) |   860.4 ms (842.5–869.3) |            19.5% |
+| Source   | `model list`  | 1,150.4 ms (1,126.9–1,194.7) | 953.8 ms (931.7–1,031.1) |            17.1% |
+| Source   | `query list`  | 1,456.6 ms (1,385.6–1,478.8) | 983.1 ms (962.3–1,031.2) |            32.5% |
+| Compiled | `config show` |       952.1 ms (928.0–978.1) |   795.2 ms (769.4–834.8) |            16.5% |
+| Compiled | `model list`  | 1,047.4 ms (1,004.9–1,073.1) |   892.0 ms (851.3–956.7) |            14.8% |
+| Compiled | `query list`  | 1,370.3 ms (1,310.4–1,388.5) |   907.4 ms (875.9–948.6) |            33.8% |
 
 All six operational before/after ranges are separated in this small local sample. Help/version ranges overlap; their small variations are not evidence of a meaningful change. Compiled help medians are 70.5/67.4 ms and version medians 69.2/66.7 ms.
 
@@ -34,11 +34,11 @@ Separate loader traces confirm the mechanism: config/model listing now resolves 
 
 Three serial unchanged-workload baseline rounds passed before production edits, followed by three passing current rounds. Both versions use the same source-override hook, including their spawned CLI processes, and fresh per-test projects. Each cell sums top-level test-body elapsed time, excluding file loading and test-runner startup. No test, build, installed verifier or other benchmark from this task overlapped these samples. The batches were taken before/after rather than randomized or alternated; ordinary desktop activity remains a source of variation.
 
-| Workload                                                                |      Before median (range) |       After median (range) | Median reduction |
-| ----------------------------------------------------------------------- | -------------------------: | -------------------------: | ---------------: |
-| Dependency CLI group, three cases consolidated into two                 | 179.24 s (177.11â€“207.02) | 140.06 s (139.89â€“144.20) |            21.9% |
-| Entire SHACL Core file, including the new public attribution case       |    45.86 s (44.68â€“47.13) |    29.56 s (28.94â€“30.16) |            35.5% |
-| Design create/show and namespace group, two cases consolidated into one |    11.15 s (11.00â€“12.96) |       8.29 s (8.10â€“8.55) |            25.6% |
+| Workload                                                                |    Before median (range) |     After median (range) | Median reduction |
+| ----------------------------------------------------------------------- | -----------------------: | -----------------------: | ---------------: |
+| Dependency CLI group, three cases consolidated into two                 | 179.24 s (177.11–207.02) | 140.06 s (139.89–144.20) |            21.9% |
+| Entire SHACL Core file, including the new public attribution case       |    45.86 s (44.68–47.13) |    29.56 s (28.94–30.16) |            35.5% |
+| Design create/show and namespace group, two cases consolidated into one |    11.15 s (11.00–12.96) |       8.29 s (8.10–8.55) |            25.6% |
 
 All three ranges are separated in this local sample. These reductions combine less repeated test work and the production import changes; they are not an isolated measurement of either contribution. The CLI group includes the retained canonical-source case as well as the merged update/support case. No full-suite or pipeline speedup percentage is claimed.
 
