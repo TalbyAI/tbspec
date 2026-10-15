@@ -4683,6 +4683,6 @@
       "rawCheck": "check-final.log"
     }
   },
-  "temporaryEvidence": "C:/Users/iskan/AppData/Local/Temp/tbspec-performance-session-3-c59f78c",
+  "temporaryEvidence": "%TEMP%/tbspec-performance-session-3-c59f78c",
   "completedAt": "2026-10-15T16:05:00.914Z"
 }
