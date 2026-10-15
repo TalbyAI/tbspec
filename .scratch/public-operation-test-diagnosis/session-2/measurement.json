@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "date": "2026-10-15",
   "baselineCommit": "829d0b129defc850a6ddf352a37bf158fb7ca389",
-  "rawEvidenceDirectory": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-session-2-829d0b1",
+  "rawEvidenceDirectory": "%TEMP%\\tbspec-performance-session-2-829d0b1",
   "environment": {
     "node": "v24.14.1",
     "platform": "win32",
@@ -1484,7 +1484,7 @@
       "startedAt": "2026-10-15T13:58:12.893Z",
       "finishedAt": "2026-10-15T14:09:58.037Z",
       "completedTopLevel": 0,
-      "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-session-2-829d0b1\\packed-verification.log"
+      "log": "%TEMP%\\tbspec-performance-session-2-829d0b1\\packed-verification.log"
     },
     {
       "name": "full-suite",
@@ -1493,7 +1493,7 @@
       "startedAt": "2026-10-15T13:58:12.876Z",
       "finishedAt": "2026-10-15T14:38:56.769Z",
       "completedTopLevel": 302,
-      "log": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-performance-session-2-829d0b1\\full-suite.log"
+      "log": "%TEMP%\\tbspec-performance-session-2-829d0b1\\full-suite.log"
     }
   ],
   "limits": [
