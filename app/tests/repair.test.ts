@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import * as filesystem from "node:fs/promises";
 import { mkdir, mkdtemp, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -47,6 +48,41 @@ async function project() {
   assert.equal((await initializeProject({ directory: root })).status, "ok");
   return root;
 }
+
+test("reference inspection bounds starter loading within each captured operation", async () => {
+  const root = await project();
+  const script = `
+    import assert from "node:assert/strict";
+    import fs from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    import { listReferences } from ${JSON.stringify(new URL("../src/repair.ts", import.meta.url).href)};
+    const original = fs.readFile;
+    let inventories = 0;
+    fs.readFile = async (path, ...args) => {
+      if (String(path).endsWith("/inventory.toml")) inventories++;
+      return original(path, ...args);
+    };
+    syncBuiltinESMExports();
+    try {
+      let previousInventories = 0;
+      for (let operation = 1; operation <= 2; operation++) {
+        const result = await listReferences({ project: process.argv[1] });
+        assert.equal(result.status, "ok", JSON.stringify(result));
+        assert.ok(result.data.items.length > 0);
+        const loaded = inventories - previousInventories;
+        assert.ok(loaded > 0 && loaded <= 3, "Interpretation, validation and reference parsing each verify at most one bundle: " + loaded);
+        previousInventories = inventories;
+      }
+    } finally { fs.readFile = original; syncBuiltinESMExports(); }
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script, root], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 30000,
+    maxBuffer: 1024 * 1024,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
 
 async function addLockedReference(root: string, target: string) {
   const lock = parseLock(await readFile(join(root, "tbspec.lock"), "utf8"));

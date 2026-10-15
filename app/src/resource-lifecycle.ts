@@ -36,6 +36,11 @@ import {
 
 export type LifecycleResourceKind = "ontology" | "model" | "design" | "shapes" | "model-type";
 
+interface LifecycleSnapshot extends Snapshot {
+  ownedPaths: string[];
+  vettedDigest?: Promise<string>;
+}
+
 export interface LifecycleOptions {
   project?: string;
   cwd?: string;
@@ -141,7 +146,7 @@ async function parseOwnedGraph(root: string, path: string, bytes: Buffer): Promi
 
 async function parseSnapshotGraph(
   root: string,
-  snapshot: Snapshot & { ownedPaths: string[] },
+  snapshot: LifecycleSnapshot,
   path: string,
   lock: Lock,
 ) {
@@ -153,7 +158,10 @@ async function parseSnapshotGraph(
       .filter((record) => `${dependency.snapshot_path}/${record.key}` === path)
       .map((record) => ({ id, record })),
   )[0];
-  if (locked) return parseGraph(bytes, locked.record, (await loadStarters()).vettedDigest, path);
+  if (locked) {
+    snapshot.vettedDigest ??= loadStarters().then((starters) => starters.vettedDigest);
+    return parseGraph(bytes, locked.record, await snapshot.vettedDigest, path);
+  }
   return parseOwnedGraph(root, path, bytes);
 }
 

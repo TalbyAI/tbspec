@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import { mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -28,6 +29,37 @@ async function project() {
   assert.equal((await initializeProject({ directory: root })).status, "ok");
   return fs.realpath(root);
 }
+
+test("resource impact bounds starter loading while scanning locked references", async () => {
+  const root = await project();
+  await writeFile(join(root, "owned.ttl"), `<urn:owned> a <${owl}Ontology> .`);
+  const script = `
+    import assert from "node:assert/strict";
+    import fs from "node:fs/promises";
+    import { syncBuiltinESMExports } from "node:module";
+    import { inspectImpact } from ${JSON.stringify(new URL("../src/resource-lifecycle.ts", import.meta.url).href)};
+    const original = fs.readFile;
+    let inventories = 0;
+    fs.readFile = async (path, ...args) => {
+      if (String(path).endsWith("/inventory.toml")) inventories++;
+      return original(path, ...args);
+    };
+    syncBuiltinESMExports();
+    try {
+      const result = await inspectImpact({ project: process.argv[1], kind: "ontology", selector: "owned.ttl" });
+      assert.equal(result.status, "ok", JSON.stringify(result));
+      assert.ok(inventories > 0);
+      assert.ok(inventories <= 2, "Capture and interpretation must not reload the bundle per locked graph: " + inventories);
+    } finally { fs.readFile = original; syncBuiltinESMExports(); }
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script, root], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 30000,
+    maxBuffer: 1024 * 1024,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
 
 async function addLockedReference(root: string, target: string) {
   const lock = parseLock(await readFile(join(root, "tbspec.lock"), "utf8"));

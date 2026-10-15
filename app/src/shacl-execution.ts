@@ -157,7 +157,8 @@ export async function runShapes(prepared: Store, data: Store) {
     }
   }
   const dataset = paths.size ? new PathDataset([...data]) : data;
-  const engine = new QueryEngine();
+  let engine: QueryEngine | undefined;
+  const queryEngine = () => (engine ??= new QueryEngine());
   const bindings = new BindingsFactory(DataFactory);
   const localSparql = DataFactory.namedNode(`urn:tbspec:sparql:${randomUUID()}`);
   const queries = new Map<string, { query: string; messages: Term[] }[]>();
@@ -180,7 +181,7 @@ export async function runShapes(prepared: Store, data: Store) {
   const compile = (shape: { ptr: { term: Term } }) => {
     const validate = async (context: ConstraintContext) => {
       for (const constraint of queries.get(key(shape.ptr.term)) ?? []) {
-        const stream = await engine.queryBindings(constraint.query, {
+        const stream = await queryEngine().queryBindings(constraint.query, {
           sources: [data],
           initialBindings: bindings.fromRecord({ this: context.focusNode.term }),
         });
@@ -253,7 +254,7 @@ export async function runShapes(prepared: Store, data: Store) {
       }
     }
     try {
-      const stream = await engine.queryBindings(
+      const stream = await queryEngine().queryBindings(
         `SELECT (?left ${operator} ?right AS ?result) WHERE {}`,
         {
           sources: [data],

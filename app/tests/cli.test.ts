@@ -5,11 +5,98 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { authorResource } from "../src/authoring.ts";
+import { parseCli } from "../src/cli-command.ts";
 import { dependencyAdd, dependencyList, dependencyRename } from "../src/dependencies.ts";
+import { exits, failure } from "../src/output.ts";
 import { discoverProject, initializeProject } from "../src/project.ts";
 
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const offline = new URL("fixtures/offline.ts", import.meta.url).href;
+
+test("CLI guidance and argument errors do not load project operation modules", () => {
+  for (const args of [
+    ["--help"],
+    ["--version"],
+    ["llms", "views", "designs"],
+    ["validate", "--confirm"],
+  ]) {
+    const script = `
+      import { registerHooks } from "node:module";
+      registerHooks({ resolve(specifier, context, nextResolve) {
+        if (/(?:authoring|configuration|console|dependencies|designs|inspection|project|query|repair|resource-lifecycle|views|web|shacl-execution)\\.ts$/.test(specifier))
+          throw new Error("Unexpected project module: " + specifier);
+        return nextResolve(specifier, context);
+      }});
+      process.argv = [process.execPath, ${JSON.stringify(cli)}, ...${JSON.stringify(args)}, "--json"];
+      await import(${JSON.stringify(new URL("../src/cli.ts", import.meta.url).href)});
+    `;
+    const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+      encoding: "utf8",
+      windowsHide: true,
+      env: { ...process.env, PATH: "" },
+      timeout: 10000,
+    });
+    assert.equal(result.status, args[0] === "validate" ? 2 : 0, result.stderr);
+    assert.equal(result.stdout.trim().split("\n").length, 1);
+    assert.equal(JSON.parse(result.stdout).schemaVersion, 1);
+  }
+});
+
+test("CLI preparation defers project work and query file reads", () => {
+  const script = `
+    import assert from "node:assert/strict";
+    import { registerHooks } from "node:module";
+    registerHooks({ resolve(specifier, context, nextResolve) {
+      if (/(?:project|query|web)\\.ts$/.test(specifier))
+        throw new Error("Preparation loaded an operation: " + specifier);
+      return nextResolve(specifier, context);
+    }});
+    const { parseCli } = await import(${JSON.stringify(new URL("../src/cli-command.ts", import.meta.url).href)});
+    const before = process.cwd();
+    for (const args of [
+      ["init", "not-created-by-preparation"],
+      ["query", "save", "example", "--file", "nonexistent-query.rq", "--parameters", "nonexistent-parameters.toml"],
+      ["query", "run", "--file", "nonexistent-query.rq", "--bindings", "nonexistent-bindings.json"],
+      ["web", "--port", "12345"],
+    ]) {
+      const invocation = parseCli(args);
+      assert.equal(typeof invocation.execute, "function");
+    }
+    assert.equal(process.cwd(), before);
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 10000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("CLI process preserves plain help and version output", () => {
+  for (const args of [["--help"], ["--version"]]) {
+    const result = spawnSync(process.execPath, ["--import", offline, cli, ...args], {
+      encoding: "utf8",
+      windowsHide: true,
+      env: { ...process.env, PATH: "" },
+      timeout: 10000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.ok(result.stdout.endsWith("\n"));
+    assert.ok(result.stdout.trim());
+    assert.ok(!result.stdout.startsWith("{"));
+  }
+});
+
+async function interpret(args: string[]) {
+  try {
+    return await parseCli(args).execute();
+  } catch (error) {
+    return failure(error);
+  }
+}
+
 function invoke(args: string[], cwd: string) {
   const result = spawnSync(process.execPath, ["--import", offline, cli, ...args, "--json"], {
     cwd,
@@ -34,9 +121,12 @@ function invoke(args: string[], cwd: string) {
 test("CLI validates, lists shapes and confirms schema removal offline with exact signatures", async () => {
   const root = await mkdtemp(join(tmpdir(), "tb-cli-validate-"));
   await initializeProject({ directory: root, baseIri: "urn:cli:/" });
+  for (const options of [
+    { command: "model.create", path: "schema.ttl", type: "data" },
+    { command: "model.create", path: "model.ttl", type: "data", profile: "concrete" },
+  ] as const)
+    assert.equal((await authorResource({ project: root, ...options })).status, "ok");
   for (const args of [
-    ["model", "create", "schema.ttl", "--type", "data"],
-    ["model", "create", "model.ttl", "--type", "data", "--profile", "concrete"],
     ["model", "schema", "add", "model.ttl", "schema.ttl"],
     ["shapes", "create", "model.ttl"],
   ])
@@ -993,30 +1083,48 @@ test("help/version, argument errors and recursive llms produce exactly one envel
     ["llms", "views", "designs"],
     ["llms", "safety", "recovery"],
   ]) {
-    const result = invoke(args, cwd);
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.envelope.status, "ok");
-    assert.equal(result.stderr, "");
+    const result = await interpret(args);
+    assert.equal(result.status, "ok", JSON.stringify(result));
+    assert.deepEqual(Object.keys(result).sort(), [
+      "data",
+      "diagnostics",
+      "schemaVersion",
+      "status",
+    ]);
+    assert.equal(result.schemaVersion, 1);
+    assert.deepEqual(result.diagnostics, []);
+    if (args.join(" ") === "llms views designs") {
+      assert.match(JSON.stringify(result.data), /design import/);
+      assert.match(JSON.stringify(result.data), /nearest inherited dependency/);
+      assert.match(JSON.stringify(result.data), /presentation graph/);
+    }
   }
-  const designHelp = invoke(["llms", "views", "designs"], cwd);
-  assert.equal(designHelp.status, 0, designHelp.stderr);
-  assert.match(JSON.stringify(designHelp.envelope.data), /design import/);
-  assert.match(JSON.stringify(designHelp.envelope.data), /nearest inherited dependency/);
-  assert.match(JSON.stringify(designHelp.envelope.data), /presentation graph/);
   for (const args of [
     ["unknown"],
     ["init", "--base-iri"],
     ["init", "a", "b"],
     ["--unknown", "--help"],
-    ["init", "--base-iri", "relative/"],
-    ["init", "--base-iri", "https://example.org/no-trailing-slash"],
     ["llms", "projects", "missing"],
     ["init", "--project", cwd, "other"],
   ]) {
+    const result = await interpret(args);
+    assert.equal(result.status, "invalid_arguments", JSON.stringify(result));
+    assert.equal(exits[result.status], 2);
+    assert.equal(result.diagnostics[0]?.code, "ARGUMENT_INVALID");
+  }
+  for (const args of [
+    ["--help"],
+    ["--version"],
+    ["--unknown", "--help"],
+    ["init", "--base-iri", "relative/"],
+    ["init", "--base-iri", "https://example.org/no-trailing-slash"],
+  ]) {
     const result = invoke(args, cwd);
-    assert.equal(result.status, 2, result.stderr);
-    assert.equal(result.envelope.status, "invalid_arguments");
-    assert.match(result.stderr, /ARGUMENT_INVALID/);
+    const invalid = args.includes("--unknown") || args.includes("--base-iri");
+    assert.equal(result.status, invalid ? 2 : 0, result.stderr);
+    assert.equal(result.envelope.status, invalid ? "invalid_arguments" : "ok");
+    if (invalid) assert.match(result.stderr, /ARGUMENT_INVALID/);
+    else assert.equal(result.stderr, "");
   }
 });
 test("CLI init works with Node alone, preserves ignore bytes and explicit root overrides discovery", async () => {

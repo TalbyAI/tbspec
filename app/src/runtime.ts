@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { chmod, mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -10,13 +9,9 @@ import { combineErrors, hasCode, ProjectError } from "./output.ts";
 import { type ProcessIdentity, processIdentity, token } from "./ownership.ts";
 import { safePath } from "./paths.ts";
 import { opaqueToken, validOwnershipRecord } from "./recovery.ts";
+import { applicationVersion } from "./version.ts";
 
-const applicationPackage = JSON.parse(
-  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-) as { name?: unknown; version?: unknown };
-if (applicationPackage.name !== "tbspec" || typeof applicationPackage.version !== "string")
-  throw new Error("Installed tbspec package metadata is missing its name or version.");
-export const applicationVersion = applicationPackage.version;
+export { applicationVersion } from "./version.ts";
 export const runtimePath = ".tbspec/runtime/web.json";
 const execute = promisify(execFile);
 const registrationLock = ".tbspec/runtime/registration.lock";

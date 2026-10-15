@@ -1,0 +1,772 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-15",
+  "commit": "720d3496595f74c1f5c52785965dc7b3b1d33412",
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "release": "10.0.26200",
+    "cpu": "Intel Core i9-10900K",
+    "logicalCpus": 20,
+    "memoryGiB": 63.92034912109375,
+    "node": "24.14.1",
+    "npm": "11.17.0"
+  },
+  "rawLocalEvidenceDirectory": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-test-diagnostic-720d349",
+  "timingNotes": [
+    "Local full-suite sample deliberately interrupted after 21 completed results; not a passing full-suite run.",
+    "All profiling spans are inclusive elapsed wall time; nested spans and subprocess/process lifetimes must not be summed.",
+    "Profile traces include synchronous diagnostic writes. Speedup comparison is uninstrumented.",
+    "Warm caches and normal desktop activity are not controlled; no competing test benchmarks ran."
+  ],
+  "ci": {
+    "url": "https://github.com/TalbyAI/tbspec/actions/runs/38625060912",
+    "node": "24.19.0",
+    "rawLogSha256": "9c95fafb17de9af70216178dc2b1b0e36486911506287476ba22d1f41a0f014c",
+    "sourceSteps": [
+      {
+        "job": "Node 24 application (macOS ARM)",
+        "url": "https://github.com/TalbyAI/tbspec/actions/runs/38625060912/job/116061991225",
+        "result": "success",
+        "wallSeconds": 2304.0,
+        "testCount": 292,
+        "testBodySeconds": 2282.436162159,
+        "fileBodySeconds": {
+          "cli.test.ts": 559.0741687080001,
+          "dependencies.test.ts": 353.564403001,
+          "repair.test.ts": 240.895209708,
+          "resource-lifecycle.test.ts": 197.94642004099998,
+          "web.test.ts": 105.650121378,
+          "element-deletion-web.test.ts": 96.71414729,
+          "editing.test.ts": 79.244290498,
+          "views-layout-web.test.ts": 60.539095790999994,
+          "views-transaction.test.ts": 53.4750615,
+          "repair-web.test.ts": 48.159889083,
+          "views-cli.test.ts": 45.277504999,
+          "configuration.test.ts": 41.42087421,
+          "editor-design-web.test.ts": 39.108804333,
+          "validation.test.ts": 38.66590929200001,
+          "views-web.test.ts": 31.295210292,
+          "shacl-core.test.ts": 29.426333911999997,
+          "dependencies-transaction.test.ts": 24.748618084,
+          "dependency-sources.test.ts": 21.838446917,
+          "configuration-web.test.ts": 19.702143791999998,
+          "state-machine-web.test.ts": 19.46448625,
+          "resource-lifecycle-web.test.ts": 18.185222833,
+          "editing-web.test.ts": 15.677017791,
+          "element-deletion-transaction.test.ts": 15.619087625,
+          "state-machine.test.ts": 15.346751376,
+          "schema-impact.test.ts": 13.472183248999999,
+          "web-process.test.ts": 12.808059625,
+          "queries.test.ts": 12.778781082000002,
+          "authoring.test.ts": 12.068167459,
+          "validation-web.test.ts": 11.477386583,
+          "inspection.test.ts": 10.793219580999999,
+          "inspection-retention.test.ts": 10.177420624999998,
+          "authoring-web.test.ts": 9.888771293,
+          "runtime.test.ts": 7.513627415,
+          "resources.test.ts": 6.092504,
+          "schemas.test.ts": 1.760942207,
+          "ownership.test.ts": 1.1434019579999999,
+          "project.test.ts": 0.590448375,
+          "transactions.test.ts": 0.331779376,
+          "macos-ownership.test.ts": 0.234538542,
+          "locator-policy.test.ts": 0.11303687399999998,
+          "paths.test.ts": 0.100922793,
+          "shacl-regex.test.ts": 0.026064625,
+          "previews.test.ts": 0.012686541999999999,
+          "rdfxml-security.test.ts": 0.005127917,
+          "views-workspace.test.ts": 0.003752875,
+          "diagnostic-impact.test.ts": 0.003485625,
+          "editor-drafts.test.ts": 0.000634834
+        }
+      },
+      {
+        "job": "Node 24 application (macOS Intel source partition 2/3)",
+        "url": "https://github.com/TalbyAI/tbspec/actions/runs/38625060912/job/116061991480",
+        "result": "failure",
+        "wallSeconds": 1747.0,
+        "testCount": 116,
+        "testBodySeconds": 1727.417996293,
+        "fileBodySeconds": {
+          "resource-lifecycle.test.ts": 418.74666103,
+          "editing.test.ts": 283.415153571,
+          "web.test.ts": 261.012249651,
+          "repair-web.test.ts": 171.00407114700002,
+          "configuration.test.ts": 157.83588481599998,
+          "views-cli.test.ts": 117.70034022499999,
+          "dependency-sources.test.ts": 80.723498627,
+          "authoring.test.ts": 62.63074503,
+          "views-web.test.ts": 56.429808029,
+          "inspection.test.ts": 41.626092288,
+          "element-deletion-transaction.test.ts": 39.04483638999999,
+          "schema-impact.test.ts": 30.394912669,
+          "ownership.test.ts": 3.4796953719999997,
+          "project.test.ts": 2.357177869,
+          "transactions.test.ts": 0.9668232069999998,
+          "shacl-regex.test.ts": 0.050046372000000006
+        }
+      },
+      {
+        "job": "Node 24 application (Ubuntu)",
+        "url": "https://github.com/TalbyAI/tbspec/actions/runs/38625060912/job/116061991496",
+        "result": "success",
+        "wallSeconds": 2387.0,
+        "testCount": 292,
+        "testBodySeconds": 2365.1790898990002,
+        "fileBodySeconds": {
+          "cli.test.ts": 543.6603717940001,
+          "dependencies.test.ts": 375.080378794,
+          "repair.test.ts": 270.695865904,
+          "resource-lifecycle.test.ts": 189.21584859600003,
+          "element-deletion-web.test.ts": 102.391649157,
+          "web.test.ts": 93.65431747100001,
+          "editing.test.ts": 90.94353470799999,
+          "views-layout-web.test.ts": 76.481075296,
+          "views-cli.test.ts": 65.286753153,
+          "views-transaction.test.ts": 57.83924721,
+          "repair-web.test.ts": 51.569751014000005,
+          "configuration.test.ts": 45.835918965,
+          "validation.test.ts": 45.573538703,
+          "editor-design-web.test.ts": 41.222403539000005,
+          "shacl-core.test.ts": 32.172776481,
+          "views-web.test.ts": 29.50627705,
+          "dependency-sources.test.ts": 26.990882542,
+          "dependencies-transaction.test.ts": 24.793884099,
+          "configuration-web.test.ts": 19.940886794999997,
+          "resource-lifecycle-web.test.ts": 19.807038972999997,
+          "state-machine-web.test.ts": 19.154701665,
+          "state-machine.test.ts": 18.783682594,
+          "element-deletion-transaction.test.ts": 15.32866727,
+          "inspection.test.ts": 13.267754477999999,
+          "authoring.test.ts": 13.019051746999999,
+          "editing-web.test.ts": 13.015007278,
+          "queries.test.ts": 12.150397345999998,
+          "inspection-retention.test.ts": 11.658296815000002,
+          "schema-impact.test.ts": 11.543183698000002,
+          "validation-web.test.ts": 11.067063204,
+          "authoring-web.test.ts": 6.984436134000001,
+          "web-process.test.ts": 6.408407154000001,
+          "resources.test.ts": 4.8974584629999995,
+          "runtime.test.ts": 1.539412192,
+          "schemas.test.ts": 1.4958964479999999,
+          "ownership.test.ts": 0.93129759,
+          "project.test.ts": 0.656003075,
+          "transactions.test.ts": 0.244422394,
+          "locator-policy.test.ts": 0.196604312,
+          "paths.test.ts": 0.089592861,
+          "shacl-regex.test.ts": 0.039998573,
+          "previews.test.ts": 0.019039962,
+          "rdfxml-security.test.ts": 0.009595592,
+          "diagnostic-impact.test.ts": 0.006871104,
+          "views-workspace.test.ts": 0.004512317,
+          "macos-ownership.test.ts": 0.004205001000000001,
+          "editor-drafts.test.ts": 0.001130388
+        }
+      },
+      {
+        "job": "Node 24 application (macOS Intel source partition 3/3)",
+        "url": "https://github.com/TalbyAI/tbspec/actions/runs/38625060912/job/116061991515",
+        "result": "failure",
+        "wallSeconds": 2747.0,
+        "testCount": 81,
+        "testBodySeconds": 2731.984925267,
+        "fileBodySeconds": {
+          "cli.test.ts": 1273.9708966970002,
+          "repair.test.ts": 614.303432899,
+          "element-deletion-web.test.ts": 381.477337377,
+          "views-layout-web.test.ts": 168.29165499599998,
+          "editor-design-web.test.ts": 98.531150188,
+          "dependencies-transaction.test.ts": 53.636863895000005,
+          "queries.test.ts": 49.453038904,
+          "state-machine-web.test.ts": 45.857655598,
+          "validation-web.test.ts": 29.020055354,
+          "resources.test.ts": 11.809104082,
+          "schemas.test.ts": 4.815908742,
+          "locator-policy.test.ts": 0.40738117799999995,
+          "paths.test.ts": 0.390105323,
+          "diagnostic-impact.test.ts": 0.011573134,
+          "views-workspace.test.ts": 0.0087669
+        }
+      },
+      {
+        "job": "Node 24 application (macOS Intel source partition 1/3)",
+        "url": "https://github.com/TalbyAI/tbspec/actions/runs/38625060912/job/116061991571",
+        "result": "success",
+        "wallSeconds": 1140.0,
+        "testCount": 95,
+        "testBodySeconds": 1128.323186606,
+        "fileBodySeconds": {
+          "dependencies.test.ts": 659.726216467,
+          "views-transaction.test.ts": 115.78164853099999,
+          "validation.test.ts": 79.61354822499999,
+          "shacl-core.test.ts": 69.167332471,
+          "configuration-web.test.ts": 46.283350161,
+          "resource-lifecycle-web.test.ts": 33.18910616,
+          "state-machine.test.ts": 30.778790986000004,
+          "editing-web.test.ts": 22.965611359,
+          "web-process.test.ts": 20.972379546,
+          "authoring-web.test.ts": 19.508432528999997,
+          "inspection-retention.test.ts": 18.156519383000003,
+          "runtime.test.ts": 11.746549073,
+          "macos-ownership.test.ts": 0.411595545,
+          "previews.test.ts": 0.011213885,
+          "rdfxml-security.test.ts": 0.009610407,
+          "editor-drafts.test.ts": 0.001281878
+        }
+      },
+      {
+        "job": "Node 24 application (Windows standard user)",
+        "url": "https://github.com/TalbyAI/tbspec/actions/runs/38625060912/job/116061991592",
+        "result": "success",
+        "wallSeconds": 3386.0,
+        "testCount": 292,
+        "testBodySeconds": 3336.0814255,
+        "fileBodySeconds": {
+          "cli.test.ts": 739.2753965,
+          "dependencies.test.ts": 531.7199453999999,
+          "repair.test.ts": 327.2638603000001,
+          "resource-lifecycle.test.ts": 233.27035560000002,
+          "web.test.ts": 180.777514,
+          "element-deletion-web.test.ts": 160.8391804,
+          "editing.test.ts": 139.2744669,
+          "views-layout-web.test.ts": 96.01490810000001,
+          "views-cli.test.ts": 91.4751751,
+          "views-transaction.test.ts": 72.67537469999999,
+          "repair-web.test.ts": 66.65746700000001,
+          "editor-design-web.test.ts": 65.8419655,
+          "configuration.test.ts": 61.5286622,
+          "validation.test.ts": 60.914916399999996,
+          "shacl-core.test.ts": 46.4223903,
+          "dependency-sources.test.ts": 44.762530299999995,
+          "views-web.test.ts": 40.957154499999994,
+          "dependencies-transaction.test.ts": 33.2928898,
+          "configuration-web.test.ts": 29.128734100000003,
+          "state-machine-web.test.ts": 28.144207299999998,
+          "resource-lifecycle-web.test.ts": 26.7992347,
+          "state-machine.test.ts": 26.048394199999997,
+          "editing-web.test.ts": 25.307862099999998,
+          "authoring-web.test.ts": 24.9619389,
+          "authoring.test.ts": 24.5135984,
+          "web-process.test.ts": 22.952472200000003,
+          "element-deletion-transaction.test.ts": 22.277544900000002,
+          "inspection.test.ts": 20.614719,
+          "queries.test.ts": 19.1477805,
+          "validation-web.test.ts": 17.661575099999997,
+          "schema-impact.test.ts": 16.6410876,
+          "inspection-retention.test.ts": 15.803575799999999,
+          "runtime.test.ts": 7.1162282,
+          "resources.test.ts": 5.4834211,
+          "ownership.test.ts": 4.8697047,
+          "schemas.test.ts": 2.7173535,
+          "project.test.ts": 1.3483873000000002,
+          "transactions.test.ts": 0.819295,
+          "paths.test.ts": 0.4911475,
+          "locator-policy.test.ts": 0.1850888,
+          "shacl-regex.test.ts": 0.0349606,
+          "previews.test.ts": 0.0259307,
+          "rdfxml-security.test.ts": 0.0083132,
+          "diagnostic-impact.test.ts": 0.006300899999999999,
+          "macos-ownership.test.ts": 0.0040034,
+          "views-workspace.test.ts": 0.0032033,
+          "editor-drafts.test.ts": 0.0012095
+        }
+      }
+    ]
+  },
+  "localPartial": {
+    "completedTests": 21,
+    "completedBodySeconds": 213.9483151,
+    "csv": "local-sample.csv"
+  },
+  "profiles": {
+    "cli-validation": {
+      "exitCode": 0,
+      "wallSeconds": 42.4540618,
+      "testBodySeconds": 41.6531266,
+      "spans": {
+        "process.lifetime": {
+          "calls": 17,
+          "inclusiveSeconds": 80.4521036
+        },
+        "spawnSync": {
+          "calls": 16,
+          "inclusiveSeconds": 39.42837170000002
+        },
+        "execFile.identity": {
+          "calls": 12,
+          "inclusiveSeconds": 16.0014105
+        },
+        "captureInspection": {
+          "calls": 11,
+          "inclusiveSeconds": 15.166754899999999
+        },
+        "prepareResource": {
+          "calls": 6,
+          "inclusiveSeconds": 13.035651099999999
+        },
+        "inspectProject": {
+          "calls": 5,
+          "inclusiveSeconds": 13.0177452
+        },
+        "validateInspection": {
+          "calls": 9,
+          "inclusiveSeconds": 8.6352677
+        },
+        "runShapes": {
+          "calls": 44,
+          "inclusiveSeconds": 5.371437499999995
+        },
+        "parseGraph": {
+          "calls": 1130,
+          "inclusiveSeconds": 2.2416310999999993
+        },
+        "loadStarters": {
+          "calls": 30,
+          "inclusiveSeconds": 2.228094499999998
+        },
+        "initializeProject": {
+          "calls": 1,
+          "inclusiveSeconds": 2.1976500999999997
+        },
+        "parseRdf": {
+          "calls": 1213,
+          "inclusiveSeconds": 1.5225189000000032
+        },
+        "prepareShapes": {
+          "calls": 48,
+          "inclusiveSeconds": 0.38498620000000056
+        },
+        "publishResource": {
+          "calls": 5,
+          "inclusiveSeconds": 0.36669469999999954
+        }
+      },
+      "subprocesses": [
+        {
+          "seconds": 2.5851988,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "model",
+            "create",
+            "schema.ttl",
+            "--type",
+            "data",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 2.5811363000000003,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "model",
+            "create",
+            "model.ttl",
+            "--type",
+            "data",
+            "--profile",
+            "concrete",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 3.0350479000000004,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "model",
+            "schema",
+            "add",
+            "model.ttl",
+            "schema.ttl",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 3.0248475,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "shapes",
+            "create",
+            "model.ttl",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 2.1520249000000002,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "model",
+            "schema",
+            "list",
+            "model.ttl",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 2.222595400000002,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "shapes",
+            "list",
+            "--source",
+            "model.ttl",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 3.029146000000001,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "validate",
+            "model.ttl",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 3.6391738000000005,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "model",
+            "schema",
+            "remove",
+            "model.ttl",
+            "schema.ttl",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 3.5906694000000026,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "model",
+            "schema",
+            "remove",
+            "model.ttl",
+            "schema.ttl",
+            "--confirm",
+            "--accepted-preview",
+            "sha256:ac2ca81205a1bbca3396b2db1432c30cb23765647627845d803abdb26e1896b9",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 2.850970300000001,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "validate",
+            "model.ttl",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 6.715620500000001,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "validate",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 0.7764276000000027,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "validate",
+            "one",
+            "two",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 0.7707918999999965,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "validate",
+            "--confirm",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 0.803847600000001,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "model",
+            "schema",
+            "add",
+            "model.ttl",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 0.8040782000000035,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "model",
+            "schema",
+            "list",
+            "model.ttl",
+            "--type",
+            "data",
+            "--json"
+          ]
+        },
+        {
+          "seconds": 0.8467955999999977,
+          "arguments": [
+            "--import",
+            "E:\\talby\\tbspec\\app\\src\\cli.ts",
+            "shapes",
+            "create",
+            "model.ttl",
+            "--source",
+            "schema.ttl",
+            "--json"
+          ]
+        }
+      ]
+    },
+    "dependency-impact": {
+      "exitCode": 0,
+      "wallSeconds": 77.7534054,
+      "testBodySeconds": 76.8690598,
+      "spans": {
+        "process.lifetime": {
+          "calls": 1,
+          "inclusiveSeconds": 77.5678367
+        },
+        "validateInspection": {
+          "calls": 20,
+          "inclusiveSeconds": 66.67746569999998
+        },
+        "runShapes": {
+          "calls": 552,
+          "inclusiveSeconds": 35.56578299999996
+        },
+        "parseGraph": {
+          "calls": 6957,
+          "inclusiveSeconds": 10.584496599999932
+        },
+        "parseRdf": {
+          "calls": 6978,
+          "inclusiveSeconds": 7.020822500000025
+        },
+        "loadStarters": {
+          "calls": 61,
+          "inclusiveSeconds": 3.5562523000000543
+        },
+        "prepareShapes": {
+          "calls": 626,
+          "inclusiveSeconds": 2.854298400000079
+        },
+        "initializeProject": {
+          "calls": 1,
+          "inclusiveSeconds": 2.2270027
+        },
+        "readProject": {
+          "calls": 10,
+          "inclusiveSeconds": 2.1429121999999876
+        },
+        "execFile.identity": {
+          "calls": 1,
+          "inclusiveSeconds": 1.3655854
+        },
+        "captureInspection": {
+          "calls": 10,
+          "inclusiveSeconds": 1.0471784999999996
+        }
+      },
+      "subprocesses": []
+    },
+    "repair-http": {
+      "exitCode": 0,
+      "wallSeconds": 62.682483,
+      "testBodySeconds": 62.376441099999994,
+      "spans": {
+        "process.lifetime": {
+          "calls": 1,
+          "inclusiveSeconds": 62.5199523
+        },
+        "validateInspection": {
+          "calls": 11,
+          "inclusiveSeconds": 35.84066729999999
+        },
+        "prepareRepair": {
+          "calls": 4,
+          "inclusiveSeconds": 30.8219486
+        },
+        "listReferences": {
+          "calls": 3,
+          "inclusiveSeconds": 19.911414299999997
+        },
+        "runShapes": {
+          "calls": 308,
+          "inclusiveSeconds": 18.269548000000082
+        },
+        "parseGraph": {
+          "calls": 6828,
+          "inclusiveSeconds": 10.751242099999951
+        },
+        "loadStarters": {
+          "calls": 150,
+          "inclusiveSeconds": 8.521274899999954
+        },
+        "execFile.permissions": {
+          "calls": 10,
+          "inclusiveSeconds": 7.2197750999999935
+        },
+        "parseRdf": {
+          "calls": 6913,
+          "inclusiveSeconds": 7.011816300000013
+        },
+        "execFile.identity": {
+          "calls": 2,
+          "inclusiveSeconds": 3.004675000000001
+        },
+        "captureInspection": {
+          "calls": 7,
+          "inclusiveSeconds": 2.4746913999999998
+        },
+        "initializeProject": {
+          "calls": 1,
+          "inclusiveSeconds": 2.2764847
+        },
+        "prepareShapes": {
+          "calls": 350,
+          "inclusiveSeconds": 2.1228103000000487
+        },
+        "execFile.privateDirectory": {
+          "calls": 1,
+          "inclusiveSeconds": 0.7251081
+        },
+        "publishRepair": {
+          "calls": 3,
+          "inclusiveSeconds": 0.4015176999999931
+        }
+      },
+      "subprocesses": []
+    }
+  },
+  "exploratoryFourCallComparison": {
+    "test": "CLI validates, lists shapes and confirms schema removal offline with exact signatures",
+    "subprocessCountBefore": 16,
+    "subprocessCountAfter": 12,
+    "samples": [
+      {
+        "index": 0,
+        "mode": "control",
+        "exitCode": 0,
+        "testSeconds": 42.547514199999995,
+        "wallSeconds": 43.4713345
+      },
+      {
+        "index": 1,
+        "mode": "direct-setup",
+        "exitCode": 0,
+        "testSeconds": 30.309539700000002,
+        "wallSeconds": 31.1178322
+      },
+      {
+        "index": 2,
+        "mode": "direct-setup",
+        "exitCode": 0,
+        "testSeconds": 30.592428899999998,
+        "wallSeconds": 31.3848735
+      },
+      {
+        "index": 3,
+        "mode": "control",
+        "exitCode": 0,
+        "testSeconds": 40.0068722,
+        "wallSeconds": 40.7982837
+      },
+      {
+        "index": 4,
+        "mode": "control",
+        "exitCode": 0,
+        "testSeconds": 39.8094112,
+        "wallSeconds": 40.6494316
+      },
+      {
+        "index": 5,
+        "mode": "direct-setup",
+        "exitCode": 0,
+        "testSeconds": 31.2084172,
+        "wallSeconds": 32.0581081
+      }
+    ],
+    "testBodyMedianSeconds": {
+      "control": 40.0068722,
+      "direct-setup": 30.592428899999998
+    },
+    "medianSavingSeconds": 9.414443299999999,
+    "medianReductionPercent": 23.53206532351709,
+    "coverageLimitation": "Removes the only positive CLI schema-add and shapes-create route checks; not a coverage-preserving recommendation."
+  },
+  "comparison": {
+    "test": "CLI validates, lists shapes and confirms schema removal offline with exact signatures",
+    "subprocessCountBefore": 16,
+    "subprocessCountAfter": 14,
+    "samples": [
+      {
+        "index": 0,
+        "mode": "direct-setup",
+        "exitCode": 0,
+        "testSeconds": 37.044515399999995,
+        "wallSeconds": 37.9119986
+      },
+      {
+        "index": 1,
+        "mode": "direct-setup",
+        "exitCode": 0,
+        "testSeconds": 36.5429131,
+        "wallSeconds": 37.400885
+      },
+      {
+        "index": 2,
+        "mode": "direct-setup",
+        "exitCode": 0,
+        "testSeconds": 36.7998267,
+        "wallSeconds": 37.5911091
+      },
+      {
+        "index": 3,
+        "mode": "control",
+        "exitCode": 0,
+        "testSeconds": 41.7727984,
+        "wallSeconds": 42.6049074
+      }
+    ],
+    "note": "Three conservative variant runs followed by a fresh control. Control median includes three earlier original runs and the fresh control.",
+    "controlBodySeconds": [
+      42.547514199999995,
+      40.0068722,
+      39.8094112,
+      41.7727984
+    ],
+    "variantBodySeconds": [
+      37.044515399999995,
+      36.5429131,
+      36.7998267
+    ],
+    "testBodyMedianSeconds": {
+      "control": 40.8898353,
+      "directSetup": 36.7998267
+    },
+    "medianSavingSeconds": 4.090008600000004,
+    "medianReductionPercent": 10.002506906649256
+  }
+}

@@ -114,6 +114,7 @@ interface CapturedRepair extends Snapshot {
   stores: Map<string, Store>;
   lock: Lock;
   manifest: Row;
+  vettedDigest?: Promise<string>;
 }
 
 function lockedGraph(lock: Lock, file: string) {
@@ -146,8 +147,8 @@ async function parseCapturedGraph(snapshot: CapturedRepair, path: string): Promi
   if (!bytes) return null;
   const locked = lockedGraph(snapshot.lock, path);
   if (locked) {
-    const starters = await loadStarters();
-    return parseGraph(bytes, locked.record, starters.vettedDigest, path);
+    snapshot.vettedDigest ??= loadStarters().then((starters) => starters.vettedDigest);
+    return parseGraph(bytes, locked.record, await snapshot.vettedDigest, path);
   }
   const format = rdfFormats[extname(path).toLowerCase()];
   if (!format) return null;

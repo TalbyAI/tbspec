@@ -1,0 +1,649 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-15",
+  "commit": "720d3496595f74c1f5c52785965dc7b3b1d33412",
+  "sourceStartup": {
+    "node": "v24.14.1",
+    "platform": "win32",
+    "commit": "720d349",
+    "mode": "sequential fresh processes; warm filesystem caches; source modules; PATH empty; NODE_OPTIONS empty",
+    "rows": [
+      {
+        "name": "node-empty",
+        "repeat": 0,
+        "ms": 55.4212,
+        "exit": 0
+      },
+      {
+        "name": "import-output",
+        "repeat": 0,
+        "ms": 105.05230000000002,
+        "exit": 0
+      },
+      {
+        "name": "import-guidance",
+        "repeat": 0,
+        "ms": 100.5548,
+        "exit": 0
+      },
+      {
+        "name": "import-runtime",
+        "repeat": 0,
+        "ms": 142.69400000000002,
+        "exit": 0
+      },
+      {
+        "name": "import-project",
+        "repeat": 0,
+        "ms": 181.81980000000004,
+        "exit": 0
+      },
+      {
+        "name": "import-shacl-execution",
+        "repeat": 0,
+        "ms": 621.0808,
+        "exit": 0
+      },
+      {
+        "name": "cli-help",
+        "repeat": 0,
+        "ms": 898.9905999999999,
+        "exit": 0
+      },
+      {
+        "name": "cli-version",
+        "repeat": 0,
+        "ms": 834.7453,
+        "exit": 0
+      },
+      {
+        "name": "cli-guidance",
+        "repeat": 0,
+        "ms": 797.8180000000002,
+        "exit": 0
+      },
+      {
+        "name": "cli-invalid",
+        "repeat": 0,
+        "ms": 822.8332999999998,
+        "exit": 2
+      },
+      {
+        "name": "import-output",
+        "repeat": 1,
+        "ms": 104.56700000000001,
+        "exit": 0
+      },
+      {
+        "name": "import-guidance",
+        "repeat": 1,
+        "ms": 102.0060999999996,
+        "exit": 0
+      },
+      {
+        "name": "import-runtime",
+        "repeat": 1,
+        "ms": 137.6320999999998,
+        "exit": 0
+      },
+      {
+        "name": "import-project",
+        "repeat": 1,
+        "ms": 192.5721999999996,
+        "exit": 0
+      },
+      {
+        "name": "import-shacl-execution",
+        "repeat": 1,
+        "ms": 596.6282000000001,
+        "exit": 0
+      },
+      {
+        "name": "cli-help",
+        "repeat": 1,
+        "ms": 797.3383000000003,
+        "exit": 0
+      },
+      {
+        "name": "cli-version",
+        "repeat": 1,
+        "ms": 809.0503999999992,
+        "exit": 0
+      },
+      {
+        "name": "cli-guidance",
+        "repeat": 1,
+        "ms": 824.9490999999998,
+        "exit": 0
+      },
+      {
+        "name": "cli-invalid",
+        "repeat": 1,
+        "ms": 818.8253000000004,
+        "exit": 2
+      },
+      {
+        "name": "node-empty",
+        "repeat": 1,
+        "ms": 54.86860000000161,
+        "exit": 0
+      },
+      {
+        "name": "import-guidance",
+        "repeat": 2,
+        "ms": 92.24699999999939,
+        "exit": 0
+      },
+      {
+        "name": "import-runtime",
+        "repeat": 2,
+        "ms": 148.8238999999994,
+        "exit": 0
+      },
+      {
+        "name": "import-project",
+        "repeat": 2,
+        "ms": 209.59770000000026,
+        "exit": 0
+      },
+      {
+        "name": "import-shacl-execution",
+        "repeat": 2,
+        "ms": 705.2035999999989,
+        "exit": 0
+      },
+      {
+        "name": "cli-help",
+        "repeat": 2,
+        "ms": 879.5272999999997,
+        "exit": 0
+      },
+      {
+        "name": "cli-version",
+        "repeat": 2,
+        "ms": 803.937899999999,
+        "exit": 0
+      },
+      {
+        "name": "cli-guidance",
+        "repeat": 2,
+        "ms": 785.7872000000007,
+        "exit": 0
+      },
+      {
+        "name": "cli-invalid",
+        "repeat": 2,
+        "ms": 843.5655000000006,
+        "exit": 2
+      },
+      {
+        "name": "node-empty",
+        "repeat": 2,
+        "ms": 52.22540000000117,
+        "exit": 0
+      },
+      {
+        "name": "import-output",
+        "repeat": 2,
+        "ms": 100.75680000000102,
+        "exit": 0
+      },
+      {
+        "name": "import-runtime",
+        "repeat": 3,
+        "ms": 110.09649999999965,
+        "exit": 0
+      },
+      {
+        "name": "import-project",
+        "repeat": 3,
+        "ms": 176.1211999999996,
+        "exit": 0
+      },
+      {
+        "name": "import-shacl-execution",
+        "repeat": 3,
+        "ms": 571.4130999999998,
+        "exit": 0
+      },
+      {
+        "name": "cli-help",
+        "repeat": 3,
+        "ms": 767.3082999999988,
+        "exit": 0
+      },
+      {
+        "name": "cli-version",
+        "repeat": 3,
+        "ms": 791.7526999999991,
+        "exit": 0
+      },
+      {
+        "name": "cli-guidance",
+        "repeat": 3,
+        "ms": 758.7687999999998,
+        "exit": 0
+      },
+      {
+        "name": "cli-invalid",
+        "repeat": 3,
+        "ms": 743.3722000000016,
+        "exit": 2
+      },
+      {
+        "name": "node-empty",
+        "repeat": 3,
+        "ms": 51.73660000000018,
+        "exit": 0
+      },
+      {
+        "name": "import-output",
+        "repeat": 3,
+        "ms": 88.82340000000113,
+        "exit": 0
+      },
+      {
+        "name": "import-guidance",
+        "repeat": 3,
+        "ms": 81.46960000000036,
+        "exit": 0
+      },
+      {
+        "name": "import-project",
+        "repeat": 4,
+        "ms": 159.7738999999965,
+        "exit": 0
+      },
+      {
+        "name": "import-shacl-execution",
+        "repeat": 4,
+        "ms": 589.5106000000014,
+        "exit": 0
+      },
+      {
+        "name": "cli-help",
+        "repeat": 4,
+        "ms": 891.9680999999982,
+        "exit": 0
+      },
+      {
+        "name": "cli-version",
+        "repeat": 4,
+        "ms": 858.7779999999984,
+        "exit": 0
+      },
+      {
+        "name": "cli-guidance",
+        "repeat": 4,
+        "ms": 789.1623999999974,
+        "exit": 0
+      },
+      {
+        "name": "cli-invalid",
+        "repeat": 4,
+        "ms": 881.6318000000028,
+        "exit": 2
+      },
+      {
+        "name": "node-empty",
+        "repeat": 4,
+        "ms": 65.44919999999911,
+        "exit": 0
+      },
+      {
+        "name": "import-output",
+        "repeat": 4,
+        "ms": 97.10870000000068,
+        "exit": 0
+      },
+      {
+        "name": "import-guidance",
+        "repeat": 4,
+        "ms": 95.96860000000015,
+        "exit": 0
+      },
+      {
+        "name": "import-runtime",
+        "repeat": 4,
+        "ms": 108.06330000000162,
+        "exit": 0
+      }
+    ],
+    "summaries": [
+      {
+        "name": "node-empty",
+        "repetitions": 5,
+        "minMs": 51.73660000000018,
+        "medianMs": 54.86860000000161,
+        "maxMs": 65.44919999999911
+      },
+      {
+        "name": "import-output",
+        "repetitions": 5,
+        "minMs": 88.82340000000113,
+        "medianMs": 100.75680000000102,
+        "maxMs": 105.05230000000002
+      },
+      {
+        "name": "import-guidance",
+        "repetitions": 5,
+        "minMs": 81.46960000000036,
+        "medianMs": 95.96860000000015,
+        "maxMs": 102.0060999999996
+      },
+      {
+        "name": "import-runtime",
+        "repetitions": 5,
+        "minMs": 108.06330000000162,
+        "medianMs": 137.6320999999998,
+        "maxMs": 148.8238999999994
+      },
+      {
+        "name": "import-project",
+        "repetitions": 5,
+        "minMs": 159.7738999999965,
+        "medianMs": 181.81980000000004,
+        "maxMs": 209.59770000000026
+      },
+      {
+        "name": "import-shacl-execution",
+        "repetitions": 5,
+        "minMs": 571.4130999999998,
+        "medianMs": 596.6282000000001,
+        "maxMs": 705.2035999999989
+      },
+      {
+        "name": "cli-help",
+        "repetitions": 5,
+        "minMs": 767.3082999999988,
+        "medianMs": 879.5272999999997,
+        "maxMs": 898.9905999999999
+      },
+      {
+        "name": "cli-version",
+        "repetitions": 5,
+        "minMs": 791.7526999999991,
+        "medianMs": 809.0503999999992,
+        "maxMs": 858.7779999999984
+      },
+      {
+        "name": "cli-guidance",
+        "repetitions": 5,
+        "minMs": 758.7687999999998,
+        "medianMs": 789.1623999999974,
+        "maxMs": 824.9490999999998
+      },
+      {
+        "name": "cli-invalid",
+        "repetitions": 5,
+        "minMs": 743.3722000000016,
+        "medianMs": 822.8332999999998,
+        "maxMs": 881.6318000000028
+      }
+    ]
+  },
+  "compiledFreshness": {
+    "matching": 41,
+    "total": 41,
+    "method": "Compare normalized emitted ESM text using installed TypeScript and current options; no outputs modified.",
+    "differences": []
+  },
+  "compiledStartup": {
+    "node": "v24.14.1",
+    "cases": [
+      {
+        "name": "compiled-help",
+        "args": [
+          "dist/cli.js",
+          "--help",
+          "--json"
+        ],
+        "exit": 0
+      },
+      {
+        "name": "compiled-version",
+        "args": [
+          "dist/cli.js",
+          "--version",
+          "--json"
+        ],
+        "exit": 0
+      },
+      {
+        "name": "compiled-guidance",
+        "args": [
+          "dist/cli.js",
+          "llms",
+          "views",
+          "designs",
+          "--json"
+        ],
+        "exit": 0
+      },
+      {
+        "name": "compiled-invalid",
+        "args": [
+          "dist/cli.js",
+          "validate",
+          "--confirm",
+          "--json"
+        ],
+        "exit": 2
+      }
+    ],
+    "rows": [
+      {
+        "name": "compiled-help",
+        "repeat": 0,
+        "ms": 722.9432,
+        "exit": 0
+      },
+      {
+        "name": "compiled-version",
+        "repeat": 0,
+        "ms": 676.4391,
+        "exit": 0
+      },
+      {
+        "name": "compiled-guidance",
+        "repeat": 0,
+        "ms": 664.4067,
+        "exit": 0
+      },
+      {
+        "name": "compiled-invalid",
+        "repeat": 0,
+        "ms": 669.4939999999997,
+        "exit": 2
+      },
+      {
+        "name": "compiled-version",
+        "repeat": 1,
+        "ms": 653.4676000000004,
+        "exit": 0
+      },
+      {
+        "name": "compiled-guidance",
+        "repeat": 1,
+        "ms": 667.8633999999997,
+        "exit": 0
+      },
+      {
+        "name": "compiled-invalid",
+        "repeat": 1,
+        "ms": 683.4166999999998,
+        "exit": 2
+      },
+      {
+        "name": "compiled-help",
+        "repeat": 1,
+        "ms": 666.1696999999995,
+        "exit": 0
+      },
+      {
+        "name": "compiled-guidance",
+        "repeat": 2,
+        "ms": 669.6453999999994,
+        "exit": 0
+      },
+      {
+        "name": "compiled-invalid",
+        "repeat": 2,
+        "ms": 647.5955999999996,
+        "exit": 2
+      },
+      {
+        "name": "compiled-help",
+        "repeat": 2,
+        "ms": 655.8065999999999,
+        "exit": 0
+      },
+      {
+        "name": "compiled-version",
+        "repeat": 2,
+        "ms": 645.8077999999996,
+        "exit": 0
+      },
+      {
+        "name": "compiled-invalid",
+        "repeat": 3,
+        "ms": 642.1476000000002,
+        "exit": 2
+      },
+      {
+        "name": "compiled-help",
+        "repeat": 3,
+        "ms": 648.6973000000016,
+        "exit": 0
+      },
+      {
+        "name": "compiled-version",
+        "repeat": 3,
+        "ms": 670.8636000000006,
+        "exit": 0
+      },
+      {
+        "name": "compiled-guidance",
+        "repeat": 3,
+        "ms": 674.9153000000006,
+        "exit": 0
+      },
+      {
+        "name": "compiled-help",
+        "repeat": 4,
+        "ms": 661.4400000000005,
+        "exit": 0
+      },
+      {
+        "name": "compiled-version",
+        "repeat": 4,
+        "ms": 667.0162999999993,
+        "exit": 0
+      },
+      {
+        "name": "compiled-guidance",
+        "repeat": 4,
+        "ms": 682.5331999999999,
+        "exit": 0
+      },
+      {
+        "name": "compiled-invalid",
+        "repeat": 4,
+        "ms": 654.2440999999999,
+        "exit": 2
+      }
+    ],
+    "summaries": [
+      {
+        "name": "compiled-help",
+        "medianMs": 661.4400000000005,
+        "minMs": 648.6973000000016,
+        "maxMs": 722.9432
+      },
+      {
+        "name": "compiled-version",
+        "medianMs": 667.0162999999993,
+        "minMs": 645.8077999999996,
+        "maxMs": 676.4391
+      },
+      {
+        "name": "compiled-guidance",
+        "medianMs": 669.6453999999994,
+        "minMs": 664.4067,
+        "maxMs": 682.5331999999999
+      },
+      {
+        "name": "compiled-invalid",
+        "medianMs": 654.2440999999999,
+        "minMs": 642.1476000000002,
+        "maxMs": 683.4166999999998
+      }
+    ],
+    "note": "Separate sequential batch after source benchmarks. Five fresh processes each; verified current emitted code; warm filesystem caches."
+  },
+  "engineConstruction": {
+    "node": "v24.14.1",
+    "runs": [
+      {
+        "n": 0,
+        "constructorMs": 499.10480000000007,
+        "emptyShapesMs": 31.290899999999965
+      },
+      {
+        "n": 1,
+        "constructorMs": 26.94139999999993,
+        "emptyShapesMs": 27.78580000000011
+      },
+      {
+        "n": 2,
+        "constructorMs": 22.593500000000176,
+        "emptyShapesMs": 26.406799999999976
+      },
+      {
+        "n": 3,
+        "constructorMs": 30.29060000000004,
+        "emptyShapesMs": 29.8284000000001
+      },
+      {
+        "n": 4,
+        "constructorMs": 45.197000000000116,
+        "emptyShapesMs": 27.42360000000008
+      },
+      {
+        "n": 5,
+        "constructorMs": 28.794799999999896,
+        "emptyShapesMs": 30.92599999999993
+      },
+      {
+        "n": 6,
+        "constructorMs": 28.17139999999995,
+        "emptyShapesMs": 27.973899999999958
+      },
+      {
+        "n": 7,
+        "constructorMs": 33.6576,
+        "emptyShapesMs": 25.493999999999915
+      },
+      {
+        "n": 8,
+        "constructorMs": 26.258299999999963,
+        "emptyShapesMs": 25.8420000000001
+      },
+      {
+        "n": 9,
+        "constructorMs": 21.43489999999997,
+        "emptyShapesMs": 27.42800000000011
+      }
+    ],
+    "medianConstructorMs": 28.483099999999922,
+    "medianEmptyShapesMs": 27.60690000000011,
+    "note": "Warm-process microbenchmark of existing functions; does not estimate total validation savings."
+  },
+  "notes": [
+    "Research only. No optimization implemented.",
+    "Fresh-process CLI startup includes process creation, module loading and output handling.",
+    "Compiled and source startup measured in separate batches; no claimed controlled TypeScript speedup.",
+    "Constructor microbenchmark is not an end-to-end validation saving."
+  ],
+  "rawLocalEvidenceDirectory": "C:\\Users\\iskan\\AppData\\Local\\Temp\\tbspec-hypotheses-720d349"
+}

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +8,46 @@ import { inspectProject } from "../src/inspection.ts";
 import { initializeProject } from "../src/project.ts";
 
 const prefixes = `@prefix t: <https://talby.ai/ontology/tbspec#> . @prefix sh: <http://www.w3.org/ns/shacl#> . @prefix ex: <urn:ex:> . @prefix owl: <http://www.w3.org/2002/07/owl#> . @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .`;
+
+test("SHACL constructs query engines only for actual SELECT or Core comparison work", () => {
+  const script = `
+    import assert from "node:assert/strict";
+    import { createRequire } from "node:module";
+    import { Parser, Store } from "n3";
+    const require = createRequire(import.meta.url);
+    const dependency = require("@comunica/query-sparql-rdfjs-lite/lib/QueryEngine.js");
+    const Original = dependency.QueryEngine;
+    let engines = 0;
+    dependency.QueryEngine = class extends Original {
+      constructor(...args) { super(...args); engines++; }
+    };
+    const { runShapes } = await import(${JSON.stringify(new URL("../src/shacl-execution.ts", import.meta.url).href)});
+    const { prepareShapes } = await import(${JSON.stringify(new URL("../src/shacl-profile.ts", import.meta.url).href)});
+    const graph = (text) => new Store(new Parser().parse(${JSON.stringify(prefixes)} + text));
+    const data = graph("ex:item ex:value 1 .");
+    const validate = (shapes) => runShapes(prepareShapes(graph(shapes)), data);
+    try {
+      const count = await validate("ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:minCount 2 .");
+      assert.equal(count.conforms, false);
+      assert.equal(engines, 0, "Core count constraints must not construct a query engine");
+      const range = await validate("ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:minExclusive 2 .");
+      assert.equal(range.conforms, false);
+      assert.equal(engines, 1, "Typed Core comparison must still execute its query fallback");
+      const sparql = await validate('ex:shape a sh:NodeShape; sh:targetNode ex:item; sh:sparql [ sh:select "SELECT $this WHERE { $this <urn:ex:value> ?value }" ] .');
+      assert.equal(sparql.conforms, false);
+      assert.equal(engines, 2, "SELECT work must use an engine local to that validation");
+      const conforming = await validate("ex:shape a sh:PropertyShape; sh:targetNode ex:item; sh:path ex:value; sh:minCount 1 .");
+      assert.equal(conforming.conforms, true);
+      assert.equal(engines, 2);
+    } finally { dependency.QueryEngine = Original; }
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 20000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
 
 async function project() {
   const root = await mkdtemp(join(tmpdir(), "tb-shacl-core-"));
