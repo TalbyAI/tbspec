@@ -8,9 +8,24 @@ import { promisify } from "node:util";
 
 const outputPath = process.env.TBSPEC_EVIDENCE_PATH ?? process.argv[3] ?? "packed-evidence.json";
 const evidencePath = resolve(outputPath);
+const verificationMode = process.env.TBSPEC_VERIFICATION_MODE ?? "full";
+const verificationStartedAt = new Date().toISOString();
+const verificationStartedTick = process.hrtime.bigint();
 const evidence = {
   schemaVersion: 1,
   state: "running",
+  verification: {
+    mode: verificationMode,
+    platformKey: process.env.TBSPEC_PLATFORM ?? process.platform,
+    repository: process.env.TBSPEC_REPOSITORY ?? process.env.GITHUB_REPOSITORY ?? null,
+    commit: process.env.TBSPEC_COMMIT ?? process.env.GITHUB_SHA ?? null,
+    branch: process.env.TBSPEC_BRANCH ?? process.env.GITHUB_REF_NAME ?? null,
+    runId: process.env.TBSPEC_RUN_ID ?? process.env.GITHUB_RUN_ID ?? null,
+    runAttempt: process.env.TBSPEC_RUN_ATTEMPT ?? process.env.GITHUB_RUN_ATTEMPT ?? null,
+    startedAt: verificationStartedAt,
+    completedAt: null,
+    durationMs: null,
+  },
   artifact: null,
   platform: {
     platform: process.platform,
@@ -681,6 +696,7 @@ async function withWeb(project, work) {
         route: `/${route.split("?")[0]}`,
         method: body === undefined ? "GET" : "POST",
         status: response.status,
+        authenticated: true,
         envelopeStatus: envelope?.status ?? null,
         diagnosticCodes: (envelope?.diagnostics ?? []).map((item) => item.code),
       });
@@ -724,6 +740,7 @@ async function withWeb(project, work) {
     expectStatus(stopped, "ok");
     check(stopped.envelope.data?.server?.state === "stopped", "WEB_STOP_VERIFIED");
     activeWebProjects.delete(project);
+    evidence.assertions.push({ name: "web-stop-verified", passed: true });
     evidence.cleanup.push({ project: pathForEvidence(project), state: "stopped-and-verified" });
     await saveEvidence();
   }
@@ -740,6 +757,79 @@ async function newProject(name, baseIri) {
   );
   expectStatus(initialized, "ok");
   return project;
+}
+
+async function verifySmoke(inventory) {
+  currentStep = "smoke-project-initialize-and-read";
+  const project = await newProject("smoke", "urn:installed:smoke:/");
+  const status = await runCli(originalPackageRoot, ["status"], project, 0);
+  expectStatus(status, "ok");
+  check(
+    status.envelope.data?.project?.validity === "valid" &&
+      status.envelope.data.project.validationComplete === true,
+    "SMOKE_PROJECT_STATUS_READ",
+  );
+  evidence.assertions.push({ name: "smoke-project-initialize-and-read", passed: true });
+
+  currentStep = "smoke-persisted-model-readback";
+  const created = await runCli(
+    originalPackageRoot,
+    ["model", "create", "smoke.ttl", "--type", "data"],
+    project,
+    0,
+  );
+  expectStatus(created, "ok");
+  const shown = await runCli(originalPackageRoot, ["model", "show", "smoke.ttl"], project, 0);
+  expectStatus(shown, "ok");
+  check(
+    shown.envelope.data?.resource?.selector === "smoke.ttl" &&
+      typeof shown.envelope.data.sourceText === "string" &&
+      shown.envelope.data.sourceText.length > 0,
+    "SMOKE_PERSISTED_MODEL_READBACK",
+  );
+  evidence.assertions.push({
+    name: "smoke-persisted-model-readback",
+    passed: true,
+    selector: "smoke.ttl",
+    bytes: Buffer.byteLength(shown.envelope.data.sourceText),
+  });
+  await saveEvidence();
+
+  await withWeb(project, async ({ base, call }) => {
+    currentStep = "smoke-served-browser-assets";
+    await verifyServedBrowserAssets(base.origin, inventory);
+
+    currentStep = "smoke-authenticated-http-status";
+    const authenticated = await call("status");
+    expectHttp(authenticated.status, authenticated.envelope, 200, "smoke-authenticated-status");
+    check(authenticated.envelope.status === "ok", "SMOKE_AUTHENTICATED_STATUS");
+
+    currentStep = "smoke-unauthenticated-http-status";
+    const response = await fetch(new URL("api/project/v1/status", base), {
+      headers: { Origin: base.origin, "X-Tbspec-Schema-Version": "1" },
+      signal: AbortSignal.timeout(15000),
+    });
+    const envelope = await response.json();
+    evidence.http.push({
+      route: "/status",
+      method: "GET",
+      status: response.status,
+      authenticated: false,
+      envelopeStatus: envelope?.status ?? null,
+      diagnosticCodes: (envelope?.diagnostics ?? []).map((item) => item.code),
+    });
+    await saveEvidence();
+    expectHttp(response.status, envelope, 401, "smoke-unauthenticated-status-rejected");
+  });
+
+  check(
+    Array.isArray(inventory.browserAssets?.files) && inventory.browserAssets.files.length > 0,
+    "SMOKE_BROWSER_ASSET_INVENTORY",
+  );
+  const servedAssetAssertion = evidence.assertions.find(
+    (assertion) => assertion.name === "served-browser-assets-match-launched-release",
+  );
+  check(servedAssetAssertion?.count > 0, "SMOKE_SERVED_ASSETS_VERIFIED");
 }
 
 async function stageSourceText(api, selector, sourceText) {
@@ -2258,6 +2348,10 @@ function processIsAlive(pid) {
 }
 
 async function main() {
+  check(
+    new Set(["full", "smoke", "artifact-only"]).has(verificationMode),
+    "VERIFICATION_MODE_INVALID",
+  );
   currentStep = "artifact-identity";
   const suppliedArtifact = resolve(process.argv[2] ?? "..");
   const artifactInfo = await stat(suppliedArtifact);
@@ -2444,15 +2538,22 @@ process.stdout.write("guard-self-check-passed\n");
   const inventory = JSON.parse(
     await readFile(join(originalPackageRoot, "dist", "release-inventory.json"), "utf8"),
   );
-  evidence.artifact.applicationVersion = inventory.application.version;
-  await verifyInstalledInventory(originalPackageRoot, inventory);
-  const originalManifest = JSON.parse(
+  const installedManifest = JSON.parse(
     await readFile(join(originalPackageRoot, "package.json"), "utf8"),
   );
+  check(installedManifest.name === "tbspec", "INSTALLED_PACKAGE_NAME");
+  check(installedManifest.version === inventory.application.version, "INSTALLED_PACKAGE_VERSION");
   check(
-    originalManifest.version === inventory.application.version,
-    "ARTIFACT_VERSION_MATCHES_INVENTORY",
+    basename(archivePath) === `${installedManifest.name}-${installedManifest.version}.tgz`,
+    "ARTIFACT_FILENAME_MATCHES_PACKAGE_VERSION",
   );
+  check(inventory.application?.name === installedManifest.name, "INVENTORY_PACKAGE_NAME");
+  evidence.artifact.applicationVersion = inventory.application.version;
+  check(
+    Array.isArray(inventory.browserAssets?.files) && inventory.browserAssets.files.length > 0,
+    "BROWSER_ASSET_INVENTORY_REQUIRED",
+  );
+  if (verificationMode !== "smoke") await verifyInstalledInventory(originalPackageRoot, inventory);
 
   currentStep = "installed-runtime-only-environment";
   for (const tool of ["git", "npm", "tsc", "vite"]) {
@@ -2462,20 +2563,22 @@ process.stdout.write("guard-self-check-passed\n");
   const nested = join(tempRoot, "command-help");
   await mkdir(nested, { recursive: true });
   await verifyInstalledBin(originalPackageRoot, nested, inventory.application.version);
-  await verifyCommandFamilies(nested);
+  await verifySmoke(inventory);
+  if (verificationMode !== "smoke") {
+    await verifyCommandFamilies(nested);
+    await runScenario("dynamic-version-and-runtime-compatibility", () =>
+      verifyVersionAndRuntime(archivePath),
+    );
+    await runScenario("project-conceptual-concrete-schema-forms", verifyScenarioOne);
+    await runScenario("directory-acquisition-check-update", verifyScenarioTwo);
+    await runScenario("accepted-vocabulary-replacement", verifyScenarioThree);
+    await runScenario("independent-views-and-design-ties", verifyScenarioFour);
+    await runScenario("retained-transitive-ontology-conflict", verifyScenarioFive);
+    await runScenario("breaking-removal-repair-ordinary-deletion-gc", verifyScenarioSix);
+    await runScenario("malformed-source-isolated-query", verifyScenarioSeven);
+  }
 
-  await runScenario("dynamic-version-and-runtime-compatibility", () =>
-    verifyVersionAndRuntime(archivePath),
-  );
-  await runScenario("project-conceptual-concrete-schema-forms", verifyScenarioOne);
-  await runScenario("directory-acquisition-check-update", verifyScenarioTwo);
-  await runScenario("accepted-vocabulary-replacement", verifyScenarioThree);
-  await runScenario("independent-views-and-design-ties", verifyScenarioFour);
-  await runScenario("retained-transitive-ontology-conflict", verifyScenarioFive);
-  await runScenario("breaking-removal-repair-ordinary-deletion-gc", verifyScenarioSix);
-  await runScenario("malformed-source-isolated-query", verifyScenarioSeven);
-
-  evidence.state = "passed";
+  evidence.state = "verified";
   evidence.failure = null;
   await saveEvidence();
 }
@@ -2542,8 +2645,14 @@ try {
     if (cleanupSafe && activeWebProjects.size === 0 && verifiedTempRoot) {
       const candidate = resolve(tempRoot);
       try {
-        await rm(candidate, { recursive: true, force: true });
+        await rm(candidate, { recursive: true });
+        const rootRemains = await stat(candidate).then(
+          () => true,
+          (error) => error?.code !== "ENOENT",
+        );
+        check(!rootRemains, "CLEANUP_TEMP_ROOT_STILL_EXISTS");
         evidence.cleanup.push({ state: "verified-owned-temporary-root-removed" });
+        evidence.assertions.push({ name: "verified-owned-temporary-root-removed", passed: true });
       } catch (error) {
         cleanupSafe = false;
         evidence.cleanup.push({
@@ -2559,17 +2668,48 @@ try {
         activeProjects: [...activeWebProjects].map(pathForEvidence),
         verifiedOwnedPath: Boolean(verifiedTempRoot),
       });
+      cleanupSafe = false;
       process.exitCode = 1;
     }
+  }
+
+  evidence.verification.completedAt = new Date().toISOString();
+  evidence.verification.durationMs = Number(
+    (process.hrtime.bigint() - verificationStartedTick) / 1_000_000n,
+  );
+  const rootCleanupVerified = evidence.cleanup.some(
+    (entry) => entry.state === "verified-owned-temporary-root-removed",
+  );
+  const cleanupVerified = cleanupSafe && activeWebProjects.size === 0 && rootCleanupVerified;
+  const budgetExceeded = verificationMode === "smoke" && evidence.verification.durationMs > 300_000;
+  if (
+    evidence.state !== "verified" ||
+    !cleanupVerified ||
+    budgetExceeded ||
+    process.exitCode === 1
+  ) {
+    evidence.state = "failed";
+    process.exitCode = 1;
+    if (!evidence.failure)
+      evidence.failure = {
+        step: budgetExceeded ? "smoke-budget" : "cleanup",
+        code: budgetExceeded ? "SMOKE_BUDGET_EXCEEDED" : "CLEANUP_VERIFICATION_FAILED",
+        errorName: "VerificationFailure",
+      };
+  } else {
+    evidence.state = "passed";
+    evidence.failure = null;
+    process.exitCode = 0;
   }
   try {
     await saveEvidence();
   } catch {
+    evidence.state = "failed";
     process.exitCode = 1;
   }
 }
 
-if (process.exitCode === 1)
+if (process.exitCode !== 0)
   process.stderr.write(
     `Packed application verification failed at ${currentStep}. See the sanitized JSON evidence file.\n`,
   );

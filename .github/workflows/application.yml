@@ -1,11 +1,26 @@
 name: Application foundation
 
+run-name: >-
+  ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
+      (inputs.verification_mode == 'full' && startsWith(github.ref, 'refs/heads/release/')))
+      && 'Full release verification' ||
+      inputs.packed_only == true && 'Artifact-only diagnostic' ||
+      inputs.macos_regressions_only == true && 'Focused regression diagnostic' ||
+      inputs.macos_intel_source_only == true && 'Intel partition diagnostic' ||
+      'Application smoke' }} — ${{ github.ref_name }}
+
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
   workflow_dispatch:
     inputs:
+      verification_mode:
+        description: Run bounded smoke checks or the complete release verification.
+        type: choice
+        required: true
+        default: smoke
+        options: [smoke, full]
       packed_only:
         description: Skip the source test job and verify the packed artifact matrix only.
         type: boolean
@@ -38,13 +53,72 @@ permissions:
   contents: read
 
 jobs:
+  verification-mode:
+    name: Select verification mode
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Classify event and reject invalid selections
+        id: select
+        env:
+          DISPATCH_MODE: ${{ inputs.verification_mode || 'smoke' }}
+          PACKED_ONLY: ${{ inputs.packed_only || false }}
+          MACOS_REGRESSIONS_ONLY: ${{ inputs.macos_regressions_only || false }}
+          MACOS_INTEL_SOURCE_ONLY: ${{ inputs.macos_intel_source_only || false }}
+        run: >-
+          node app/scripts/select-verification-mode.mjs
+          "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$DISPATCH_MODE"
+          "$PACKED_ONLY" "$MACOS_REGRESSIONS_ONLY" "$MACOS_INTEL_SOURCE_ONLY"
+
+  quality-workflow:
+    name: Run repository quality
+    needs: verification-mode
+    if: ${{ needs.verification-mode.outputs.mode == 'smoke' || needs.verification-mode.outputs.mode == 'full' }}
+    uses: ./.github/workflows/quality.yml
+    permissions:
+      contents: read
+
+  repository-quality:
+    name: Repository quality
+    needs: [verification-mode, quality-workflow]
+    if: ${{ always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || needs.verification-mode.outputs.mode == 'smoke' || needs.verification-mode.outputs.mode == 'full') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Require the selected mode and quality workflow
+        env:
+          MODE_RESULT: ${{ needs.verification-mode.result }}
+          MODE: ${{ needs.verification-mode.outputs.mode }}
+          QUALITY_RESULT: ${{ needs.quality-workflow.result }}
+          REQUESTED_MODE: ${{ inputs.verification_mode || 'smoke' }}
+          PACKED_ONLY: ${{ inputs.packed_only || false }}
+          MACOS_REGRESSIONS_ONLY: ${{ inputs.macos_regressions_only || false }}
+          MACOS_INTEL_SOURCE_ONLY: ${{ inputs.macos_intel_source_only || false }}
+        run: node scripts/require-verification-gate.mjs repository-quality "$GITHUB_EVENT_NAME" "$GITHUB_REF"
+
   application:
-    name: Node 24 application (${{ matrix.label }})
-    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.packed_only != true && inputs.macos_regressions_only != true && inputs.macos_intel_source_only != true) }}
+    name: Node 24 source (${{ matrix.label }})
+    needs: verification-mode
+    if: ${{ needs.verification-mode.outputs.mode == 'full' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 2
       matrix:
         include:
           - os: ubuntu-latest
@@ -115,9 +189,10 @@ jobs:
           Get-Content -LiteralPath $stderr
           exit $tests.ExitCode
 
-  package-artifact:
-    name: Pack the release candidate once
-    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.macos_regressions_only != true && inputs.macos_intel_source_only != true) }}
+  application-build:
+    name: Application typecheck and build
+    needs: verification-mode
+    if: ${{ needs.verification-mode.outputs.mode == 'smoke' || needs.verification-mode.outputs.mode == 'full' || needs.verification-mode.outputs.mode == 'artifact-only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -134,6 +209,9 @@ jobs:
       - name: Install application build dependencies
         working-directory: app
         run: npm ci
+      - name: Typecheck application and tests
+        working-directory: app
+        run: npm run typecheck
       - name: Build and pack one npm artifact
         working-directory: app
         run: |
@@ -143,21 +221,43 @@ jobs:
       - name: Publish workflow artifact for the platform matrix
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: tbspec-packed-application
+          name: tbspec-release-candidate
           path: packed-application/*
           if-no-files-found: error
-          retention-days: 1
+          overwrite: true
+          retention-days: 90
 
   packed-application:
-    name: Install one packed artifact (${{ matrix.os }})
-    needs: package-artifact
+    name: Installed verification (${{ matrix.label }})
+    needs: [verification-mode, application-build]
+    if: ${{ needs.verification-mode.outputs.mode == 'smoke' || needs.verification-mode.outputs.mode == 'full' || needs.verification-mode.outputs.mode == 'artifact-only' }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 100
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 4
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
+        include:
+          - os: ubuntu-latest
+            label: Ubuntu
+            platform_key: ubuntu
+          - os: windows-latest
+            label: Windows standard user
+            platform_key: windows
+          - os: macos-latest
+            label: macOS ARM
+            platform_key: macos-arm
+          - os: macos-15-intel
+            label: macOS Intel
+            platform_key: macos-intel
+    env:
+      TBSPEC_VERIFICATION_MODE: ${{ needs.verification-mode.outputs.mode }}
+      TBSPEC_PLATFORM: ${{ matrix.platform_key }}
+      TBSPEC_COMMIT: ${{ github.sha }}
+      TBSPEC_BRANCH: ${{ github.ref_name }}
+      TBSPEC_REPOSITORY: ${{ github.repository }}
+      TBSPEC_RUN_ID: ${{ github.run_id }}
+      TBSPEC_RUN_ATTEMPT: ${{ github.run_attempt }}
     steps:
       - name: Check out verification harness
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -170,36 +270,62 @@ jobs:
       - name: Download the same packed artifact and SHA-256 file
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: tbspec-packed-application
+          name: tbspec-release-candidate
           path: packed-application
-      - name: Install the artifact offline and verify public workflows
-        if: runner.os != 'Windows'
+      - name: Install the artifact offline and verify smoke workflows
+        if: ${{ needs.verification-mode.outputs.mode == 'smoke' && runner.os != 'Windows' }}
+        timeout-minutes: 5
         working-directory: app
-        run: npm run verify:packed -- ../packed-application ../packed-evidence/${{ matrix.os }}.json
-      - name: Install and verify as a standard Windows user
+        run: npm run verify:packed -- ../packed-application ../packed-evidence/${{ matrix.platform_key }}.json
+      - name: Install and verify fully on non-Windows platforms
+        if: ${{ (needs.verification-mode.outputs.mode == 'full' || needs.verification-mode.outputs.mode == 'artifact-only') && runner.os != 'Windows' }}
+        working-directory: app
+        run: npm run verify:packed -- ../packed-application ../packed-evidence/${{ matrix.platform_key }}.json
+      - name: Prepare standard Windows user
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $password = ConvertTo-SecureString ("Tbspec!" + [guid]::NewGuid().ToString('N')) -AsPlainText -Force
+          $ErrorActionPreference = 'Stop'
+          $plainPassword = "Tbspec!" + [guid]::NewGuid().ToString('N')
+          Write-Output "::add-mask::$plainPassword"
+          $password = ConvertTo-SecureString $plainPassword -AsPlainText -Force
           $user = New-LocalUser -Name 'tbspec-packed' -Password $password
           Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
-          $credential = [pscredential]::new("$env:COMPUTERNAME\tbspec-packed", $password)
           $sharedTemp = Join-Path $env:PUBLIC 'tbspec-packed-tests'
           New-Item -ItemType Directory -Path $sharedTemp | Out-Null
           & icacls.exe $sharedTemp /grant 'tbspec-packed:(OI)(CI)F'
           if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the standard-user test directory.' }
           $artifactTarget = Join-Path $sharedTemp 'packed-application'
           Copy-Item -LiteralPath (Join-Path $PWD.Path 'packed-application') -Destination $sharedTemp -Recurse
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "TBSPEC_PACKED_USER_PASSWORD=$plainPassword"
+      - name: Install the artifact offline and verify as a standard Windows user
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: ${{ needs.verification-mode.outputs.mode == 'smoke' && 5 || 90 }}
+        run: |
+          $sharedTemp = Join-Path $env:PUBLIC 'tbspec-packed-tests'
+          $artifactTarget = Join-Path $sharedTemp 'packed-application'
           $stdout = Join-Path $sharedTemp 'verify.stdout'
           $stderr = Join-Path $sharedTemp 'verify.stderr'
           $node = (Get-Command node).Source
           $nodeDirectory = Split-Path -Parent $node
           $npmCli = Join-Path $nodeDirectory 'node_modules\npm\bin\npm-cli.js'
           if (-not (Test-Path -LiteralPath $npmCli)) { throw 'Cannot locate the pinned Node npm CLI.' }
+          $password = ConvertTo-SecureString $env:TBSPEC_PACKED_USER_PASSWORD -AsPlainText -Force
+          $credential = [pscredential]::new("$env:COMPUTERNAME\tbspec-packed", $password)
           $env:TEMP = $env:TMP = $sharedTemp
           $env:TBSPEC_NPM_CLI = $npmCli
           $env:TBSPEC_VERIFIER_SCRIPT = (Join-Path $PWD.Path 'app\scripts\verify-packed-application.mjs')
-          $env:TBSPEC_EVIDENCE_PATH = (Join-Path $sharedTemp 'windows-latest.json')
+          $env:TBSPEC_EVIDENCE_PATH = (Join-Path $sharedTemp 'windows.json')
+          $env:TBSPEC_VERIFICATION_MODE = '${{ needs.verification-mode.outputs.mode }}'
+          $env:TBSPEC_PLATFORM = 'windows'
+          $env:TBSPEC_COMMIT = $env:GITHUB_SHA
+          $env:TBSPEC_RUN_ID = $env:GITHUB_RUN_ID
+          $env:TBSPEC_RUN_ATTEMPT = $env:GITHUB_RUN_ATTEMPT
+          $env:TBSPEC_REPOSITORY = $env:GITHUB_REPOSITORY
+          $env:TBSPEC_BRANCH = $env:GITHUB_REF_NAME
+          $stdout = Join-Path $sharedTemp 'verify.stdout'
+          $stderr = Join-Path $sharedTemp 'verify.stderr'
           $arguments = @($env:TBSPEC_VERIFIER_SCRIPT, $artifactTarget)
           $result = Start-Process -FilePath $node -ArgumentList $arguments -WorkingDirectory (Join-Path $PWD.Path 'app') -Credential $credential -LoadUserProfile -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -Wait -PassThru
           Get-Content -LiteralPath $stdout
@@ -209,10 +335,160 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: tbspec-installed-evidence-${{ matrix.os }}
-          path: ${{ runner.os == 'Windows' && 'C:\Users\Public\tbspec-packed-tests\windows-latest.json' || format('packed-evidence/{0}.json', matrix.os) }}
+          name: tbspec-installed-evidence-${{ matrix.platform_key }}
+          path: ${{ runner.os == 'Windows' && 'C:\Users\Public\tbspec-packed-tests\windows.json' || format('packed-evidence/{0}.json', matrix.platform_key) }}
           if-no-files-found: warn
-          retention-days: 30
+          overwrite: true
+          retention-days: 90
+      - name: Remove standard Windows test account and files
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $user = Get-LocalUser | Where-Object { $_.Name -eq 'tbspec-packed' }
+          if ($null -ne $user) {
+            Remove-LocalUser -Name 'tbspec-packed' -ErrorAction Stop
+          }
+          $publicPath = [IO.Path]::GetFullPath($env:PUBLIC)
+          $expectedPublic = [IO.Path]::GetFullPath((Join-Path $env:SystemDrive 'Users\Public'))
+          if (-not [string]::Equals($publicPath, $expectedPublic, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The shared test directory is outside the expected Windows Public directory.'
+          }
+          $sharedTemp = [IO.Path]::GetFullPath((Join-Path $publicPath 'tbspec-packed-tests'))
+          $expectedTemp = [IO.Path]::GetFullPath((Join-Path $expectedPublic 'tbspec-packed-tests'))
+          if (-not [string]::Equals($sharedTemp, $expectedTemp, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The shared test cleanup path failed its confinement check.'
+          }
+          if (Test-Path -LiteralPath $sharedTemp) {
+            $root = Get-Item -Force -LiteralPath $sharedTemp -ErrorAction Stop
+            if (($root.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+              throw 'The shared test directory became a reparse point; refusing recursive cleanup.'
+            }
+            $reparsePoints = Get-ChildItem -Force -Recurse -LiteralPath $sharedTemp -ErrorAction Stop |
+              Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }
+            if ($null -ne $reparsePoints) {
+              throw 'The shared test directory contains a reparse point; refusing recursive cleanup.'
+            }
+            Remove-Item -LiteralPath $sharedTemp -Recurse -Force -ErrorAction Stop
+          }
+          if (Test-Path -LiteralPath $sharedTemp) {
+            throw 'The shared Windows test directory remains after cleanup.'
+          }
+
+  smoke-acceptance:
+    name: Application smoke
+    needs: [verification-mode, application-build, packed-application]
+    if: ${{ always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || needs.verification-mode.outputs.mode == 'smoke' || needs.verification-mode.outputs.mode == 'full') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Require the artifact producer and every platform lane
+        env:
+          MODE_RESULT: ${{ needs.verification-mode.result }}
+          MODE: ${{ needs.verification-mode.outputs.mode }}
+          REQUESTED_MODE: ${{ inputs.verification_mode || 'smoke' }}
+          BUILD_RESULT: ${{ needs.application-build.result }}
+          INSTALLED_RESULT: ${{ needs.packed-application.result }}
+          PACKED_ONLY: ${{ inputs.packed_only || false }}
+          MACOS_REGRESSIONS_ONLY: ${{ inputs.macos_regressions_only || false }}
+          MACOS_INTEL_SOURCE_ONLY: ${{ inputs.macos_intel_source_only || false }}
+        run: node scripts/require-verification-gate.mjs smoke "$GITHUB_EVENT_NAME" "$GITHUB_REF"
+      - name: Download release candidate
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tbspec-release-candidate
+          path: packed-application
+      - name: Download all installed evidence
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: tbspec-installed-evidence-*
+          path: packed-evidence
+          merge-multiple: true
+      - name: Require complete smoke evidence and cleanup
+        env:
+          TBSPEC_VERIFICATION_MODE: ${{ needs.verification-mode.outputs.mode }}
+          TBSPEC_REPOSITORY: ${{ github.repository }}
+          TBSPEC_COMMIT: ${{ github.sha }}
+          TBSPEC_BRANCH: ${{ github.ref_name }}
+          TBSPEC_RUN_ID: ${{ github.run_id }}
+          TBSPEC_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node app/scripts/validate-verification.mjs packed-application packed-evidence smoke
+
+  complete-verification:
+    name: Complete verification
+    needs:
+      [
+        verification-mode,
+        repository-quality,
+        application-build,
+        application,
+        packed-application,
+        smoke-acceptance,
+      ]
+    if: ${{ always() && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) || (github.event_name == 'workflow_dispatch' && inputs.verification_mode == 'full' && startsWith(github.ref, 'refs/heads/release/')) || needs.verification-mode.outputs.mode == 'full') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out evidence validator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Require quality, build, source, installed and smoke gates
+        env:
+          MODE_RESULT: ${{ needs.verification-mode.result }}
+          MODE: ${{ needs.verification-mode.outputs.mode }}
+          REQUESTED_MODE: ${{ inputs.verification_mode || 'smoke' }}
+          QUALITY_RESULT: ${{ needs.repository-quality.result }}
+          BUILD_RESULT: ${{ needs.application-build.result }}
+          SOURCE_RESULT: ${{ needs.application.result }}
+          INSTALLED_RESULT: ${{ needs.packed-application.result }}
+          SMOKE_RESULT: ${{ needs.smoke-acceptance.result }}
+          PACKED_ONLY: ${{ inputs.packed_only || false }}
+          MACOS_REGRESSIONS_ONLY: ${{ inputs.macos_regressions_only || false }}
+          MACOS_INTEL_SOURCE_ONLY: ${{ inputs.macos_intel_source_only || false }}
+        run: node scripts/require-verification-gate.mjs full "$GITHUB_EVENT_NAME" "$GITHUB_REF"
+      - name: Download release candidate
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tbspec-release-candidate
+          path: packed-application
+      - name: Download all installed evidence
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: tbspec-installed-evidence-*
+          path: packed-evidence
+          merge-multiple: true
+      - name: Bind complete verification to this run and artifact
+        env:
+          TBSPEC_REPOSITORY: ${{ github.repository }}
+          TBSPEC_COMMIT: ${{ github.sha }}
+          TBSPEC_BRANCH: ${{ github.ref_name }}
+          TBSPEC_RUN_ID: ${{ github.run_id }}
+          TBSPEC_RUN_ATTEMPT: ${{ github.run_attempt }}
+          TBSPEC_QUALITY_RESULT: ${{ needs.repository-quality.result }}
+          TBSPEC_BUILD_RESULT: ${{ needs.application-build.result }}
+          TBSPEC_SOURCE_RESULT: ${{ needs.application.result }}
+          TBSPEC_INSTALLED_RESULT: ${{ needs.packed-application.result }}
+          TBSPEC_SMOKE_RESULT: ${{ needs.smoke-acceptance.result }}
+        run: node app/scripts/validate-verification.mjs packed-application packed-evidence full release-verification
+      - name: Publish complete verification evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tbspec-release-verification
+          path: release-verification/verification.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
 
   macos-regressions:
     name: Node 24 focused macOS regressions (${{ matrix.os }})
