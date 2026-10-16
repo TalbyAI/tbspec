@@ -65,9 +65,13 @@ When introducing another generated directory or an ignore rule affecting authore
 
 ## Continuous integration
 
-The `Repository quality` GitHub Actions workflow runs on pull requests, pushes to `main`, and manual dispatch. It installs root tooling with `npm ci` on Node 24, disables hook installation in CI, and runs `npm run check` without writing fixes. Any formatting difference or lint error fails the `Format and lint` job; no path filter skips document-only changes.
+The reusable `Repository quality` workflow installs root tooling with `npm ci` on Node 24, disables hook installation in CI, runs `npm run check` without writing fixes, and runs `npm run test:release-tooling`. Any formatting difference, lint error, routing failure, release-evidence mismatch, or release-tool rejection fails its `Format and lint` job. No path filter skips document-only changes.
 
-Repository administrators can make `Format and lint` a required status check in GitHub branch protection or rulesets. This setup does not change repository protections. CI reports failures; GitHub requires that additional policy to block merging a failed check.
+The `Application foundation` workflow calls repository quality for every PR, push to `main`, and complete run on a versioned `release/<version>` branch. Its stable aggregate check is `Repository quality`; routine `main` integration also requires `Application typecheck and build` and `Application smoke`. Complete release runs add `Complete verification`, which requires repository quality, the full source suite, the application build, all installed-artifact lanes, and the shared smoke assertions. Manual diagnostic modes keep distinct run names and cannot pass the aggregate gates or produce complete-verification evidence.
+
+Branch protection or rulesets must require the emitted `Repository quality`, `Application typecheck and build`, and `Application smoke` contexts on `main`. The `Complete verification` context is a release result and should not be required for ordinary PRs. These workflow files define status checks but do not configure repository protections; verify the live GitHub settings separately when changing that policy.
+
+When retrying a release workflow, use **Re-run all jobs**. Evidence is bound to the workflow attempt, and artifact uploads replace prior artifacts with the same name; rerunning only failed jobs cannot reuse platform evidence from an earlier attempt.
 
 ## Dependency maintenance
 
