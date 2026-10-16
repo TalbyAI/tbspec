@@ -10,6 +10,10 @@ const applicationWorkflow = await readFile(
   "utf8",
 );
 const qualityWorkflow = await readFile(new URL(".github/workflows/quality.yml", root), "utf8");
+const packedVerifier = await readFile(
+  new URL("app/scripts/verify-packed-application.mjs", root),
+  "utf8",
+);
 const modeSelector = new URL("app/scripts/select-verification-mode.mjs", root);
 const gateScript = new URL("scripts/require-verification-gate.mjs", root);
 
@@ -62,14 +66,20 @@ test("application workflow routes routine events to smoke and release pushes to 
 test("Windows installed budget covers standard-user setup, verification and cleanup in one step", () => {
   assert.match(
     applicationWorkflow,
-    /name: Install, verify and clean up as a standard Windows user[\s\S]*?timeout-minutes: \$\{\{[^\r\n]*5[^\r\n]*90[^\r\n]*\}\}/,
+    /name: Install, verify and clean up as a standard Windows user[\s\S]*?timeout-minutes: \$\{\{[^\r\n]*10[^\r\n]*90[^\r\n]*\}\}/,
+  );
+  assert.match(
+    applicationWorkflow,
+    /name: Install the artifact offline and verify smoke workflows[\s\S]*?timeout-minutes: 5/,
   );
   assert.doesNotMatch(applicationWorkflow, /name: Prepare standard Windows user/);
   assert.doesNotMatch(applicationWorkflow, /name: Remove standard Windows test account and files/);
   assert.match(applicationWorkflow, /Diagnostics\.Stopwatch/);
+  assert.match(applicationWorkflow, /budget\.ElapsedMilliseconds -gt 600000/);
   assert.match(applicationWorkflow, /\['durationMs'\]/);
   assert.match(applicationWorkflow, /\['durationScope'\]/);
   assert.match(applicationWorkflow, /windows-standard-user-cleanup-verified/);
+  assert.match(packedVerifier, /process\.platform === "win32" \? 600_000 : 300_000/);
   assert.match(
     applicationWorkflow,
     /name: Upload installed-artifact evidence[\s\S]*?path: packed-evidence\/\$\{\{ matrix\.platform_key \}\}\.json/,

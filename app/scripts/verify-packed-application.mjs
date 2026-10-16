@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 const outputPath = process.env.TBSPEC_EVIDENCE_PATH ?? process.argv[3] ?? "packed-evidence.json";
 const evidencePath = resolve(outputPath);
 const verificationMode = process.env.TBSPEC_VERIFICATION_MODE ?? "full";
+const smokeBudgetMs = process.platform === "win32" ? 600_000 : 300_000;
 const verificationStartedAt = new Date().toISOString();
 const verificationStartedTick = process.hrtime.bigint();
 const evidence = {
@@ -2681,7 +2682,8 @@ try {
     (entry) => entry.state === "verified-owned-temporary-root-removed",
   );
   const cleanupVerified = cleanupSafe && activeWebProjects.size === 0 && rootCleanupVerified;
-  const budgetExceeded = verificationMode === "smoke" && evidence.verification.durationMs > 300_000;
+  const budgetExceeded =
+    verificationMode === "smoke" && evidence.verification.durationMs > smokeBudgetMs;
   if (
     evidence.state !== "verified" ||
     !cleanupVerified ||

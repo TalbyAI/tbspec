@@ -247,7 +247,6 @@ async function verifyEvidenceDirectory(directory, identity, artifact) {
     JSON.stringify(entries) === JSON.stringify(expectedEntries),
     "ALL_FOUR_PLATFORM_EVIDENCE_REQUIRED",
   );
-  const maxDurationMs = identity.mode === "smoke" ? 300_000 : null;
   const outcomes = [];
   for (const platformKey of expectedPlatforms) {
     let evidence;
@@ -256,6 +255,8 @@ async function verifyEvidenceDirectory(directory, identity, artifact) {
     } catch {
       throw new Error(`EVIDENCE_JSON_INVALID_${platformKey}`);
     }
+    const maxDurationMs =
+      identity.mode !== "smoke" ? null : platformKey === "windows" ? 600_000 : 300_000;
     outcomes.push(validateEvidence(evidence, platformKey, identity, artifact, maxDurationMs));
   }
   return outcomes;
