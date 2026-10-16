@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { canonical, digest, graphSignature, hash, sortedSet } from "../src/canonical.ts";
+import { ProjectError } from "../src/output.ts";
 import { initializeProject, readProject, setProjectBaseIri } from "../src/project.ts";
 import {
   editDesignChoice,
@@ -36,6 +37,139 @@ test("manifest editors preserve unrelated TOML floats and datetimes", () => {
     assert.ok(changed.endsWith(custom));
     assert.deepEqual(parseManifest(changed).custom, parseManifest(text).custom);
   }
+});
+
+test("malformed TOML diagnostics report positions without source excerpts", () => {
+  const text =
+    'schema_version = 1\nlocator = "https://user:synthetic-secret@example.org/?token=synthetic-secret" trailing';
+  for (const [parse, file, code] of [
+    [parseManifest, "tbspec.toml", "MANIFEST_INVALID"],
+    [parseLock, "tbspec.lock", "LOCK_INVALID"],
+    [(text: string) => parseLock(text, true), "inventory.toml", "LOCK_INVALID"],
+  ] as const) {
+    assert.throws(
+      () => parse(text),
+      (error: unknown) => {
+        assert.ok(error instanceof ProjectError);
+        assert.equal(error.diagnostic.file, file);
+        assert.equal(error.diagnostic.code, code);
+        assert.match(error.message, /line 2, column \d+/);
+        assert.ok(!JSON.stringify(error.diagnostic).includes("synthetic-secret"));
+        assert.ok(!error.message.includes("https://"));
+        return true;
+      },
+    );
+  }
+});
+
+test("schema versions and integer fields reject TOML floats while preserving numeric callers", async () => {
+  const inventory = await readFile(
+    new URL("../starters/0.1.0/inventory.toml", import.meta.url),
+    "utf8",
+  );
+  for (const float of ["1.0", "1e0"]) {
+    assert.throws(
+      () => parseManifest(`schema_version = ${float}`),
+      /requires integer schema_version/,
+    );
+    assert.throws(
+      () => parseLock(inventory.replace("schema_version = 1", `schema_version = ${float}`), true),
+      /requires integer schema_version/,
+    );
+  }
+  for (const field of [
+    "max_graph_bytes",
+    "max_total_bytes",
+    "max_files",
+    "max_redirects",
+    "deadline_ms",
+    "max_git_workspace_bytes",
+  ]) {
+    for (const float of ["1000.0", "1e3"]) {
+      assert.throws(
+        () => parseManifest(`schema_version = 1\n[acquisition]\n${field} = ${float}`),
+        /safe integer/,
+      );
+    }
+  }
+  for (const float of ["9210.0", "9.210e3"]) {
+    assert.throws(
+      () => parseLock(inventory.replace("byte_length = 9210", `byte_length = ${float}`), true),
+      /safe integer/,
+    );
+  }
+  const manifest = parseManifest(
+    "schema_version = 0x1\ncustom = [1.0, 1e0, -9007199254740991, { count = 9007199254740991 }]\n[acquisition]\nmax_files = 1_000\nmax_redirects = 0",
+  );
+  assert.equal(manifest.schema_version, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(manifest)), {
+    schema_version: 1,
+    acquisition: { max_files: 1000, max_redirects: 0 },
+    custom: [1, 1, -9007199254740991, { count: 9007199254740991 }],
+  });
+  assert.equal(parseLock(inventory, true).schema_version, 1);
+  assert.equal(
+    parseLock(inventory, true).dependencies["tbspec-metadata"]?.files[0]?.byte_length,
+    9210,
+  );
+  for (const integer of ["9007199254740992", "-9007199254740992"]) {
+    assert.throws(
+      () => parseManifest(`schema_version = 1\ncustom = [{ count = ${integer} }]`),
+      /exact wire range/,
+    );
+  }
+});
+
+test("manual attachments require support kinds and agreement with their associations", async () => {
+  const lock = parseLock(
+    await readFile(new URL("../starters/0.1.0/inventory.toml", import.meta.url), "utf8"),
+    true,
+  );
+  const dependency = lock.dependencies["tbspec-metadata"];
+  assert.ok(dependency);
+  const sourceAssociation = dependency.associations[0];
+  const support = dependency.files.find((file) => file.key === sourceAssociation?.support);
+  assert.ok(sourceAssociation && support);
+  const otherSupport = {
+    ...support,
+    key: "source/other.shacl.ttl",
+    source_resource: "other.shacl.ttl",
+    graph_iri: "https://example.org/other-shapes",
+  };
+  dependency.files.push(otherSupport);
+  dependency.attachments.push({
+    id: "attachment-1",
+    role: "shacl",
+    resource: dependency.primary,
+    source: support.source,
+    primary: support.key,
+    active: true,
+  });
+  dependency.associations.push({
+    ...sourceAssociation,
+    origin: "manual",
+    attachment: "attachment-1",
+  });
+  dependency.interpretation_signature = interpretationSignature(dependency);
+  assert.doesNotThrow(() => parseLock(writeToml(lock), true));
+  for (const change of [
+    { role: "design" },
+    { resource: "source/rdf.ttl" },
+    { primary: otherSupport.key },
+  ]) {
+    const copy = structuredClone(lock);
+    const dep = copy.dependencies["tbspec-metadata"];
+    assert.ok(dep?.attachments[0]);
+    Object.assign(dep.attachments[0], change);
+    dep.interpretation_signature = interpretationSignature(dep);
+    assert.throws(() => parseLock(writeToml(copy), true), /Attachment|attachment/);
+  }
+  dependency.associations.pop();
+  const attachment = dependency.attachments[0];
+  assert.ok(attachment);
+  attachment.primary = dependency.primary;
+  dependency.interpretation_signature = interpretationSignature(dependency);
+  assert.throws(() => parseLock(writeToml(lock), true), /Attachment support kind/);
 });
 
 test("canonical signature golden vectors retain UTF-8, null, integer and escape semantics", () => {
