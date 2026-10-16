@@ -59,6 +59,23 @@ test("application workflow routes routine events to smoke and release pushes to 
   assert.doesNotMatch(applicationWorkflow, /Remove-Item[^\r\n]*SilentlyContinue/);
 });
 
+test("Windows installed budget covers standard-user setup, verification and cleanup in one step", () => {
+  assert.match(
+    applicationWorkflow,
+    /name: Install, verify and clean up as a standard Windows user[\s\S]*?timeout-minutes: \$\{\{[^\r\n]*5[^\r\n]*90[^\r\n]*\}\}/,
+  );
+  assert.doesNotMatch(applicationWorkflow, /name: Prepare standard Windows user/);
+  assert.doesNotMatch(applicationWorkflow, /name: Remove standard Windows test account and files/);
+  assert.match(applicationWorkflow, /Diagnostics\.Stopwatch/);
+  assert.match(applicationWorkflow, /\['durationMs'\]/);
+  assert.match(applicationWorkflow, /\['durationScope'\]/);
+  assert.match(applicationWorkflow, /windows-standard-user-cleanup-verified/);
+  assert.match(
+    applicationWorkflow,
+    /name: Upload installed-artifact evidence[\s\S]*?path: packed-evidence\/\$\{\{ matrix\.platform_key \}\}\.json/,
+  );
+});
+
 test("quality workflow runs for release commits as well as routine integration", () => {
   assert.match(qualityWorkflow, /workflow_call:/);
   assert.match(qualityWorkflow, /npm run test:release-tooling/);
@@ -77,6 +94,16 @@ test("main pushes select smoke and versioned release pushes select full verifica
   assert.equal(release.status, 0, release.stderr);
   assert.equal(JSON.parse(main.stdout).mode, "smoke");
   assert.equal(JSON.parse(release.stdout).mode, "full");
+});
+
+test("release branch parsing rejects a trailing newline instead of accepting a partial ref", () => {
+  const selected = selectMode("push", "refs/heads/release/1.2.3\n");
+  const gated = requireGate("full", "workflow_dispatch", "refs/heads/release/1.2.3\n", {
+    MODE: "full",
+    REQUESTED_MODE: "full",
+  });
+  assert.equal(selected.status, 1);
+  assert.equal(gated.status, 1);
 });
 
 test("manual smoke works on feature branches while manual full is limited to release branches", () => {

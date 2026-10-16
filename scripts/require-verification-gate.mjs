@@ -1,22 +1,17 @@
-import { isValidReleaseVersion } from "./release-utils.mjs";
+import { releaseBranchVersion } from "./release-utils.mjs";
 
 const [gate, event = "", ref = ""] = process.argv.slice(2);
-
-function releaseVersion(reference) {
-  const match = /^refs\/heads\/release\/(.+)$/.exec(reference);
-  return match && isValidReleaseVersion(match[1]) ? match[1] : null;
-}
 
 function requiredMode() {
   if (event === "pull_request") return "smoke";
   if (event === "push") {
     if (ref === "refs/heads/main") return "smoke";
-    return releaseVersion(ref) ? "full" : null;
+    return releaseBranchVersion(ref) ? "full" : null;
   }
   if (event === "workflow_dispatch") {
     const requested = process.env.REQUESTED_MODE || "smoke";
     if (requested === "smoke") return "smoke";
-    if (requested === "full" && releaseVersion(ref)) return "full";
+    if (requested === "full" && releaseBranchVersion(ref)) return "full";
   }
   return null;
 }

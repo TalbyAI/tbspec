@@ -215,10 +215,8 @@ async function makePublishFixture(t) {
     [installedJobNames[1]]: [
       "Set up Node",
       "Download the same packed artifact and SHA-256 file",
-      "Prepare standard Windows user",
-      "Install the artifact offline and verify as a standard Windows user",
+      "Install, verify and clean up as a standard Windows user",
       "Upload installed-artifact evidence",
-      "Remove standard Windows test account and files",
     ],
     [installedJobNames[2]]: [
       "Set up Node",
@@ -289,6 +287,9 @@ async function makePublishFixture(t) {
         startedAt: "2026-10-17T09:00:00.000Z",
         completedAt: "2026-10-17T09:01:00.000Z",
         durationMs: 60_000,
+        ...(platformKey === "windows"
+          ? { durationScope: "windows-standard-user-installed-verification-and-cleanup" }
+          : {}),
       },
       artifact: {
         filename: archiveName,
@@ -311,11 +312,17 @@ async function makePublishFixture(t) {
       assertions: [
         ...fullAssertions.map((name) => ({ name, passed: true })),
         { name: "served-browser-assets-match-launched-release", passed: true, count: 2 },
+        ...(platformKey === "windows"
+          ? [{ name: "windows-standard-user-cleanup-verified", passed: true }]
+          : []),
       ],
       scenarios: fullScenarios.map((name) => ({ name, status: "passed" })),
       cleanup: [
         { state: "stopped-and-verified" },
         { state: "verified-owned-temporary-root-removed" },
+        ...(platformKey === "windows"
+          ? [{ state: "standard-user-account-removed" }, { state: "shared-test-directory-removed" }]
+          : []),
       ],
     };
     const platformDirectory = path.join(
@@ -529,16 +536,20 @@ test("release preparation commits matching version metadata locally without push
 });
 
 test("release preparation rejects an invalid version without changing the checkout", async (t) => {
-  const { root } = await makeReleaseFixture(t);
-  const originalCommit = git(root, "rev-parse", "HEAD");
-  const originalPackage = await readFile(path.join(root, "app", "package.json"), "utf8");
-  const result = runPrepare(root, "v1.2.3");
+  const invalidVersions = ["v1.2.3", "9007199254740992.0.0", `1.0.0-${"a".repeat(251)}`, "1.0.0\n"];
+  for (const version of invalidVersions) {
+    const { root } = await makeReleaseFixture(t);
+    const originalCommit = git(root, "rev-parse", "HEAD");
+    const originalPackage = await readFile(path.join(root, "app", "package.json"), "utf8");
+    const result = runPrepare(root, version);
 
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /valid npm semantic version/i);
-  assert.equal(git(root, "rev-parse", "HEAD"), originalCommit);
-  assert.equal(git(root, "branch", "--show-current"), "main");
-  assert.equal(await readFile(path.join(root, "app", "package.json"), "utf8"), originalPackage);
+    assert.notEqual(result.status, 0, `accepted invalid version ${JSON.stringify(version)}`);
+    assert.match(result.stderr, /valid npm semantic version/i);
+    assert.equal(git(root, "rev-parse", "HEAD"), originalCommit);
+    assert.equal(git(root, "branch", "--show-current"), "main");
+    assert.equal(git(root, "status", "--porcelain"), "");
+    assert.equal(await readFile(path.join(root, "app", "package.json"), "utf8"), originalPackage);
+  }
 });
 
 test("release preparation rejects versions that npm cannot preserve as distinct release identities", async (t) => {
@@ -834,6 +845,21 @@ test("release publication requires verified write access for an existing npm pac
   assert.deepEqual(await readJsonLines(fixture.ghCalls), []);
 });
 
+test("release publication rejects malformed npm account access responses", async (t) => {
+  for (const response of ["null", "[]", "false", '"unexpected"']) {
+    const fixture = await makePublishFixture(t);
+    const result = runPublish(fixture, { NPM_STUB_PACKAGES: response });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /could not confirm npm account access/i);
+    assert.deepEqual(await readJsonLines(fixture.ghCalls), []);
+    assert.equal(
+      (await readJsonLines(fixture.npmCalls)).some((call) => call.publishArchive),
+      false,
+    );
+  }
+});
+
 test("release publication rejects a failed or pending latest full attempt instead of using an older success", async (t) => {
   for (const state of [
     { status: "completed", conclusion: "failure" },
@@ -894,6 +920,26 @@ test("release publication rejects wrong-commit runs and unsuccessful required ma
   assert.match(
     skippedResult.stderr,
     /verification step Test public operations and processes .* did not complete/i,
+  );
+
+  const failedWindowsCleanup = await makePublishFixture(t);
+  const jobsWithFailedCleanup = structuredClone(failedWindowsCleanup.jobs);
+  const windows = jobsWithFailedCleanup.find(
+    (job) => job.name === "Installed verification (Windows standard user)",
+  );
+  windows.steps.find(
+    (step) => step.name === "Install, verify and clean up as a standard Windows user",
+  ).conclusion = "failure";
+  await writeFile(
+    path.join(failedWindowsCleanup.temporaryDirectory, "jobs.json"),
+    JSON.stringify(jobsWithFailedCleanup),
+  );
+  const cleanupResult = runPublish(failedWindowsCleanup);
+  assert.notEqual(cleanupResult.status, 0);
+  assert.match(cleanupResult.stderr, /Install, verify and clean up.*did not complete/i);
+  assert.equal(
+    (await readJsonLines(failedWindowsCleanup.npmCalls)).some((call) => call.publishArchive),
+    false,
   );
 });
 

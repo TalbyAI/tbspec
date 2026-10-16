@@ -183,6 +183,8 @@ Run `npm ci` and `npm pack` from this directory to create a local `.tgz` for dev
 
 ### Preparing and verifying an npm release
 
+Routine pull requests, including release-fix pull requests, and pushes to `main` run repository quality, application typecheck/build, and installed-package smoke checks on Linux, standard-user Windows, macOS ARM, and macOS Intel. The five-minute per-platform interval covers installation, smoke assertions, and verified cleanup; checkout, Node setup, dependency/build preparation, quality checks, and runner queueing are outside that interval. The full source suite and exhaustive installed scenarios run only on versioned release branches. Delayed detection of non-smoke regressions on `main` is accepted; a failed full run blocks publication of that release only, not unrelated pull requests or development on `main`.
+
 From a clean, up-to-date `main` checkout with `main` tracking its intended remote, prepare the new version from the repository root:
 
 ```sh
