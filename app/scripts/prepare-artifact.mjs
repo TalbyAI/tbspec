@@ -479,9 +479,9 @@ for (const entry of noticeEntries) {
 const lines = [
   "# Third-party notices",
   "",
-  `This private application artifact includes ${productionPaths.size} pinned production package instances and ${browserPaths.size} package instances represented in the emitted browser assets. The exact installed paths, versions, lockfile integrity values, repositories, source contributions, starter digests, and notice text hashes are recorded in [release-inventory.json](release-inventory.json).`,
+  `This application artifact includes ${productionPaths.size} pinned production package instances and ${browserPaths.size} package instances represented in the emitted browser assets. The exact installed paths, versions, lockfile integrity values, repositories, source contributions, starter digests, and notice text hashes are recorded in [release-inventory.json](release-inventory.json).`,
   "",
-  "The application package declares no application license. This inventory describes third-party package declarations and supplied notice texts; it does not grant a license to the private application itself.",
+  "The application package declares no application license. This inventory describes third-party package declarations and supplied notice texts; it does not grant a license to the application itself.",
   "",
   "## Included notice texts",
   "",

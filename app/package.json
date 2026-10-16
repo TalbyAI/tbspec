@@ -1,7 +1,6 @@
 {
   "name": "tbspec",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "engines": {
     "node": ">=24 <25"
@@ -17,6 +16,8 @@
     "clean": "node scripts/clean-dist.mjs",
     "build": "npm run clean && tsc && vite build web --config vite.config.ts --outDir ../dist/web --emptyOutDir && node scripts/prepare-artifact.mjs",
     "verify:packed": "node scripts/verify-packed-application.mjs",
+    "prepare-release": "node scripts/prepare-release.mjs",
+    "publish-release": "node scripts/publish-release.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json && tsc -p web/tsconfig.json && tsc -p tsconfig.vite.json",
     "test": "node --test tests/*.test.ts",
     "test:serial": "node --test --test-concurrency=1 tests/*.test.ts",
