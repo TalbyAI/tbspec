@@ -1,9 +1,7 @@
 name: Repository quality
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -29,3 +27,5 @@ jobs:
           HUSKY: "0"
       - name: Check formatting and lint
         run: npm run check
+      - name: Test release tooling and CI routing
+        run: npm run test:release-tooling
