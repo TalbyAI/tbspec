@@ -284,7 +284,7 @@ jobs:
       - name: Install, verify and clean up as a standard Windows user
         if: runner.os == 'Windows'
         shell: pwsh
-        timeout-minutes: ${{ needs.verification-mode.outputs.mode == 'smoke' && 5 || 90 }}
+        timeout-minutes: ${{ needs.verification-mode.outputs.mode == 'smoke' && 10 || 90 }}
         run: |
           $ErrorActionPreference = 'Stop'
           $budgetStartedAt = [DateTime]::UtcNow.ToString('o')
@@ -434,7 +434,7 @@ jobs:
             }
 
             $budget.Stop()
-            $smokeBudgetExceeded = $env:TBSPEC_VERIFICATION_MODE -eq 'smoke' -and $budget.ElapsedMilliseconds -gt 300000
+            $smokeBudgetExceeded = $env:TBSPEC_VERIFICATION_MODE -eq 'smoke' -and $budget.ElapsedMilliseconds -gt 600000
             if ($evidenceCopied) {
               try {
                 $evidence = Get-Content -Raw -LiteralPath $workspaceEvidence | ConvertFrom-Json -AsHashtable
@@ -470,7 +470,7 @@ jobs:
             }
           }
 
-          $smokeBudgetExceeded = $env:TBSPEC_VERIFICATION_MODE -eq 'smoke' -and $budget.ElapsedMilliseconds -gt 300000
+          $smokeBudgetExceeded = $env:TBSPEC_VERIFICATION_MODE -eq 'smoke' -and $budget.ElapsedMilliseconds -gt 600000
           if ($operationFailed -or $operationExitCode -ne 0 -or $cleanupFailures.Count -gt 0 -or
               -not $accountRemoved -or -not $sharedDirectoryRemoved -or -not $evidenceCopied -or $smokeBudgetExceeded) {
             throw 'Windows installed verification failed, cleanup was incomplete, or the smoke budget was exceeded.'

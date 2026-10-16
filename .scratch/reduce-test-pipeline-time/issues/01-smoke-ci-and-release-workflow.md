@@ -27,7 +27,7 @@ The user confirmed the design on 2026-10-16 and requested this durable ticket fo
 
 ## Approved decisions
 
-- Five minutes means installed-package installation, smoke assertions and cleanup per platform; not setup/build/quality or queueing. Start with Linux, standard-user Windows and both macOS architectures. Any budget/platform reduction needs measured evidence and a new user decision.
+- Linux and each macOS lane have five minutes for installed-package installation, smoke assertions and cleanup. Standard-user Windows has ten minutes for account/setup, artifact copy, installation, smoke assertions and verified cleanup. Checkout, Node setup, dependency/build preparation, quality checks and runner queueing are outside these intervals. The Windows increase was approved after the combined step hit its five-minute hosted timeout in run 38978483654; its earlier 264,478 ms verifier-only measurement excluded the outer setup and cleanup.
 - Full runs happen on every direct push to `release/<version>` and can be launched manually there. No PR is needed to trigger them. No nightly schedule and no automatic full suite on ordinary PRs or `main`.
 - A failed full run blocks that release only. Hotfixes are made on the release branch and later return to `main` by PR; they need not be integrated before publication.
 - `prepare-release <version>` requires clean, up-to-date `main`; creates a versioned branch, updates version/lockfile and commits locally. It does not push. The author reviews and pushes.
@@ -39,7 +39,7 @@ The user confirmed the design on 2026-10-16 and requested this durable ticket fo
 - [ ] All approved behavior in the specification is implemented and documented in English.
 - [ ] Ordinary PRs, including release-fix PRs into `main`, and `main` pushes run quality, type/build and smoke; no exhaustive application matrix is required for these events.
 - [ ] Four hosted smoke lanes cover the minimum installed CLI, project read/write, asset, authenticated/unauthenticated HTTP and verified shutdown behavior. Windows runs as a standard user.
-- [ ] Installation, assertions and cleanup complete within five minutes on each platform, with recorded actual durations; otherwise stop and obtain the user's budget/platform decision using the results. A timeout is failure, not evidence that coverage fits.
+- [ ] Installation, assertions and cleanup complete within five minutes on Linux and both macOS platforms and within ten minutes on standard-user Windows, with recorded actual durations. A timeout is failure, not evidence that coverage fits.
 - [ ] A new release-branch push and a later direct hotfix push each trigger complete CI without a PR. Eligible manual full runs work as well.
 - [ ] Full verification retains the source suite across all platforms/Intel partitions and all exhaustive installed-artifact scenarios, including the shared smoke assertions.
 - [ ] Partial/manual diagnostic runs, skipped lanes, empty selections and cleanup failures cannot authorize a release.
@@ -83,6 +83,10 @@ Live `main` protection was applied and independently re-read: PR integration is 
 After the author authenticated npm, `npm whoami` confirmed `isksz`, and the account package-access query succeeded. Authenticated metadata still returned `E404` for the unscoped `tbspec` package, so no existing package owner or ACL was present to inspect. First-package creation and any additional authentication remain registry decisions at the author's explicit publication. No registry writes have occurred.
 
 The public npm commands were exercised directly for invalid preparation/non-release publication and preserved the checkout. A separate clean release worktree also exercised the real GitHub history API with npm fully stubbed: absence of an exact-commit full run and the later pending full run both blocked publication. The real-artifact success probe and final hosted acceptance remain pending. Candidate archives, platform evidence and complete manifests use 90-day retention; operators must rerun all jobs after expiry or when retrying an attempt.
+
+### 2026-10-17 — Windows smoke budget amendment approved
+
+The user approved a ten-minute Windows smoke budget while retaining five minutes for Linux, macOS ARM and macOS Intel. The combined Windows setup, artifact copy, installation, assertions and verified cleanup step hit its five-minute timeout in [run 38978483654](https://github.com/TalbyAI/tbspec/actions/runs/38978483654). The earlier 264,478 ms Windows verifier result from the initial run excluded outer setup and cleanup, so it did not establish that the complete bounded operation fit. The updated hosted smoke measurement remains pending; no platform or assertion was removed.
 
 ### 2026-10-17 — Implementation baseline
 

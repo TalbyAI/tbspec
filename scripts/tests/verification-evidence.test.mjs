@@ -195,6 +195,42 @@ test("Windows evidence must bind the standard-user and shared-directory cleanup 
   }
 });
 
+test("smoke evidence allows ten minutes on Windows and five minutes on other platforms", async () => {
+  const data = await fixture();
+  const windowsPath = join(data.evidenceDirectory, "windows.json");
+  const ubuntuPath = join(data.evidenceDirectory, "ubuntu.json");
+  const originalWindows = await readEvidence(windowsPath);
+  const originalUbuntu = await readEvidence(ubuntuPath);
+  try {
+    const extendedWindows = structuredClone(originalWindows);
+    extendedWindows.verification.durationMs = 450_001;
+    extendedWindows.verification.completedAt = new Date(
+      Date.parse(extendedWindows.verification.startedAt) + 450_001,
+    ).toISOString();
+    await writeFile(windowsPath, JSON.stringify(extendedWindows));
+    assert.equal(run(data, "smoke").status, 0);
+
+    extendedWindows.verification.durationMs = 600_001;
+    extendedWindows.verification.completedAt = new Date(
+      Date.parse(extendedWindows.verification.startedAt) + 600_001,
+    ).toISOString();
+    await writeFile(windowsPath, JSON.stringify(extendedWindows));
+    const overWindowsBudget = run(data, "smoke");
+    assert.equal(overWindowsBudget.status, 1);
+    assert.match(overWindowsBudget.stderr, /SMOKE_BUDGET_EXCEEDED_windows/);
+
+    await writeFile(windowsPath, JSON.stringify(originalWindows));
+    const overOtherPlatformBudget = structuredClone(originalUbuntu);
+    overOtherPlatformBudget.verification.durationMs = 300_001;
+    await writeFile(ubuntuPath, JSON.stringify(overOtherPlatformBudget));
+    const overOtherPlatform = run(data, "smoke");
+    assert.equal(overOtherPlatform.status, 1);
+    assert.match(overOtherPlatform.stderr, /SMOKE_BUDGET_EXCEEDED_ubuntu/);
+  } finally {
+    await rm(data.root, { recursive: true, force: true });
+  }
+});
+
 test("cleanup, budget, mode, digest and cross-platform mismatches fail closed", async () => {
   const data = await fixture();
   const evidencePath = join(data.evidenceDirectory, "ubuntu.json");
