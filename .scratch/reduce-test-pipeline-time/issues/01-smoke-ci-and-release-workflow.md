@@ -11,7 +11,7 @@ Approved design: [Fast pull-request checks and verified release publication](../
 
 Routine PRs and `main` pushes use four-platform smoke verification instead of the exhaustive application matrices. Versioned release branches run all checks on every push. Local npm scripts prepare release branches and publish only the archive validated by complete CI for the current release commit.
 
-The user confirmed the design on 2026-10-16 and requested this durable ticket for continuation in another session. Implementation is in progress on `t3code/reduce-test-pipeline-time`; execution evidence is recorded under Comments. The detailed specification is normative; earlier alternatives in the conversation are superseded by it.
+The user confirmed the design on 2026-10-16 and requested this durable ticket for continuation in another session. Implementation on `t3code/reduce-test-pipeline-time` is paused at the user's request on 2026-10-17; execution evidence and the resume checkpoint are recorded under Comments. The detailed specification is normative; earlier alternatives in the conversation are superseded by it.
 
 ## Scope and code entry points
 
@@ -69,6 +69,41 @@ The user confirmed the design on 2026-10-16 and requested this durable ticket fo
 - [ ] Recheck GitHub settings, registry permissions and artifact availability live. The prior inspection is evidence of session state, not a permanent guarantee.
 
 ## Comments
+
+### 2026-10-17 — User-requested pause and resume checkpoint
+
+The user requested stopping until tomorrow. Functional changes are committed and pushed through `147040a4c5132c23933dd70a3c9c440cb9610492` on the original integration branch, `t3code/reduce-test-pipeline-time`. The checkout was clean before this documentation checkpoint. All implementer/reviewer agents have finished; no local background implementation is running. Do not mark this ticket resolved yet.
+
+The approved budget is now ten minutes only for standard-user Windows and five minutes for Linux and both macOS platforms. All four platforms and every smoke assertion remain enabled. Commit `58435078`, merged as `e0d24512`, updates the workflow timeout, outer/inner monotonic limits, evidence validation, tests and documentation consistently. No application source, application tests or dependency graph was changed.
+
+Latest validation state:
+
+- Root/application `npm ci`, format/check, application typecheck/build, actionlint and PowerShell syntax checks passed during implementation. After the last functional changes, format/check, application typecheck, all 43 release-tooling tests, actionlint and a real PowerShell-to-Node finalizer invocation with a path containing spaces passed. The merger independently repeated root checks and all 43 tests.
+- [Smoke run 38980104507](https://github.com/TalbyAI/tbspec/actions/runs/38980104507), on `e0d24512`, passed Ubuntu (49,328 ms), macOS ARM (47,807 ms) and macOS Intel (108,704 ms). Windows failed after 354,789 ms, within its ten-minute budget: the installed `init` command returned exit 4, `unavailable`, `IO_FAILURE`. Account, shared-directory and owned temporary-root cleanup all passed. The original CLI diagnostic message was missing, and the wrapper incorrectly replaced the child failure with an outer-cleanup failure. A Windows process-identity query failure is a hypothesis, not an established cause.
+- Commit `675bf5fa`, merged as `147040a4`, preserves the original child failure when outer cleanup succeeds and retains sanitized `IO_FAILURE` messages using the existing runtime-diagnostic redaction rules. Outer cleanup/budget errors still fail verification. This changes diagnostics only; it does not add retries, weaken assertions or change runtime ownership behavior.
+- [Latest smoke run 38981802038](https://github.com/TalbyAI/tbspec/actions/runs/38981802038), on `147040a4`, was still running at the pause. Quality/build and Ubuntu (31,142 ms), macOS ARM (55,446 ms), and macOS Intel (108,666 ms) had passed. Windows was in progress. Let this already-dispatched run finish; its final result must be inspected on resumption. Its candidate SHA-256 is `fc6cecf427d4efee57f0646c6d79e6d43a548fdc15fb59ca30efeca77117c5b8`.
+- [Complete release run 38978682620](https://github.com/TalbyAI/tbspec/actions/runs/38978682620), on release commit `825ce2d04c2ad428b653da3f96ab0d4360d775c0`, finished **failed**. Five source lanes passed; Intel partition 3/3 timed out in the unchanged `state-machine-web.test.ts` (60,000 ms) and the 1,000-member layout test in `views-layout-web.test.ts` (120,000 ms). Its other 89 tests passed. Do not report this run as complete release authorization or change unrelated tests/timeouts merely to obtain green CI.
+- All four installed lanes of that complete run passed every original exhaustive scenario (eight per platform), shared smoke assertions and verified cleanup: Ubuntu 214,072 ms / 196 assertions; Windows 1,191,219 ms / 198 assertions; macOS ARM 469,171 ms / 196 assertions; macOS Intel 682,385 ms / 196 assertions. Independently downloaded records passed the evidence validator. Their candidate SHA-256 is `5fb8257a6a835e1bd21c2ec6d7bd7606263582665a40152eac4e4bab8792f60e`. Comparing all 19,687 files in this archive with the newer smoke archive found only `package/README.md` different; executable application/dependency bytes are identical.
+- The failed source lane correctly failed `Complete verification` before its authorization manifest could be uploaded. A clean release checkout using real GitHub APIs and a fully stubbed npm CLI rejected this latest failed run and never reached simulated publication. Wrong-commit and pending-run rejection were also exercised earlier. The real-GitHub success-path probe remains unperformed because no successful complete run exists; local isolated success-path tests pass. No npm package was published.
+
+Live external state is intentional: `main` remains protected for contributors and administrators by the strict `Repository quality`, `Application typecheck and build`, and `Application smoke` checks (GitHub Actions app 15368), with PR integration and zero required approvals. No PR was created and `main` was not modified. Temporary remote `release/0.1.0` remains at `825ce2d0` for reproducibility; its direct push proved full routing after protection. Artifacts have 90-day retention, confirmed through GitHub's expiry metadata. npm authentication as `isksz` and account-access queries succeeded, but authenticated package metadata returned `E404` for `tbspec`; first-publication permission and any OTP requirement remain unproven without an explicit real publication.
+
+Resume from this checkpoint:
+
+1. Check the integration branch and clean status, then inspect run `38981802038`. Download its Windows evidence and independently validate the complete four-platform set. If it failed, use the newly preserved diagnostic instead of guessing or silently changing the approved budgets.
+2. Preserve the distinction between successful installed verification and the failed complete release gate. Record the two source timeouts as unresolved; no release is publishable from the failed run. A retry intended to authorize publication must rerun **all jobs**, so artifact/evidence run attempts agree.
+3. Complete the acceptance record only with actual evidence. Keep the new smoke commit/archive distinct from release commit `825ce2d0` and its archive. Do not claim the full suite passed on the integration tip.
+4. Finish remaining review/validation and ticket closure, then clean up the temporary implementer worktrees and the test release branch/worktree. Preserve the unrelated user worktree at `E:/talby/tbspec`. Do not publish npm or create/merge a PR without a corresponding user request.
+
+Retained worktrees and evidence for resumption:
+
+- Integration: `C:/Users/iskan/.t3/worktrees/tbspec/t3code-a06c103c`.
+- Implementer: `C:/Users/iskan/.t3/worktrees/tbspec/pipeline-implementation`, branch `codex/reduce-test-pipeline-time`, clean at `675bf5fa`; all changes are merged.
+- Release tooling implementer: `C:/Users/iskan/.t3/worktrees/tbspec/release-cli-tooling`, branch `codex/release-cli-tooling`; all changes are merged.
+- Publication probe: `C:/Users/iskan/AppData/Local/Temp/tbspec-publish-live-gh-20261017/checkout with spaces`, local `release/0.1.0` at `825ce2d0`. The sibling `npm-stub.mjs` intercepts every npm command and cannot write to the registry. No publication-capture file was created by the failed-run probe.
+- Downloaded latest smoke candidate and three completed platform records: `C:/Users/iskan/AppData/Local/Temp/tbspec-hosted-smoke-38981802038/{artifact,evidence}`. The preceding failed smoke, including Windows evidence, is under `tbspec-hosted-smoke-38980104507` in the same temp parent.
+- Complete-run archive, all four installed records, normalized `evidence/`, and `run-summary.json`: `C:/Users/iskan/AppData/Local/Temp/tbspec-full-38978682620`.
+- Standalone actionlint 1.7.12: `C:/Users/iskan/AppData/Local/Temp/tbspec-actionlint-1.7.12/actionlint.exe`; use `-shellcheck='' -pyflakes=''` for the two workflow files. This tool is outside the repository dependency graph.
 
 ### 2026-10-17 — Implementation integrated; complete hosted verification running
 
