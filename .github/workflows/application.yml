@@ -437,33 +437,21 @@ jobs:
             $smokeBudgetExceeded = $env:TBSPEC_VERIFICATION_MODE -eq 'smoke' -and $budget.ElapsedMilliseconds -gt 600000
             if ($evidenceCopied) {
               try {
-                $evidence = Get-Content -Raw -LiteralPath $workspaceEvidence | ConvertFrom-Json -AsHashtable
-                $evidence['verification']['startedAt'] = $budgetStartedAt
-                $evidence['verification']['completedAt'] = [DateTime]::UtcNow.ToString('o')
-                $evidence['verification']['durationMs'] = [long]$budget.ElapsedMilliseconds
-                $evidence['verification']['durationScope'] = 'windows-standard-user-installed-verification-and-cleanup'
-                $accountCleanupState = if ($accountRemoved) { 'standard-user-account-removed' } else { 'standard-user-account-removal-failed' }
-                $directoryCleanupState = if ($sharedDirectoryRemoved) { 'shared-test-directory-removed' } else { 'shared-test-directory-removal-failed' }
-                $evidence['cleanup'] = @($evidence['cleanup']) + @(
-                  [ordered]@{ state = $accountCleanupState },
-                  [ordered]@{ state = $directoryCleanupState }
-                )
-                $outerCleanupPassed = $accountRemoved -and $sharedDirectoryRemoved -and $cleanupFailures.Count -eq 0
-                $evidence['assertions'] = @($evidence['assertions']) + @(
-                  [ordered]@{ name = 'windows-standard-user-cleanup-verified'; passed = $outerCleanupPassed }
-                )
-                if ($operationFailed -or -not $outerCleanupPassed -or $smokeBudgetExceeded) {
-                  $evidence['state'] = 'failed'
-                  $failureStep = if ($smokeBudgetExceeded) { 'smoke-budget' } else { 'windows-outer-cleanup' }
-                  $failureCode = if ($smokeBudgetExceeded) { 'SMOKE_BUDGET_EXCEEDED' } else { 'WINDOWS_OUTER_VERIFICATION_FAILED' }
-                  $evidence['failure'] = [ordered]@{
-                    step = $failureStep
-                    code = $failureCode
-                    errorName = 'VerificationFailure'
-                  }
+                $finalization = [ordered]@{
+                  startedAt = $budgetStartedAt
+                  completedAt = [DateTime]::UtcNow.ToString('o')
+                  durationMs = [long]$budget.ElapsedMilliseconds
+                  accountRemoved = $accountRemoved
+                  sharedDirectoryRemoved = $sharedDirectoryRemoved
+                  cleanupFailures = $cleanupFailures.ToArray()
+                  operationFailed = $operationFailed
+                  operationExitCode = $operationExitCode
+                  smokeBudgetExceeded = $smokeBudgetExceeded
                 }
-                $json = ConvertTo-Json -InputObject $evidence -Depth 100
-                [IO.File]::WriteAllText($workspaceEvidence, $json + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+                $finalizer = Join-Path $PWD.Path 'scripts\verification-evidence.mjs'
+                $finalizationJson = ConvertTo-Json -InputObject $finalization -Compress
+                & $node $finalizer $workspaceEvidence $finalizationJson
+                if ($LASTEXITCODE -ne 0) { throw 'Could not finalize Windows verification evidence.' }
               } catch {
                 $null = $cleanupFailures.Add('evidence-update')
               }

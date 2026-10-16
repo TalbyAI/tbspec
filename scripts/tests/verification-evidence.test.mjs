@@ -6,6 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import {
+  finalizeWindowsVerificationEvidence,
+  sanitizeVerifierDiagnostics,
+} from "../verification-evidence.mjs";
 
 const root = new URL("../../", import.meta.url);
 const validator = fileURLToPath(new URL("app/scripts/validate-verification.mjs", root));
@@ -229,6 +233,99 @@ test("smoke evidence allows ten minutes on Windows and five minutes on other pla
   } finally {
     await rm(data.root, { recursive: true, force: true });
   }
+});
+
+test("verifier preserves sanitized IO_FAILURE messages without recording unrelated diagnostics", () => {
+  const temporaryRoot = "C:\\Users\\runner\\AppData\\Local\\Temp\\tbspec-verification";
+  const secretToken = "0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMN";
+  const diagnostics = sanitizeVerifierDiagnostics(
+    [
+      {
+        code: "IO_FAILURE",
+        message: `Could not access ${temporaryRoot}; request https://example.invalid/private/${secretToken}; token ${secretToken}`,
+      },
+      { code: "RUNTIME_PROCESS_IDENTITY", message: `Failed in ${temporaryRoot}` },
+      { code: "INVALID_ARGUMENTS", message: `Contains ${secretToken}` },
+    ],
+    [temporaryRoot],
+  );
+
+  assert.deepEqual(diagnostics, [
+    {
+      code: "IO_FAILURE",
+      message: "Could not access <temporary>; request <url> token <redacted-token>",
+    },
+    { code: "RUNTIME_PROCESS_IDENTITY", message: "Failed in <temporary>" },
+  ]);
+});
+
+test("Windows finalization preserves child failures unless outer cleanup or budget failed", () => {
+  const childFailure = {
+    step: "project-initialize",
+    code: "CLI_EXIT_STATUS_MISMATCH",
+    errorName: "VerificationFailure",
+  };
+  const evidence = {
+    state: "failed",
+    failure: structuredClone(childFailure),
+    verification: {},
+    cleanup: [],
+    assertions: [],
+  };
+  const finalization = {
+    startedAt: "2026-10-17T10:00:00.000Z",
+    completedAt: "2026-10-17T10:05:54.789Z",
+    durationMs: 354_789,
+    accountRemoved: true,
+    sharedDirectoryRemoved: true,
+    cleanupFailures: [],
+    operationFailed: true,
+    operationExitCode: 4,
+    smokeBudgetExceeded: false,
+  };
+
+  const preserved = finalizeWindowsVerificationEvidence(evidence, finalization);
+  assert.equal(preserved.state, "failed");
+  assert.deepEqual(preserved.failure, childFailure);
+  assert.equal(preserved.assertions.at(-1).passed, true);
+  assert.equal(preserved.verification.durationMs, 354_789);
+
+  const failedOperation = finalizeWindowsVerificationEvidence(
+    {
+      state: "passed",
+      failure: null,
+      verification: {},
+      cleanup: [],
+      assertions: [],
+    },
+    finalization,
+  );
+  assert.equal(failedOperation.state, "failed");
+  assert.equal(failedOperation.failure.code, "WINDOWS_VERIFIER_PROCESS_FAILED");
+
+  const outerCleanupFailure = finalizeWindowsVerificationEvidence(
+    {
+      state: "failed",
+      failure: structuredClone(childFailure),
+      verification: {},
+      cleanup: [],
+      assertions: [],
+    },
+    { ...finalization, cleanupFailures: ["account-removal"] },
+  );
+  assert.equal(outerCleanupFailure.failure.code, "WINDOWS_OUTER_VERIFICATION_FAILED");
+
+  const outerBudgetFailure = finalizeWindowsVerificationEvidence(
+    {
+      state: "failed",
+      failure: structuredClone(childFailure),
+      verification: {},
+      cleanup: [],
+      assertions: [],
+    },
+    { ...finalization, smokeBudgetExceeded: true },
+  );
+  assert.equal(outerBudgetFailure.failure.code, "SMOKE_BUDGET_EXCEEDED");
 });
 
 test("cleanup, budget, mode, digest and cross-platform mismatches fail closed", async () => {

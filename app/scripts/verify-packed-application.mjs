@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { sanitizeVerifierDiagnostics } from "../../scripts/verification-evidence.mjs";
 
 const outputPath = process.env.TBSPEC_EVIDENCE_PATH ?? process.argv[3] ?? "packed-evidence.json";
 const evidencePath = resolve(outputPath);
@@ -176,19 +177,10 @@ async function runCli(packageRoot, args, cwd = tempRoot, expectedExit) {
         record.diagnosticCodes = Array.isArray(envelope?.diagnostics)
           ? envelope.diagnostics.map((item) => item.code).filter((code) => typeof code === "string")
           : [];
-        const runtimeDiagnostics = (envelope?.diagnostics ?? [])
-          .filter((item) => typeof item.code === "string" && item.code.startsWith("RUNTIME_"))
-          .map((item) => ({
-            code: item.code,
-            message:
-              typeof item.message === "string"
-                ? item.message
-                    .replaceAll(tempRoot ?? "", "<temporary>")
-                    .replaceAll(taskRoot ?? "", "<temporary>")
-                    .replace(/https?:\/\/[^\s"<>]+/gi, "<url>")
-                    .replace(/\b[A-Za-z0-9_-]{40,}\b/g, "<redacted-token>")
-                : null,
-          }));
+        const runtimeDiagnostics = sanitizeVerifierDiagnostics(envelope?.diagnostics, [
+          tempRoot,
+          taskRoot,
+        ]);
         if (runtimeDiagnostics.length > 0) record.runtimeDiagnostics = runtimeDiagnostics;
         evidence.commands.push(record);
         await saveEvidence();
