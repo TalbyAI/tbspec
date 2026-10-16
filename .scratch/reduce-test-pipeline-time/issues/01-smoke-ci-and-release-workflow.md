@@ -70,6 +70,14 @@ The user confirmed the design on 2026-10-16 and requested this durable ticket fo
 
 ## Comments
 
+### 2026-10-17 — Implementation baseline
+
+Implementation uses the existing `t3code/reduce-test-pipeline-time` branch, as requested. The starting application commit is `a2d7fdb95c1994cf8a7df078d81e50bafc73b354`. Its 47 top-level source test files are distributed across the three Intel partitions as 16, 16 and 15 files.
+
+Root `npm ci`, `npm run format`, `npm run check`, application `npm ci`, `npm run typecheck` and `npm run build` passed before implementation. Root installation reported eight existing tooling advisories; the application installation reported none. No dependency changes or unsafe fixes were applied.
+
+Live GitHub inspection confirmed the public repository, administrator access, no protection on `main`, and no repository rulesets. Public npm metadata returned `E404` for `tbspec`; `npm whoami --registry=https://registry.npmjs.org` returned `E401`. Package ownership and actual publication permissions remain unverified until valid npm authentication is available. No package was published.
+
 ### 2026-10-16 — Approved interview and documentation handoff
 
 The user first selected fast PR feedback over exhaustive coverage on each PR, then explicitly selected the five-minute smoke design. The grilling interview settled budget boundaries, retaining all four platforms pending measurement, admin-enforced `main` protection, manual npm publication, continued PR flow after full-test failures, and allowing release fixes to return to `main` after publication.
