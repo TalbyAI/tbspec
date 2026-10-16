@@ -8,7 +8,7 @@ Implementation ticket: [01 — Implement smoke CI and the release workflow](issu
 
 Shorten routine pull-request feedback by replacing exhaustive application testing on every PR and `main` push with bounded smoke verification. Run the complete verification on versioned release branches and publish only the exact npm artifact validated for the current release commit.
 
-The user explicitly accepted delayed detection of regressions outside smoke coverage. A failed full run blocks publication of that release, not unrelated PRs or continued development on `main`. This design was approved after an interactive interview; implementation has not started.
+The user explicitly accepted delayed detection of regressions outside smoke coverage. A failed full run blocks publication of that release, not unrelated PRs or continued development on `main`. This design was approved after an interactive interview. Implementation and validation evidence are recorded in the [implementation ticket](issues/01-smoke-ci-and-release-workflow.md).
 
 ## Evidence and current state
 
@@ -100,4 +100,4 @@ The implementation is accepted only after meaningful checks demonstrate workflow
 - Confirm actual npm package ownership, authentication and publication requirements during implementation. No registry namespace, package rename, credential setup or successful publication was established in this session.
 - The artifact retention duration, exact script names/locations and stable CI check names are implementation details to document. Preserve the approved behavior rather than reopen settled product choices.
 - Exclude unrelated application optimization, duration-based repartitioning, test-impact selection, new dependencies/task runners, automatic npm publication, GitHub Release creation, and new nightly schedules.
-- This handoff does not modify workflows, application code, package metadata, npm credentials, GitHub settings or registry contents.
+- The original documentation handoff did not modify workflows, application code, package metadata, npm credentials, GitHub settings or registry contents. Subsequent implementation work is recorded in the implementation ticket.

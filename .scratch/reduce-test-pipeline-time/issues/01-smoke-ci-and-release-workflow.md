@@ -11,7 +11,7 @@ Approved design: [Fast pull-request checks and verified release publication](../
 
 Routine PRs and `main` pushes use four-platform smoke verification instead of the exhaustive application matrices. Versioned release branches run all checks on every push. Local npm scripts prepare release branches and publish only the archive validated by complete CI for the current release commit.
 
-The user confirmed the design on 2026-10-16 and requested this durable ticket for continuation in another session. Implementation has not started. The detailed specification is normative; earlier alternatives in the conversation are superseded by it.
+The user confirmed the design on 2026-10-16 and requested this durable ticket for continuation in another session. Implementation is in progress on `t3code/reduce-test-pipeline-time`; execution evidence is recorded under Comments. The detailed specification is normative; earlier alternatives in the conversation are superseded by it.
 
 ## Scope and code entry points
 
@@ -43,11 +43,11 @@ The user confirmed the design on 2026-10-16 and requested this durable ticket fo
 - [ ] A new release-branch push and a later direct hotfix push each trigger complete CI without a PR. Eligible manual full runs work as well.
 - [ ] Full verification retains the source suite across all platforms/Intel partitions and all exhaustive installed-artifact scenarios, including the shared smoke assertions.
 - [ ] Partial/manual diagnostic runs, skipped lanes, empty selections and cleanup failures cannot authorize a release.
-- [ ] Release preparation rejects dirty/divergent/non-`main` checkouts, invalid versions and branch collisions without discarding work; a valid preparation creates only the intended version changes/commit and does not push.
-- [ ] Publication rejects a non-release checkout, branch/version mismatch, dirty state, existing published version, registry uncertainty, missing authentication, wrong commit, incomplete/failed/cancelled/pending verification and missing/expired/mismatched artifacts.
-- [ ] A local stubbed success-path check proves publication receives the exact downloaded archive and no local build/repack occurs. No real package is published during automated validation.
+- [x] Release preparation rejects dirty/divergent/non-`main` checkouts, invalid versions and branch collisions without discarding work; a valid preparation creates only the intended version changes/commit and does not push.
+- [x] Publication rejects a non-release checkout, branch/version mismatch, dirty state, existing published version, registry uncertainty, missing authentication, wrong commit, incomplete/failed/cancelled/pending verification and missing/expired/mismatched artifacts.
+- [x] A local stubbed success-path check proves publication receives the exact downloaded archive and no local build/repack occurs. No real package is published during automated validation.
 - [ ] Artifact/evidence metadata binds verification mode, commit, run, expected platform coverage and SHA-256; logs redact credentials. Retention supports the documented manual handoff and expiry fails clearly.
-- [ ] Stable required checks protect `main` for ordinary contributors and admins; configuration does not block direct release hotfix pushes or introduce mandatory second-person approval. Verify the resulting live settings and record them.
+- [x] Stable required checks protect `main` for ordinary contributors and admins; configuration does not block direct release hotfix pushes or introduce mandatory second-person approval. Verify the resulting live settings and record them.
 - [ ] Root `npm ci`, `npm run format` and `npm run check` pass; run appropriate application type/build, script checks and hosted workflow verification for the implementation.
 
 ## Suggested implementation sequence
@@ -69,6 +69,20 @@ The user confirmed the design on 2026-10-16 and requested this durable ticket fo
 - [ ] Recheck GitHub settings, registry permissions and artifact availability live. The prior inspection is evidence of session state, not a permanent guarantee.
 
 ## Comments
+
+### 2026-10-17 — Implementation integrated; complete hosted verification running
+
+The implementation and review fixes are integrated as `825ce2d04c2ad428b653da3f96ab0d4360d775c0`. Root/application installs, format/check, application typecheck/build, actionlint 1.7.12, embedded PowerShell syntax parsing, and all 40 release-tooling tests passed. The review corrected Windows timing to cover standard-user setup, installation, assertions and verified account/directory cleanup in one bounded step, tightened npm version and registry-response validation, and shared release-ref parsing.
+
+The [initial four-platform smoke run](https://github.com/TalbyAI/tbspec/actions/runs/38975987342) passed on `c4a2d968158284f199e0c23e10f0669d3dc404ab`. Its verifier durations were Ubuntu 49,889 ms, Windows standard user 264,478 ms, macOS ARM 42,068 ms and macOS Intel 114,630 ms. The Windows shell step took 286 seconds, with account/directory cleanup in a subsequent two-second step. All four records named the same archive digest, `11664c9eb381cfa9fc6bed248dee23f2676502ff6aa0896b2e43c6c50e0c711a`; an independent download and evidence validation passed. The [updated smoke run](https://github.com/TalbyAI/tbspec/actions/runs/38978483654) verifies the corrected combined Windows timing boundary.
+
+Creating the temporary remote `release/0.1.0` branch triggered [automatic full verification](https://github.com/TalbyAI/tbspec/actions/runs/38975994955), and an eligible [manual full dispatch](https://github.com/TalbyAI/tbspec/actions/runs/38976046569) selected the full inventory. These routing probes were deliberately cancelled to release hosted runner capacity. A second direct push after `main` protection triggered [complete verification of the integrated implementation](https://github.com/TalbyAI/tbspec/actions/runs/38978682620). Its final result is still pending; cancelled probes are not release authorization.
+
+Live `main` protection was applied and independently re-read: PR integration is required, administrators are included, zero approvals are required, and strict checks are `Repository quality`, `Application typecheck and build`, and `Application smoke`, each bound to the GitHub Actions app (15368). No unrelated protections or rulesets existed. Release branches remain outside this policy.
+
+After the author authenticated npm, `npm whoami` confirmed `isksz`, and the account package-access query succeeded. Authenticated metadata still returned `E404` for the unscoped `tbspec` package, so no existing package owner or ACL was present to inspect. First-package creation and any additional authentication remain registry decisions at the author's explicit publication. No registry writes have occurred.
+
+The public npm commands were exercised directly for invalid preparation/non-release publication and preserved the checkout. A separate clean release worktree also exercised the real GitHub history API with npm fully stubbed: absence of an exact-commit full run and the later pending full run both blocked publication. The real-artifact success probe and final hosted acceptance remain pending. Candidate archives, platform evidence and complete manifests use 90-day retention; operators must rerun all jobs after expiry or when retrying an attempt.
 
 ### 2026-10-17 — Implementation baseline
 
