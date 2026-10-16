@@ -14,6 +14,10 @@ const packedVerifier = await readFile(
   new URL("app/scripts/verify-packed-application.mjs", root),
   "utf8",
 );
+const verificationEvidence = await readFile(
+  new URL("scripts/verification-evidence.mjs", root),
+  "utf8",
+);
 const modeSelector = new URL("app/scripts/select-verification-mode.mjs", root);
 const gateScript = new URL("scripts/require-verification-gate.mjs", root);
 
@@ -76,10 +80,12 @@ test("Windows installed budget covers standard-user setup, verification and clea
   assert.doesNotMatch(applicationWorkflow, /name: Remove standard Windows test account and files/);
   assert.match(applicationWorkflow, /Diagnostics\.Stopwatch/);
   assert.match(applicationWorkflow, /budget\.ElapsedMilliseconds -gt 600000/);
-  assert.match(applicationWorkflow, /\['durationMs'\]/);
-  assert.match(applicationWorkflow, /\['durationScope'\]/);
-  assert.match(applicationWorkflow, /windows-standard-user-cleanup-verified/);
+  assert.match(applicationWorkflow, /scripts\\verification-evidence\.mjs/);
+  assert.match(applicationWorkflow, /if \(\$operationFailed -or \$operationExitCode -ne 0/);
   assert.match(packedVerifier, /process\.platform === "win32" \? 600_000 : 300_000/);
+  assert.match(verificationEvidence, /evidence\.verification\.durationMs = result\.durationMs/);
+  assert.match(verificationEvidence, /evidence\.verification\.durationScope =/);
+  assert.match(verificationEvidence, /windows-standard-user-cleanup-verified/);
   assert.match(
     applicationWorkflow,
     /name: Upload installed-artifact evidence[\s\S]*?path: packed-evidence\/\$\{\{ matrix\.platform_key \}\}\.json/,
