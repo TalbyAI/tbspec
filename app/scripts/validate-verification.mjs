@@ -166,6 +166,21 @@ function validateEvidence(evidence, platformKey, identity, artifact, maxDuration
       evidence.cleanup.some((entry) => entry.state === "verified-owned-temporary-root-removed"),
     `VERIFIED_CLEANUP_MISSING_${platformKey}`,
   );
+  if (platformKey === "windows") {
+    requireCondition(
+      verification.durationScope === "windows-standard-user-installed-verification-and-cleanup",
+      "WINDOWS_DURATION_SCOPE_INVALID",
+    );
+    requireCondition(
+      passedAssertions.has("windows-standard-user-cleanup-verified"),
+      "WINDOWS_OUTER_CLEANUP_ASSERTION_MISSING",
+    );
+    requireCondition(
+      evidence.cleanup.some((entry) => entry.state === "standard-user-account-removed") &&
+        evidence.cleanup.some((entry) => entry.state === "shared-test-directory-removed"),
+      "WINDOWS_OUTER_CLEANUP_EVIDENCE_MISSING",
+    );
+  }
 
   if (identity.mode === "full") {
     requireCondition(
@@ -190,6 +205,7 @@ function validateEvidence(evidence, platformKey, identity, artifact, maxDuration
     platformKey,
     platform: evidence.platform,
     durationMs: verification.durationMs,
+    durationScope: verification.durationScope ?? "installed-verifier",
     startedAt: verification.startedAt,
     completedAt: verification.completedAt,
     assertions: [...passedAssertions].sort(),

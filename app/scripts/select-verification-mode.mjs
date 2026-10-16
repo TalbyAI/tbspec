@@ -1,15 +1,10 @@
 import { appendFile } from "node:fs/promises";
-import { isValidReleaseVersion } from "../../scripts/release-utils.mjs";
+import { releaseBranchVersion } from "../../scripts/release-utils.mjs";
 
 function parseBoolean(value, label) {
   if (value === "true") return true;
   if (value === "false") return false;
   throw new Error(`${label} must be true or false.`);
-}
-
-function releaseVersion(ref) {
-  const match = /^refs\/heads\/release\/(.+)$/.exec(ref ?? "");
-  return match && isValidReleaseVersion(match[1]) ? match[1] : null;
 }
 
 function selectMode([
@@ -30,7 +25,7 @@ function selectMode([
   if (event === "pull_request") return "smoke";
   if (event === "push") {
     if (ref === "refs/heads/main") return "smoke";
-    if (releaseVersion(ref)) return "full";
+    if (releaseBranchVersion(ref)) return "full";
     throw new Error("Application workflow push is not for main or a versioned release branch.");
   }
   if (event !== "workflow_dispatch") throw new Error(`Unsupported workflow event: ${event}.`);
@@ -42,7 +37,7 @@ function selectMode([
       throw new Error("A diagnostic run cannot be combined with full verification.");
     return diagnostics[0] ? "artifact-only" : diagnostics[1] ? "focused" : "intel-partition";
   }
-  if (requestedMode === "full" && !releaseVersion(ref))
+  if (requestedMode === "full" && !releaseBranchVersion(ref))
     throw new Error("Full verification is available only on release/<version> branches.");
   return requestedMode;
 }

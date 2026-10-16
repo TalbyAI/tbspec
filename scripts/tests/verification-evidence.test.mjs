@@ -56,6 +56,9 @@ async function fixture(mode = "smoke") {
         startedAt: "2026-10-17T09:00:00.000Z",
         completedAt: "2026-10-17T09:00:25.000Z",
         durationMs: 25_000,
+        ...(platformKey === "windows"
+          ? { durationScope: "windows-standard-user-installed-verification-and-cleanup" }
+          : {}),
       },
       artifact: {
         filename,
@@ -78,6 +81,9 @@ async function fixture(mode = "smoke") {
       assertions: [
         ...requiredAssertions.map((name) => ({ name, passed: true })),
         { name: "served-browser-assets-match-launched-release", passed: true, count: 2 },
+        ...(platformKey === "windows"
+          ? [{ name: "windows-standard-user-cleanup-verified", passed: true }]
+          : []),
         ...(mode === "full"
           ? [{ name: "public-command-family-help-and-one-envelope-routing", passed: true }]
           : []),
@@ -86,6 +92,9 @@ async function fixture(mode = "smoke") {
       cleanup: [
         { state: "stopped-and-verified" },
         { state: "verified-owned-temporary-root-removed" },
+        ...(platformKey === "windows"
+          ? [{ state: "standard-user-account-removed" }, { state: "shared-test-directory-removed" }]
+          : []),
       ],
     };
     await writeFile(
@@ -149,6 +158,40 @@ test("installed verifier acceptance requires all four smoke lanes, identity and 
     assert.equal(fullSmoke.status, 0, fullSmoke.stderr);
   } finally {
     await rm(fullData.root, { recursive: true, force: true });
+  }
+});
+
+test("Windows evidence must bind the standard-user and shared-directory cleanup to its budget", async () => {
+  const data = await fixture();
+  const windowsPath = join(data.evidenceDirectory, "windows.json");
+  const original = await readEvidence(windowsPath);
+  try {
+    const invalidEvidence = [
+      ["durationScope", "WINDOWS_DURATION_SCOPE_INVALID"],
+      ["cleanup assertion", "WINDOWS_OUTER_CLEANUP_ASSERTION_MISSING"],
+      ["shared-directory cleanup", "WINDOWS_OUTER_CLEANUP_EVIDENCE_MISSING"],
+    ];
+    for (const [caseName, expectedError] of invalidEvidence) {
+      const missingCleanup = structuredClone(original);
+      if (caseName === "durationScope") delete missingCleanup.verification.durationScope;
+      if (caseName === "cleanup assertion") {
+        missingCleanup.assertions = missingCleanup.assertions.filter(
+          (assertion) => assertion.name !== "windows-standard-user-cleanup-verified",
+        );
+      }
+      if (caseName === "shared-directory cleanup") {
+        missingCleanup.cleanup = missingCleanup.cleanup.filter(
+          (entry) => entry.state !== "shared-test-directory-removed",
+        );
+      }
+      await writeFile(windowsPath, JSON.stringify(missingCleanup));
+
+      const result = run(data, "smoke");
+      assert.notEqual(result.status, 0, `accepted missing ${caseName}`);
+      assert.match(result.stderr, new RegExp(expectedError));
+    }
+  } finally {
+    await rm(data.root, { recursive: true, force: true });
   }
 });
 

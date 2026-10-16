@@ -281,100 +281,209 @@ jobs:
         if: ${{ (needs.verification-mode.outputs.mode == 'full' || needs.verification-mode.outputs.mode == 'artifact-only') && runner.os != 'Windows' }}
         working-directory: app
         run: npm run verify:packed -- ../packed-application ../packed-evidence/${{ matrix.platform_key }}.json
-      - name: Prepare standard Windows user
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $plainPassword = "Tbspec!" + [guid]::NewGuid().ToString('N')
-          Write-Output "::add-mask::$plainPassword"
-          $password = ConvertTo-SecureString $plainPassword -AsPlainText -Force
-          $user = New-LocalUser -Name 'tbspec-packed' -Password $password
-          Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
-          $sharedTemp = Join-Path $env:PUBLIC 'tbspec-packed-tests'
-          New-Item -ItemType Directory -Path $sharedTemp | Out-Null
-          & icacls.exe $sharedTemp /grant 'tbspec-packed:(OI)(CI)F'
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the standard-user test directory.' }
-          $artifactTarget = Join-Path $sharedTemp 'packed-application'
-          Copy-Item -LiteralPath (Join-Path $PWD.Path 'packed-application') -Destination $sharedTemp -Recurse
-          Add-Content -LiteralPath $env:GITHUB_ENV -Value "TBSPEC_PACKED_USER_PASSWORD=$plainPassword"
-      - name: Install the artifact offline and verify as a standard Windows user
+      - name: Install, verify and clean up as a standard Windows user
         if: runner.os == 'Windows'
         shell: pwsh
         timeout-minutes: ${{ needs.verification-mode.outputs.mode == 'smoke' && 5 || 90 }}
         run: |
-          $sharedTemp = Join-Path $env:PUBLIC 'tbspec-packed-tests'
-          $artifactTarget = Join-Path $sharedTemp 'packed-application'
-          $stdout = Join-Path $sharedTemp 'verify.stdout'
-          $stderr = Join-Path $sharedTemp 'verify.stderr'
-          $node = (Get-Command node).Source
-          $nodeDirectory = Split-Path -Parent $node
-          $npmCli = Join-Path $nodeDirectory 'node_modules\npm\bin\npm-cli.js'
-          if (-not (Test-Path -LiteralPath $npmCli)) { throw 'Cannot locate the pinned Node npm CLI.' }
-          $password = ConvertTo-SecureString $env:TBSPEC_PACKED_USER_PASSWORD -AsPlainText -Force
-          $credential = [pscredential]::new("$env:COMPUTERNAME\tbspec-packed", $password)
-          $env:TEMP = $env:TMP = $sharedTemp
-          $env:TBSPEC_NPM_CLI = $npmCli
-          $env:TBSPEC_VERIFIER_SCRIPT = (Join-Path $PWD.Path 'app\scripts\verify-packed-application.mjs')
-          $env:TBSPEC_EVIDENCE_PATH = (Join-Path $sharedTemp 'windows.json')
-          $env:TBSPEC_VERIFICATION_MODE = '${{ needs.verification-mode.outputs.mode }}'
-          $env:TBSPEC_PLATFORM = 'windows'
-          $env:TBSPEC_COMMIT = $env:GITHUB_SHA
-          $env:TBSPEC_RUN_ID = $env:GITHUB_RUN_ID
-          $env:TBSPEC_RUN_ATTEMPT = $env:GITHUB_RUN_ATTEMPT
-          $env:TBSPEC_REPOSITORY = $env:GITHUB_REPOSITORY
-          $env:TBSPEC_BRANCH = $env:GITHUB_REF_NAME
-          $stdout = Join-Path $sharedTemp 'verify.stdout'
-          $stderr = Join-Path $sharedTemp 'verify.stderr'
-          $arguments = @($env:TBSPEC_VERIFIER_SCRIPT, $artifactTarget)
-          $result = Start-Process -FilePath $node -ArgumentList $arguments -WorkingDirectory (Join-Path $PWD.Path 'app') -Credential $credential -LoadUserProfile -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -Wait -PassThru
-          Get-Content -LiteralPath $stdout
-          Get-Content -LiteralPath $stderr
-          exit $result.ExitCode
+          $ErrorActionPreference = 'Stop'
+          $budgetStartedAt = [DateTime]::UtcNow.ToString('o')
+          $budget = [Diagnostics.Stopwatch]::StartNew()
+          $cleanupFailures = [System.Collections.Generic.List[string]]::new()
+          $operationFailed = $false
+          $userCreated = $false
+          $accountRemoved = $false
+          $sharedDirectoryCreated = $false
+          $sharedDirectoryRemoved = $false
+          $evidenceCopied = $false
+          $operationExitCode = $null
+          $publicPath = $null
+          $expectedPublic = $null
+          $sharedTemp = $null
+          $expectedTemp = $null
+          $workspaceEvidence = Join-Path $env:GITHUB_WORKSPACE 'packed-evidence\windows.json'
+          try {
+            $publicPath = [IO.Path]::GetFullPath($env:PUBLIC)
+            $expectedPublic = [IO.Path]::GetFullPath((Join-Path $env:SystemDrive 'Users\Public'))
+            if (-not [string]::Equals($publicPath, $expectedPublic, [StringComparison]::OrdinalIgnoreCase)) {
+              throw 'The shared test directory is outside the expected Windows Public directory.'
+            }
+            $sharedTemp = [IO.Path]::GetFullPath((Join-Path $publicPath 'tbspec-packed-tests'))
+            $expectedTemp = [IO.Path]::GetFullPath((Join-Path $expectedPublic 'tbspec-packed-tests'))
+            if (-not [string]::Equals($sharedTemp, $expectedTemp, [StringComparison]::OrdinalIgnoreCase)) {
+              throw 'The shared test cleanup path failed its confinement check.'
+            }
+            if (Test-Path -LiteralPath $sharedTemp) {
+              throw 'The shared Windows test directory already exists.'
+            }
+            if ($null -ne (Get-LocalUser -Name 'tbspec-packed' -ErrorAction SilentlyContinue)) {
+              throw 'The temporary standard-user account already exists.'
+            }
+
+            $plainPassword = "Tbspec!" + [guid]::NewGuid().ToString('N')
+            Write-Output "::add-mask::$plainPassword"
+            $password = ConvertTo-SecureString $plainPassword -AsPlainText -Force
+            $user = New-LocalUser -Name 'tbspec-packed' -Password $password
+            $userCreated = $true
+            $credential = [pscredential]::new("$env:COMPUTERNAME\tbspec-packed", $password)
+            $plainPassword = $null
+            $password = $null
+            Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
+
+            New-Item -ItemType Directory -Path $sharedTemp | Out-Null
+            $sharedDirectoryCreated = $true
+            & icacls.exe $sharedTemp /grant 'tbspec-packed:(OI)(CI)F'
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the standard-user test directory.' }
+            $artifactTarget = Join-Path $sharedTemp 'packed-application'
+            Copy-Item -LiteralPath (Join-Path $PWD.Path 'packed-application') -Destination $sharedTemp -Recurse
+
+            $node = (Get-Command node).Source
+            $nodeDirectory = Split-Path -Parent $node
+            $npmCli = Join-Path $nodeDirectory 'node_modules\npm\bin\npm-cli.js'
+            if (-not (Test-Path -LiteralPath $npmCli)) { throw 'Cannot locate the pinned Node npm CLI.' }
+            $env:TEMP = $env:TMP = $sharedTemp
+            $env:TBSPEC_NPM_CLI = $npmCli
+            $env:TBSPEC_VERIFIER_SCRIPT = (Join-Path $PWD.Path 'app\scripts\verify-packed-application.mjs')
+            $env:TBSPEC_EVIDENCE_PATH = (Join-Path $sharedTemp 'windows.json')
+            $env:TBSPEC_PLATFORM = 'windows'
+            $stdout = Join-Path $sharedTemp 'verify.stdout'
+            $stderr = Join-Path $sharedTemp 'verify.stderr'
+            $arguments = @($env:TBSPEC_VERIFIER_SCRIPT, $artifactTarget)
+            $result = Start-Process -FilePath $node -ArgumentList $arguments -WorkingDirectory (Join-Path $PWD.Path 'app') -Credential $credential -LoadUserProfile -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -Wait -PassThru
+            $operationExitCode = $result.ExitCode
+            Get-Content -LiteralPath $stdout
+            Get-Content -LiteralPath $stderr
+            if ($operationExitCode -ne 0) { throw 'Installed package verification failed.' }
+          } catch {
+            $operationFailed = $true
+          } finally {
+            if ($userCreated) {
+              try {
+                Remove-LocalUser -Name 'tbspec-packed' -ErrorAction Stop
+                if ($null -ne (Get-LocalUser -Name 'tbspec-packed' -ErrorAction SilentlyContinue)) {
+                  throw 'The temporary standard-user account remains after removal.'
+                }
+                $accountRemoved = $true
+              } catch {
+                $null = $cleanupFailures.Add('account-removal')
+              }
+            }
+
+            if ($sharedDirectoryCreated) {
+              try {
+                $actualPublic = [IO.Path]::GetFullPath($env:PUBLIC)
+                $actualExpected = [IO.Path]::GetFullPath((Join-Path $env:SystemDrive 'Users\Public'))
+                if (-not [string]::Equals($actualPublic, $actualExpected, [StringComparison]::OrdinalIgnoreCase) -or
+                    -not [string]::Equals($sharedTemp, [IO.Path]::GetFullPath((Join-Path $actualExpected 'tbspec-packed-tests')), [StringComparison]::OrdinalIgnoreCase)) {
+                  throw 'The shared test cleanup path failed its confinement check.'
+                }
+                $root = Get-Item -Force -LiteralPath $sharedTemp -ErrorAction Stop
+                if (($root.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                  throw 'The shared test directory became a reparse point; refusing recursive cleanup.'
+                }
+                $reparsePoints = Get-ChildItem -Force -Recurse -LiteralPath $sharedTemp -ErrorAction Stop |
+                  Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }
+                if ($null -ne $reparsePoints) {
+                  throw 'The shared test directory contains a reparse point; refusing recursive cleanup.'
+                }
+                $evidenceSource = Join-Path $sharedTemp 'windows.json'
+                if (-not (Test-Path -LiteralPath $evidenceSource -PathType Leaf)) {
+                  throw 'The standard-user verifier did not create evidence.'
+                }
+                $evidenceItem = Get-Item -Force -LiteralPath $evidenceSource -ErrorAction Stop
+                if (($evidenceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                  throw 'The standard-user evidence became a reparse point.'
+                }
+                $evidenceDirectory = Split-Path -Parent $workspaceEvidence
+                New-Item -ItemType Directory -Path $evidenceDirectory -Force | Out-Null
+                if (Test-Path -LiteralPath $workspaceEvidence) {
+                  throw 'A Windows evidence file already exists in the workflow workspace.'
+                }
+                Copy-Item -LiteralPath $evidenceSource -Destination $workspaceEvidence
+                $evidenceCopied = $true
+              } catch {
+                $null = $cleanupFailures.Add('evidence-copy')
+              }
+
+              try {
+                $actualPublic = [IO.Path]::GetFullPath($env:PUBLIC)
+                $actualExpected = [IO.Path]::GetFullPath((Join-Path $env:SystemDrive 'Users\Public'))
+                if (-not [string]::Equals($actualPublic, $actualExpected, [StringComparison]::OrdinalIgnoreCase) -or
+                    -not [string]::Equals($sharedTemp, [IO.Path]::GetFullPath((Join-Path $actualExpected 'tbspec-packed-tests')), [StringComparison]::OrdinalIgnoreCase)) {
+                  throw 'The shared test cleanup path failed its confinement check.'
+                }
+                if (Test-Path -LiteralPath $sharedTemp) {
+                  $root = Get-Item -Force -LiteralPath $sharedTemp -ErrorAction Stop
+                  if (($root.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw 'The shared test directory became a reparse point; refusing recursive cleanup.'
+                  }
+                  $reparsePoints = Get-ChildItem -Force -Recurse -LiteralPath $sharedTemp -ErrorAction Stop |
+                    Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }
+                  if ($null -ne $reparsePoints) {
+                    throw 'The shared test directory contains a reparse point; refusing recursive cleanup.'
+                  }
+                  Remove-Item -LiteralPath $sharedTemp -Recurse -Force -ErrorAction Stop
+                }
+                if (Test-Path -LiteralPath $sharedTemp) {
+                  throw 'The shared Windows test directory remains after cleanup.'
+                }
+                $sharedDirectoryRemoved = $true
+              } catch {
+                $null = $cleanupFailures.Add('shared-directory-removal')
+              }
+            }
+
+            $budget.Stop()
+            $smokeBudgetExceeded = $env:TBSPEC_VERIFICATION_MODE -eq 'smoke' -and $budget.ElapsedMilliseconds -gt 300000
+            if ($evidenceCopied) {
+              try {
+                $evidence = Get-Content -Raw -LiteralPath $workspaceEvidence | ConvertFrom-Json -AsHashtable
+                $evidence['verification']['startedAt'] = $budgetStartedAt
+                $evidence['verification']['completedAt'] = [DateTime]::UtcNow.ToString('o')
+                $evidence['verification']['durationMs'] = [long]$budget.ElapsedMilliseconds
+                $evidence['verification']['durationScope'] = 'windows-standard-user-installed-verification-and-cleanup'
+                $accountCleanupState = if ($accountRemoved) { 'standard-user-account-removed' } else { 'standard-user-account-removal-failed' }
+                $directoryCleanupState = if ($sharedDirectoryRemoved) { 'shared-test-directory-removed' } else { 'shared-test-directory-removal-failed' }
+                $evidence['cleanup'] = @($evidence['cleanup']) + @(
+                  [ordered]@{ state = $accountCleanupState },
+                  [ordered]@{ state = $directoryCleanupState }
+                )
+                $outerCleanupPassed = $accountRemoved -and $sharedDirectoryRemoved -and $cleanupFailures.Count -eq 0
+                $evidence['assertions'] = @($evidence['assertions']) + @(
+                  [ordered]@{ name = 'windows-standard-user-cleanup-verified'; passed = $outerCleanupPassed }
+                )
+                if ($operationFailed -or -not $outerCleanupPassed -or $smokeBudgetExceeded) {
+                  $evidence['state'] = 'failed'
+                  $failureStep = if ($smokeBudgetExceeded) { 'smoke-budget' } else { 'windows-outer-cleanup' }
+                  $failureCode = if ($smokeBudgetExceeded) { 'SMOKE_BUDGET_EXCEEDED' } else { 'WINDOWS_OUTER_VERIFICATION_FAILED' }
+                  $evidence['failure'] = [ordered]@{
+                    step = $failureStep
+                    code = $failureCode
+                    errorName = 'VerificationFailure'
+                  }
+                }
+                $json = ConvertTo-Json -InputObject $evidence -Depth 100
+                [IO.File]::WriteAllText($workspaceEvidence, $json + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+              } catch {
+                $null = $cleanupFailures.Add('evidence-update')
+              }
+            }
+          }
+
+          $smokeBudgetExceeded = $env:TBSPEC_VERIFICATION_MODE -eq 'smoke' -and $budget.ElapsedMilliseconds -gt 300000
+          if ($operationFailed -or $operationExitCode -ne 0 -or $cleanupFailures.Count -gt 0 -or
+              -not $accountRemoved -or -not $sharedDirectoryRemoved -or -not $evidenceCopied -or $smokeBudgetExceeded) {
+            throw 'Windows installed verification failed, cleanup was incomplete, or the smoke budget was exceeded.'
+          }
       - name: Upload installed-artifact evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tbspec-installed-evidence-${{ matrix.platform_key }}
-          path: ${{ runner.os == 'Windows' && 'C:\Users\Public\tbspec-packed-tests\windows.json' || format('packed-evidence/{0}.json', matrix.platform_key) }}
+          path: packed-evidence/${{ matrix.platform_key }}.json
           if-no-files-found: warn
           overwrite: true
           retention-days: 90
-      - name: Remove standard Windows test account and files
-        if: always() && runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $user = Get-LocalUser | Where-Object { $_.Name -eq 'tbspec-packed' }
-          if ($null -ne $user) {
-            Remove-LocalUser -Name 'tbspec-packed' -ErrorAction Stop
-          }
-          $publicPath = [IO.Path]::GetFullPath($env:PUBLIC)
-          $expectedPublic = [IO.Path]::GetFullPath((Join-Path $env:SystemDrive 'Users\Public'))
-          if (-not [string]::Equals($publicPath, $expectedPublic, [StringComparison]::OrdinalIgnoreCase)) {
-            throw 'The shared test directory is outside the expected Windows Public directory.'
-          }
-          $sharedTemp = [IO.Path]::GetFullPath((Join-Path $publicPath 'tbspec-packed-tests'))
-          $expectedTemp = [IO.Path]::GetFullPath((Join-Path $expectedPublic 'tbspec-packed-tests'))
-          if (-not [string]::Equals($sharedTemp, $expectedTemp, [StringComparison]::OrdinalIgnoreCase)) {
-            throw 'The shared test cleanup path failed its confinement check.'
-          }
-          if (Test-Path -LiteralPath $sharedTemp) {
-            $root = Get-Item -Force -LiteralPath $sharedTemp -ErrorAction Stop
-            if (($root.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-              throw 'The shared test directory became a reparse point; refusing recursive cleanup.'
-            }
-            $reparsePoints = Get-ChildItem -Force -Recurse -LiteralPath $sharedTemp -ErrorAction Stop |
-              Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }
-            if ($null -ne $reparsePoints) {
-              throw 'The shared test directory contains a reparse point; refusing recursive cleanup.'
-            }
-            Remove-Item -LiteralPath $sharedTemp -Recurse -Force -ErrorAction Stop
-          }
-          if (Test-Path -LiteralPath $sharedTemp) {
-            throw 'The shared Windows test directory remains after cleanup.'
-          }
-
   smoke-acceptance:
     name: Application smoke
     needs: [verification-mode, application-build, packed-application]

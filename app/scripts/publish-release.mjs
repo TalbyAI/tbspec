@@ -110,6 +110,10 @@ async function checkNpmAccess(version) {
     "Could not confirm npm account access for registry.npmjs.org.",
   );
   const packageList = parseJsonOutput(packageListOutput, "npm account access");
+  if (!packageList || typeof packageList !== "object" || Array.isArray(packageList))
+    throw new Error(
+      "Could not confirm npm account access; the registry response has an unexpected shape.",
+    );
 
   const versionsResult = execute("npm", [
     "view",
@@ -265,10 +269,8 @@ function requireSuccessfulInstalledJobs(jobs) {
     ]);
   requireSuccessfulSteps(jobs, "Installed verification (Windows standard user)", [
     ...commonSteps,
-    "Prepare standard Windows user",
-    "Install the artifact offline and verify as a standard Windows user",
+    "Install, verify and clean up as a standard Windows user",
     "Upload installed-artifact evidence",
-    "Remove standard Windows test account and files",
   ]);
 }
 
