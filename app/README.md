@@ -216,6 +216,23 @@ The publisher selects the latest full run for the exact release branch and commi
 
 After publication, return hotfixes to `main` through an ordinary pull request. This integration can happen after the release is published; it is not a prerequisite for publishing the exact verified release commit.
 
+### Verifying a published release
+
+With Node 24 and npm available, run from any repository branch:
+
+```sh
+npm --prefix app run verify-release
+npm --prefix app run verify-release -- --mode full
+```
+
+Both commands look up exactly `tbspec@<version>` from `app/package.json` at `https://registry.npmjs.org/`, including a prerelease suffix when present. They do not resolve `latest`, require a clean release checkout or `gh`, or check publication credentials. They download the published archive with a fresh temporary npm cache, verify its SHA-512 against the registry metadata, and pass those same bytes to the existing installed-package verifier. They never build or repack local source, publish, install globally, or run package lifecycle scripts. An absent version, registry/network failure, unexpected metadata, integrity mismatch, failed/incomplete test result, or cleanup failure returns a nonzero exit code; fix the reported prerequisite and rerun.
+
+The default `smoke` mode installs offline from the downloaded archive and checks the public CLI/version, project initialization and reading, a persisted model write/readback, served browser assets, authenticated HTTP status and rejection without credentials, verified server shutdown, and cleanup. `--mode full` additionally checks the installed inventories and all eight existing installed scenarios, including runtime compatibility, schema forms, dependency acquisition/update, vocabulary replacement, views/designs, retained conflicts, removal/repair/deletion/GC, and malformed-source isolation. Full verification can take substantially longer. Neither mode runs the source suite or another platform: it exercises only the current OS, architecture, and user account. On Windows, run as a standard user to exercise that permission boundary; the command does not create accounts or request elevation.
+
+The final JSON line includes the state, exact version, mode, archive SHA-256, and absolute `evidenceFile` path. The retained `verification.json` lives in a unique `tbspec-release-verification-*` directory under the OS temporary directory. It records timestamps, platform, archive URL/integrity/digests, the installed verifier's detailed assertions/scenarios and cleanup, and any operational failure. Downloaded archives, npm cache, and intermediate evidence are removed before success; only the report remains. Argument or manifest errors can stop before a report is created. Copy the report elsewhere if it must survive OS temporary-file cleanup. npm's raw errors and credentials are not printed.
+
+This command establishes registry integrity and installed behavior. It does not compare the published archive against the CI-approved artifact, verify a dist-tag, certify every supported platform, or replace the complete verification required by `publish-release`. The existing smoke budget covers installation, assertions, and verifier cleanup; registry lookup/download time is additional.
+
 Review `dist/THIRD_PARTY_NOTICES.md` and `dist/release-inventory.json` in the installed package for exact package instances, emitted browser contributions, immutable starter hashes and license text hashes. The application package license is unspecified; third-party notices do not grant a license to the application.
 
 Before replacing an installed release in place, stop every project server with the installed `tbspec web stop` command. Check `tbspec web status` after the replacement: it reports the version of the running server. Compatible CLI versions can reconnect to a running server without restarting it; an unsupported control protocol is preserved and refuses control rather than guessing a shutdown protocol. Start the installed version explicitly after stopping the prior server. Package upgrades do not migrate project schemas, lock records, snapshots or descriptions; `config model-type reset` restores defaults recorded in the project's own lockfile.
