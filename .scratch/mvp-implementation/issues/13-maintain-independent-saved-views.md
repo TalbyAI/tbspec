@@ -18,7 +18,7 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 
 ## Completion boundary
 
-Close on independent saved views and paired presentations, exact membership/relationship invariants, source-edit synchronization versus raw-source diagnostics, locked-source views, and feature-specific multi-file safety evidence. Extend and verify the already implemented inspection, validation, query, move/removal, and dependency-rename workflows. Blockers 11/12 establish those prerequisites; 11 brings query 06 and manual support 10 transitively through 09. Complete design/style behavior belongs to 14, layout to 15, and source-element deletion to 18.
+Close on independent saved views and paired presentations, exact membership/relationship invariants, source-edit synchronization versus raw-source diagnostics, locked-source views, and feature-specific multi-file safety evidence. Extend and verify the already implemented inspection, validation, query, move/removal, and dependency-rename workflows. Blockers 11/12 establish those prerequisites; 11 brings manual support 10, and 10 brings query 06 through 09 (11 -> 10 -> 09 -> 06). Complete design/style behavior belongs to 14, layout to 15, and source-element deletion to 18.
 
 Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
 
