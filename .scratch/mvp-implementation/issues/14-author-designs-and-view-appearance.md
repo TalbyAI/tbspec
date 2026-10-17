@@ -2,9 +2,9 @@
 
 Type: task
 Status: ready-for-agent
-State: resolved
+State: open
 Blocked by: 09, 12, 13
-User stories covered: 69, 70, 71, 72
+User stories covered: 24, 25, 69, 70, 71, 72, 89, 90, 97, 98
 
 ## Parent
 
@@ -16,6 +16,12 @@ An author can create, import, inspect, edit, and remove declarative visual desig
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on authored/imported designs, whole-design resolution, safe exact-type rules, view-local style/group/rule choices, and integration with existing discovery, validation, query, model-type, manual/locked support, impact, and move workflows. Issue 13's blockers establish implemented query and manual-support prerequisites transitively; this ticket owns authored-design query evidence rather than inferring it from earlier query tests. Layout/exploration is owned by 15. Source content and unrelated presentation remain preserved during every currently enabled mutation.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [x] Implement design list/show/create/import/remove/select/clear and browser rule editing. New/editable-imported designs receive the specified identities/provenance; import does not silently select a winner. Removal uses reviewed confirmation and retains unresolved references explicitly.
@@ -26,6 +32,8 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 - [x] Persist view-local rule choices, styles, flat grouping, and paired finite absolute coordinates only in presentation data. Preserve negative coordinates and unrelated appearance/positions; no source statements, camera, or layout-option schema are introduced.
 - [x] Extend shared discovery, validation, model-type design association, locked/manual design support resolution, impact/removal, and source move integration for complete design/presentation behavior.
 - [x] Public-operation/browser checks cover imported versus selected designs, precedence/ties/clear, exact-type rather than hierarchy matching, multi-type ambiguity, winning-rule applicability, field/number rejection, safe rendering, two independent appearances, source-byte preservation, and stale coupled writes.
+- [ ] Extend root-based design classification and applicable presentation diagnostics, verifying exact self-declarations, compatible/conflicting kinds, multiple roots, check.kind, coverage/blockers, and classification versus rule/style diagnostic separation through existing inspection/validation interfaces. Missing appearance coverage remains a canvas warning rather than model invalidity.
+- [ ] Extend existing full/selected query workflows for authored/imported designs and resolved active design support. Effective registered design graphs are named-only and excluded from the default ontology/model union; losing content is not merged into the consumer registry. Exact retained design selectors remain independently queryable under recorded identities. Public-operation and CLI/browser checks verify named access, default-union exclusion, and sole default/named selected-design isolation amid unrelated malformed graphs or consumer resolution conflicts, together with manual-support/design-resolution integration.
 
 ## Answer
 
@@ -62,3 +70,5 @@ After the implementation and this ticket Answer were written, root `npm run form
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
+
+- On 2026-10-17, merge reconciliation retained the implementation answers and verification history from `main`. The ticket is reopened only for expanded semantic-audit criteria whose complete evidence has not been reconciled; unchecked criteria do not establish a production failure or authorize new implementation.

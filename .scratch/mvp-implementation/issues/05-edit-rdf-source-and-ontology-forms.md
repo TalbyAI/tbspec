@@ -2,7 +2,7 @@
 
 Type: task
 Status: ready-for-agent
-State: resolved
+State: open
 Assigned to: Codex
 Blocked by: 04
 User stories covered: 56, 57, 58, 59, 60, 61, 62, 78, 79, 80, 81, 85
@@ -17,6 +17,12 @@ A browser author can explore the complete RDF graph without saving a view, edit 
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on complete-graph generic/source editing and ontology/conceptual forms, exact RDF-term preservation, invalid-source repair, stale-draft reconciliation, and locked read-only behavior. Saved-view/presentation synchronization is owned by 13; specialized process/state forms by 16/17; element deletion by 18; complete layout/exploration by 15. All currently enabled edits already require revision checks, confinement, and failure preservation.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [x] The complete canvas projects IRI/blank-node subjects and resource-valued objects as nodes and each resource-valued source triple as an individually addressable exact edge. Literals appear in an RDF-term properties panel; unfamiliar predicates and blank-node structures remain visible.
@@ -28,7 +34,7 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 - [x] Form recognition is independent of design selection, labels, prefixes, filenames, and inferred hierarchy. A local vocabulary copy retains forms for unchanged terms; arbitrary replacements are not mapped. Existing recognized values remain editable with diagnostics, but creation offers only available exact terms.
 - [x] Unchanged fields cause no mutation. Lexical-only literal edits preserve language/datatype; resource-valued edits replace only the selected value. Creation writes selected exact types/values without superclass, inverse, or optional materialization.
 - [x] Locked snapshots cannot be modified through any editor; expose the separate editable-import workflow. No view or presentation is required for complete-graph editing, and temporary canvas positions do not create persisted support silently.
-- [x] Browser/public-operation checks demonstrate editor switching, lossless unknown/multiple/language/datatype statements, a generic blank-node restriction, multi-type sections, invalid versus parseable-invalid saves, stale draft reconciliation, safe text rendering, and read-only enforcement. Process/state forms and saved-view synchronization are extended in their own slices.
+- [ ] Browser/public-operation checks demonstrate editor switching, lossless unknown/multiple/language/datatype statements, a generic blank-node restriction, multi-type sections, invalid versus parseable-invalid saves, stale draft reconciliation, safe text rendering, and read-only enforcement. Include a parseable unclassified graph that remains listed and generically/source editable without invented classification. Exercise every applicable class, datatype, object/datatype property, and ontology owl:NamedIndividual field in the exact architecture-16 binding table, with its permitted term kinds and generic fallback. Process/state forms and saved-view synchronization are extended in their own slices.
 
 ## Blocked by
 
@@ -71,3 +77,5 @@ Merge validation on 2026-10-12 reran the full Windows suite (155 passed, two nat
 Hosted review on PR 22 identified two further corrections: initial editor inspection now reports workspace busy state until settlement, and the HTTP documentation includes the editor routes without deferring statement editing. A gated browser assertion failed before the busy-state correction with Refresh and validation enabled during loading, then passed after it; a simulated initial-read failure released controls and recovered through Refresh. All draft, publication and status browser assertions passed again, as did the eight editor regressions, typechecks/build and root quality checks. The preceding commit's hosted application matrix passed on Windows, Linux and both macOS runners; the final correction requires its own hosted checks before merging.
 
 The final correction passed hosted quality checks and the Windows, Linux and Apple Silicon application suites. Intel macOS passed typechecks/build and native process checks, but two attempts were cancelled at the application job's ten-minute limit while the full suite continued producing passing assertions. Neither log contained an assertion failure. The existing job allowance was increased to twenty minutes to permit full execution on slower runners; test commands, assertions and per-test timeouts were unchanged. CodeRabbit's follow-up review was rate-limited; its two completed-review findings were independently verified and corrected, and the inline thread was automatically resolved.
+
+- On 2026-10-17, merge reconciliation retained the implementation answers and verification history from `main`. The ticket is reopened only for expanded semantic-audit criteria whose complete evidence has not been reconciled; unchecked criteria do not establish a production failure or authorize new implementation.

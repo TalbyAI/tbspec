@@ -16,6 +16,12 @@ An author can preview every occurrence of one selected RDF resource in the edite
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on reviewed graph-local element deletion and coordinated cleanup of every affected saved view/presentation, with other-graph references disclosed but untouched and safety demonstrated for all coupled files. Managed-root removal belongs to 12; project-wide IRI refactoring/reference repair/GC to 19. Post-deletion validity follows current managed positions and constraints, never a deleted-identity registry.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [x] Keep view-only removal, single statement/association removal, source-element deletion, managed-root lifecycle removal, and IRI refactoring as distinct operations. A cleared field or opened form never implies element deletion.

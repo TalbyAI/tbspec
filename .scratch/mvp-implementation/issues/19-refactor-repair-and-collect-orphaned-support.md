@@ -17,6 +17,12 @@ A maintainer can inspect exact IRI occurrences, preview project-wide owned-IRI r
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on complete exact/dangling reference inspection, scoped owned IRI refactoring/repair, explicit orphaned-support GC, and the combined removal/repair scenario over all resource kinds available through its blockers. Locked bytes remain untouched and normal/rollback/interruption failures preserve the specified evidence. Installed-artifact and cross-platform verification belongs to 20.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [x] Implement references list --target/--dangling, refactor iri, references redirect/remove, and gc with matching browser workflows, exact target/scope records, and recursive guidance for live inspection.
