@@ -10,6 +10,12 @@
 # Local research worktrees
 .worktrees/
 
+# Repository tooling, generated application output, and research caches
+node_modules/
+dist/
+coverage/
+.firecrawl/
+
 # Built Visual Studio Code Extensions
 *.vsix
 

@@ -14,13 +14,13 @@ With Node/RDF.js selected by [the integrated proof](04-integrated-rdf-engine-pro
 
 Use **Node 24 LTS** for both CLI and loopback web. Keep to supported 24.x patch releases rather than freezing a security patch; the integrated proof ran on 24.14.1. Node 24 is an [LTS release line](https://nodejs.org/en/about/previous-releases). The application lockfile must pin the transitive dependency graph. Start with these exact direct versions from the [passing proof](../../../prototypes/rdf-engine-comparison/node/package.json):
 
-| Package | Version | Purpose |
-| --- | --- | --- |
-| `n3` | `2.7.12` | Strict Turtle and N-Triples parsing; RDF/JS in-memory store |
-| `@comunica/query-sparql-rdfjs-lite` | `5.4.1` | Local SPARQL execution without the full engine's `SERVICE` actor |
-| `@comunica/utils-bindings-factory` | `5.4.0` | Typed RDF-term query bindings |
-| `@traqula/parser-sparql-1-1` | `1.4.0` | Pre-execution query policy check |
-| `shacl-engine` | `1.1.2` | SHACL Core and opt-in SHACL-SPARQL validation |
+| Package                             | Version  | Purpose                                                          |
+| ----------------------------------- | -------- | ---------------------------------------------------------------- |
+| `n3`                                | `2.7.12` | Strict Turtle and N-Triples parsing; RDF/JS in-memory store      |
+| `@comunica/query-sparql-rdfjs-lite` | `5.4.1`  | Local SPARQL execution without the full engine's `SERVICE` actor |
+| `@comunica/utils-bindings-factory`  | `5.4.0`  | Typed RDF-term query bindings                                    |
+| `@traqula/parser-sparql-1-1`        | `1.4.0`  | Pre-execution query policy check                                 |
+| `shacl-engine`                      | `1.1.2`  | SHACL Core and opt-in SHACL-SPARQL validation                    |
 
 The proof covered Turtle and N-Triples; add `rdf-parse` only when a required import format cannot be handled safely by this set. Keep the proof's boundaries: stage complete parses before replacing a named graph; construct a query-only default union from ontology and domain-model graphs; pass only in-memory RDF/JS sources and typed bindings; reject Update, `SERVICE`, `FROM`, and `FROM NAMED` before every user query and SHACL-SPARQL query reaches an engine. The proof did not establish a process-wide network ban or the complete malformed-project policy. [Choose dataset assembly and query isolation](08-query-dataset-boundary.md) and [Choose SHACL validation and diagnostic integration](09-shacl-validation-boundary.md) will settle those details.
 

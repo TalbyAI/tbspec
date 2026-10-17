@@ -1,0 +1,176 @@
+{
+  "date": "2026-10-11",
+  "platform": "win32",
+  "arch": "x64",
+  "node": "v24.14.1",
+  "npm": "11.17.0",
+  "physicalMemoryBytes": 68633952256,
+  "baselineCommit": "704783e3dc919dec6f616576b9b06311af572fae",
+  "oldGenerationLimitMiB": 512,
+  "authoring": [
+    {
+      "version": "baseline",
+      "files": 1,
+      "triplesPerFile": 50002,
+      "inputBytes": 2227990,
+      "status": "ok",
+      "command": "model.create",
+      "elapsedMs": 1405,
+      "rssBytes": 372187136,
+      "peakRssKiB": 363468,
+      "reads": 30,
+      "proposedBytes": 140
+    },
+    {
+      "version": "current",
+      "files": 1,
+      "triplesPerFile": 50002,
+      "inputBytes": 2227990,
+      "status": "ok",
+      "command": "model.create",
+      "elapsedMs": 1203,
+      "rssBytes": 318070784,
+      "peakRssKiB": 313172,
+      "reads": 11,
+      "proposedBytes": 140
+    },
+    {
+      "version": "baseline",
+      "files": 10,
+      "triplesPerFile": 50002,
+      "inputBytes": 22279900,
+      "status": "failed",
+      "exitCode": 134,
+      "reason": "heap exhaustion",
+      "command": "model.create"
+    },
+    {
+      "version": "baseline",
+      "files": 10,
+      "triplesPerFile": 50002,
+      "inputBytes": 22279900,
+      "status": "failed",
+      "exitCode": 134,
+      "reason": "heap exhaustion",
+      "command": "model.import"
+    },
+    {
+      "version": "current",
+      "files": 10,
+      "triplesPerFile": 50002,
+      "inputBytes": 22279900,
+      "status": "ok",
+      "command": "model.create",
+      "elapsedMs": 3689,
+      "rssBytes": 406978560,
+      "peakRssKiB": 422584,
+      "reads": 20,
+      "proposedBytes": 140
+    },
+    {
+      "version": "current",
+      "files": 10,
+      "triplesPerFile": 50002,
+      "inputBytes": 22279900,
+      "status": "ok",
+      "command": "model.import",
+      "elapsedMs": 6396,
+      "rssBytes": 410984448,
+      "peakRssKiB": 417236,
+      "reads": 20,
+      "proposedBytes": 408177
+    },
+    {
+      "version": "current",
+      "files": 20,
+      "triplesPerFile": 50002,
+      "inputBytes": 45059810,
+      "status": "ok",
+      "command": "model.create",
+      "elapsedMs": 6559,
+      "rssBytes": 388358144,
+      "peakRssKiB": 439304,
+      "reads": 30,
+      "proposedBytes": 140
+    }
+  ],
+  "previews": [
+    {
+      "triples": 10000,
+      "sourceBytes": 347888,
+      "pending": 0,
+      "rssBytes": 169099264,
+      "peakRssKiB": 165208,
+      "diskBytes": 0
+    },
+    {
+      "triples": 10000,
+      "sourceBytes": 347888,
+      "pending": 1,
+      "elapsedMs": 1290,
+      "rssBytes": 258494464,
+      "peakRssKiB": 252436,
+      "diskBytes": 339924
+    },
+    {
+      "triples": 10000,
+      "sourceBytes": 347888,
+      "pending": 10,
+      "elapsedMs": 5229,
+      "rssBytes": 397279232,
+      "peakRssKiB": 395168,
+      "diskBytes": 3399240
+    },
+    {
+      "triples": 10000,
+      "sourceBytes": 347888,
+      "pending": 100,
+      "elapsedMs": 51365,
+      "rssBytes": 360640512,
+      "peakRssKiB": 396176,
+      "diskBytes": 33992940
+    },
+    {
+      "triples": 10000,
+      "pending": 100,
+      "cap101": "PROJECT_BUSY",
+      "cancelFreesSlot": true
+    },
+    {
+      "triples": 10000,
+      "pending": 0,
+      "afterStopDiskBytes": 0
+    },
+    {
+      "triples": 100000,
+      "sourceBytes": 3677888,
+      "pending": 0,
+      "rssBytes": 175407104,
+      "peakRssKiB": 171312,
+      "diskBytes": 0
+    },
+    {
+      "triples": 100000,
+      "sourceBytes": 3677888,
+      "pending": 1,
+      "elapsedMs": 2215,
+      "rssBytes": 663613440,
+      "peakRssKiB": 660988,
+      "diskBytes": 3579927
+    },
+    {
+      "triples": 100000,
+      "sourceBytes": 3677888,
+      "pending": 10,
+      "elapsedMs": 14784,
+      "rssBytes": 707862528,
+      "peakRssKiB": 779844,
+      "diskBytes": 35799270
+    },
+    {
+      "triples": 100000,
+      "pending": 0,
+      "afterStopDiskBytes": 0
+    }
+  ]
+}

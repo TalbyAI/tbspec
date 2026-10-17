@@ -1,0 +1,27 @@
+@prefix tbspec: <https://talby.ai/ontology/tbspec#> .
+@prefix proc: <https://talby.ai/ontology/process#> .
+@prefix sm: <https://talby.ai/ontology/state-machine#> .
+@prefix p-plan: <http://purl.org/net/p-plan#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+<https://talby.ai/design/state-machine/0.1.0> a tbspec:VisualDesignModel .
+<https://talby.ai/design/state-machine/0.1.0> tbspec:rule <https://talby.ai/design/state-machine/0.1.0#SmStateMachineNodeRule> .
+<https://talby.ai/design/state-machine/0.1.0#SmStateMachineNodeRule> a tbspec:NodeVisualRule ; tbspec:targetConcept sm:StateMachine ; tbspec:strokeColor "#334155" ; tbspec:textColor "#172536" ; tbspec:strokeWidth 1 ; tbspec:fontFamily "system-ui" ; tbspec:fontSize 14 ; tbspec:fontWeight 400 ; tbspec:fontStyle "normal" ; tbspec:lineStyle "solid" ; tbspec:labelMode "property" ; tbspec:labelProperty rdfs:label ; tbspec:nodeShape "rounded-rectangle" ; tbspec:fillColor "#FFFFFF" .
+<https://talby.ai/design/state-machine/0.1.0> tbspec:rule <https://talby.ai/design/state-machine/0.1.0#SmStateNodeRule> .
+<https://talby.ai/design/state-machine/0.1.0#SmStateNodeRule> a tbspec:NodeVisualRule ; tbspec:targetConcept sm:State ; tbspec:strokeColor "#334155" ; tbspec:textColor "#172536" ; tbspec:strokeWidth 1 ; tbspec:fontFamily "system-ui" ; tbspec:fontSize 14 ; tbspec:fontWeight 400 ; tbspec:fontStyle "normal" ; tbspec:lineStyle "solid" ; tbspec:labelMode "property" ; tbspec:labelProperty rdfs:label ; tbspec:nodeShape "rounded-rectangle" ; tbspec:fillColor "#FFFFFF" .
+<https://talby.ai/design/state-machine/0.1.0> tbspec:rule <https://talby.ai/design/state-machine/0.1.0#SmInitialStateNodeRule> .
+<https://talby.ai/design/state-machine/0.1.0#SmInitialStateNodeRule> a tbspec:NodeVisualRule ; tbspec:targetConcept sm:InitialState ; tbspec:strokeColor "#334155" ; tbspec:textColor "#172536" ; tbspec:strokeWidth 1 ; tbspec:fontFamily "system-ui" ; tbspec:fontSize 14 ; tbspec:fontWeight 400 ; tbspec:fontStyle "normal" ; tbspec:lineStyle "solid" ; tbspec:labelMode "property" ; tbspec:labelProperty rdfs:label ; tbspec:nodeShape "ellipse" ; tbspec:fillColor "#FFFFFF" .
+<https://talby.ai/design/state-machine/0.1.0> tbspec:rule <https://talby.ai/design/state-machine/0.1.0#SmFinalStateNodeRule> .
+<https://talby.ai/design/state-machine/0.1.0#SmFinalStateNodeRule> a tbspec:NodeVisualRule ; tbspec:targetConcept sm:FinalState ; tbspec:strokeColor "#334155" ; tbspec:textColor "#172536" ; tbspec:strokeWidth 3 ; tbspec:fontFamily "system-ui" ; tbspec:fontSize 14 ; tbspec:fontWeight 400 ; tbspec:fontStyle "normal" ; tbspec:lineStyle "solid" ; tbspec:labelMode "property" ; tbspec:labelProperty rdfs:label ; tbspec:nodeShape "ellipse" ; tbspec:fillColor "#FFFFFF" .
+<https://talby.ai/design/state-machine/0.1.0> tbspec:rule <https://talby.ai/design/state-machine/0.1.0#SmTransitionNodeRule> .
+<https://talby.ai/design/state-machine/0.1.0#SmTransitionNodeRule> a tbspec:NodeVisualRule ; tbspec:targetConcept sm:Transition ; tbspec:strokeColor "#334155" ; tbspec:textColor "#172536" ; tbspec:strokeWidth 1 ; tbspec:fontFamily "system-ui" ; tbspec:fontSize 14 ; tbspec:fontWeight 400 ; tbspec:fontStyle "normal" ; tbspec:lineStyle "solid" ; tbspec:labelMode "property" ; tbspec:labelProperty rdfs:label ; tbspec:nodeShape "rounded-rectangle" ; tbspec:fillColor "#FFFFFF" .
+<https://talby.ai/design/state-machine/0.1.0> tbspec:rule <https://talby.ai/design/state-machine/0.1.0#SmInMachineEdgeRule> .
+<https://talby.ai/design/state-machine/0.1.0#SmInMachineEdgeRule> a tbspec:EdgeVisualRule ; tbspec:targetConcept sm:inMachine ; tbspec:strokeColor "#334155" ; tbspec:textColor "#172536" ; tbspec:strokeWidth 1 ; tbspec:fontFamily "system-ui" ; tbspec:fontSize 14 ; tbspec:fontWeight 400 ; tbspec:fontStyle "normal" ; tbspec:lineStyle "solid" ; tbspec:labelMode "property" ; tbspec:labelProperty rdfs:label ; tbspec:edgeRouting "bezier" ; tbspec:arrowHead "arrow" .
+<https://talby.ai/design/state-machine/0.1.0> tbspec:rule <https://talby.ai/design/state-machine/0.1.0#SmSourceEdgeRule> .
+<https://talby.ai/design/state-machine/0.1.0#SmSourceEdgeRule> a tbspec:EdgeVisualRule ; tbspec:targetConcept sm:source ; tbspec:strokeColor "#334155" ; tbspec:textColor "#172536" ; tbspec:strokeWidth 1 ; tbspec:fontFamily "system-ui" ; tbspec:fontSize 14 ; tbspec:fontWeight 400 ; tbspec:fontStyle "normal" ; tbspec:lineStyle "solid" ; tbspec:labelMode "property" ; tbspec:labelProperty rdfs:label ; tbspec:edgeRouting "bezier" ; tbspec:arrowHead "arrow" .
+<https://talby.ai/design/state-machine/0.1.0> tbspec:rule <https://talby.ai/design/state-machine/0.1.0#SmTargetEdgeRule> .
+<https://talby.ai/design/state-machine/0.1.0#SmTargetEdgeRule> a tbspec:EdgeVisualRule ; tbspec:targetConcept sm:target ; tbspec:strokeColor "#334155" ; tbspec:textColor "#172536" ; tbspec:strokeWidth 1 ; tbspec:fontFamily "system-ui" ; tbspec:fontSize 14 ; tbspec:fontWeight 400 ; tbspec:fontStyle "normal" ; tbspec:lineStyle "solid" ; tbspec:labelMode "property" ; tbspec:labelProperty rdfs:label ; tbspec:edgeRouting "bezier" ; tbspec:arrowHead "arrow" .

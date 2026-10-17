@@ -36,12 +36,12 @@ Use the approved binding and mutation contract below. Specialized forms are view
 
 `labels` and `comments` below mean individual literal statements using `rdfs:label` and `rdfs:comment`. Identify every field value by its RDF terms, not its displayed text.
 
-| Resource section | Exact recognized explicit types | Editable bindings |
-| --- | --- | --- |
-| Class / conceptual entity | `owl:Class`, `rdfs:Class` | Labels, comments, `rdfs:subClassOf`. |
-| Datatype | `rdfs:Datatype` | Labels and comments. |
-| Property | `rdf:Property`, `owl:ObjectProperty`, `owl:DatatypeProperty` | Labels, comments, `rdfs:subPropertyOf`, `rdfs:domain`, `rdfs:range`. |
-| Ontology individual | `owl:NamedIndividual` | Labels, comments, exact explicit `rdf:type` values, and individual property values using the shared generic RDF-term controls. |
+| Resource section          | Exact recognized explicit types                              | Editable bindings                                                                                                              |
+| ------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Class / conceptual entity | `owl:Class`, `rdfs:Class`                                    | Labels, comments, `rdfs:subClassOf`.                                                                                           |
+| Datatype                  | `rdfs:Datatype`                                              | Labels and comments.                                                                                                           |
+| Property                  | `rdf:Property`, `owl:ObjectProperty`, `owl:DatatypeProperty` | Labels, comments, `rdfs:subPropertyOf`, `rdfs:domain`, `rdfs:range`.                                                           |
+| Ontology individual       | `owl:NamedIndividual`                                        | Labels, comments, exact explicit `rdf:type` values, and individual property values using the shared generic RDF-term controls. |
 
 Ontology and conceptual-data forms share the class/datatype/property bindings. Conceptual entities are class declarations; attributes are datatype-property declarations; relationships are object-property declarations. Do not generate property domain/range statements merely because a property is displayed beside an entity. The user explicitly supplies those associations. Ontology individual forms do not introduce a specialized concrete-data-model editor; resources outside the recognized sections remain generically editable.
 
@@ -51,12 +51,12 @@ Ontology-root declarations and metadata retain the starter and lifecycle contrac
 
 Use pinned P-Plan 1.3 terms under `http://purl.org/net/p-plan#` and the exact process extension namespace `https://talby.ai/ontology/process#`.
 
-| Resource section | Exact recognized explicit types | Editable bindings beyond labels/comments |
-| --- | --- | --- |
-| Plan | `p-plan:Plan` | Its associated local steps and variables through the exact memberships below; no invented containment property. |
-| Step / Decision | `p-plan:Step`, `proc:Decision` | `p-plan:isStepOfPlan`, effective inputs/outputs, `proc:responsibleParty`. |
-| Variable | `p-plan:Variable` | `p-plan:isVariableOfPlan`, effective producer/consumer associations. |
-| Flow | `proc:Flow` | `proc:source`, `proc:target`, `proc:inPlan`, `proc:condition`. |
+| Resource section | Exact recognized explicit types | Editable bindings beyond labels/comments                                                                        |
+| ---------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Plan             | `p-plan:Plan`                   | Its associated local steps and variables through the exact memberships below; no invented containment property. |
+| Step / Decision  | `p-plan:Step`, `proc:Decision`  | `p-plan:isStepOfPlan`, effective inputs/outputs, `proc:responsibleParty`.                                       |
+| Variable         | `p-plan:Variable`               | `p-plan:isVariableOfPlan`, effective producer/consumer associations.                                            |
+| Flow             | `proc:Flow`                     | `proc:source`, `proc:target`, `proc:inPlan`, `proc:condition`.                                                  |
 
 Read effective inputs from both `Step p-plan:hasInputVar Variable` and `Variable p-plan:isInputVarOf Step`; read outputs from both `Step p-plan:hasOutputVar Variable` and `Variable p-plan:isOutputVarOf Step`. Present each Step/Variable association once while retaining access to the explicit statements that support it. Adding a new input/output association, including from a Variable section, writes the forward Step-to-Variable statement only. Opening or saving unrelated fields never rewrites inverse statements.
 
@@ -68,11 +68,11 @@ Preserve the starter's descriptive semantics: shared Plan memberships, multiple 
 
 Use the exact namespace `https://talby.ai/ontology/state-machine#`.
 
-| Resource section | Exact recognized explicit types | Editable bindings beyond labels/comments |
-| --- | --- | --- |
-| State machine | `sm:StateMachine` | Associated states and transitions through their `sm:inMachine` statements. |
+| Resource section        | Exact recognized explicit types                | Editable bindings beyond labels/comments                                                                |
+| ----------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| State machine           | `sm:StateMachine`                              | Associated states and transitions through their `sm:inMachine` statements.                              |
 | State / initial / final | `sm:State`, `sm:InitialState`, `sm:FinalState` | `sm:inMachine`; initial/final status is represented by the corresponding explicit `rdf:type` statement. |
-| Transition | `sm:Transition` | `sm:inMachine`, `sm:source`, `sm:target`, `sm:event`, `sm:condition`, `sm:action`. |
+| Transition              | `sm:Transition`                                | `sm:inMachine`, `sm:source`, `sm:target`, `sm:event`, `sm:condition`, `sm:action`.                      |
 
 Changing a recognized status adds/removes only the explicitly selected type statement; it does not replace all `rdf:type` values. A state may be both initial and final. Preserve the starter's empty-machine, optional descriptive-field, cycle, and self-transition behavior. Multiple initial states, wrong-machine endpoints, or outgoing transitions from a final state receive diagnostics without automatic repairs. No hierarchy, parallel regions, reachability requirement, determinism, or execution semantics are introduced.
 

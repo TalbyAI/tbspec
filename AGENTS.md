@@ -7,6 +7,14 @@ Conversations may be in English or Spanish. Write all repository documents and d
 - Before modifying repository files, create a new branch if the current branch is `main`.
 - Never commit directly to `main`; bring changes into `main` through a pull request.
 
+## Formatting and validation
+
+- Run `npm ci` at the repository root before using the quality tools. This also installs the local pre-commit hook.
+- After creating or changing Markdown, JavaScript, TypeScript, JSX/TSX, JSON/JSONC, CSS, GraphQL, or YAML files, run `npm run format` and then `npm run check` from the repository root before handing off the work. Resolve remaining lint errors manually; do not use unsafe fixes or weaken rules to make checks pass.
+- Biome owns code formatting, linting, and import organization. Prettier formats Markdown and YAML only; markdownlint-cli2 validates Markdown. See [formatting and validation](docs/agents/formatting.md) for commands, exclusions, and targeted formatting.
+- The pre-commit hook formats and validates staged files. CI runs the full read-only checks, including Markdown under `.scratch/`. Hooks and editor integrations supplement the required agent commands.
+- Do not format dependency directories, generated output, lockfiles, measurement records, or fixtures. Keep prototype dependencies and execution commands inside each prototype; root quality tooling inspects their authored files without importing or building them.
+
 ## Agent skills
 
 ### Issue tracker

@@ -11,10 +11,10 @@ The user accepted ELK layered layout with React Flow as the architecture baselin
 - `npm run build`: exit 0 after the final code change. Vite 8.3.1 reported the same non-fatal React Flow `use client` directive warning as the earlier canvas proof. The classic ELK worker asset is approximately 1.60 MB before compression; its payload is a trade-off, not evidence of a renderer issue.
 - Browser: T3 collaborative Chromium preview at `http://localhost:5174/`, desktop. Reported CSS viewport sizes varied between 1280×800 and 2212×1382 as the inline preview changed. These are local development-build observations, not production benchmarks.
 
-| Fixture | Resource edges | Node layout | Browser worker request | Request to two animation frames |
-| --- | ---: | ---: | ---: | ---: |
-| 100 resources | 98 | 181 ms | 234 ms | 279 ms |
-| 1,000 resources | 998 | 417 ms | 376 ms | 687 ms |
+| Fixture         | Resource edges | Node layout | Browser worker request | Request to two animation frames |
+| --------------- | -------------: | ----------: | ---------------------: | ------------------------------: |
+| 100 resources   |             98 |      181 ms |                 234 ms |                          279 ms |
+| 1,000 resources |            998 |      417 ms |                 376 ms |                          687 ms |
 
 The browser worker request includes message transfer and may include initialization. The two-frame observation is measured before/around the final fit-view update; it is not a precise first-paint or fully interactive timing. Repeated runs differed (a later 1,000-resource request was 299 ms and its two-frame observation 554 ms). No percentile, frame-rate target, or cross-machine guarantee is inferred.
 
@@ -53,3 +53,9 @@ The authoritative production policy is recorded in [Choose graph layout and expl
 ## Limits
 
 Synthetic graph shapes and fixed-size generic nodes cannot establish readability of arbitrary RDF graphs, variable-size visual rules, browser responsiveness on other machines, or durable file writes. The measured Node layout time is separate from browser request/frame observations. Human acceptance does not broaden the measured evidence.
+
+## Repository quality revalidation (2026-10-07)
+
+After applying repository formatting and lint rules, `npm ci`, `npm run build`, and `npm run measure` passed from this prototype directory on Windows with Node 24.14.1 and npm 11.17.0. Both 100-node and 1,000-node measurements retained finite coordinates, zero overlaps, deterministic layout, existing positions after insertion, literal-edit positions, and unchanged source data. The earlier `measurement.json` record was restored byte-for-byte after this verification.
+
+Browser checks against the production build confirmed initial worker layout, grid preview/cancel restoring every node position, and worker preview/apply. Worker callbacks now have stable identities and explicit effect dependencies; position rendering preserves current highlights without making selection trigger layout initialization. Buttons have explicit types. The existing non-fatal React Flow `use client` bundler warning remains.

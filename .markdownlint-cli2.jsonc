@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/DavidAnson/markdownlint-cli2/v0.23.3/schema/markdownlint-cli2-config-schema.json",
+  "globs": ["**/*.{md,markdown}"],
+  "gitignore": true,
+  "ignores": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "**/target/**",
+    "**/.m2/**",
+    "**/.tools/**",
+    "**/.worktrees/**",
+    "**/.firecrawl/**",
+    "**/fixtures/**"
+  ],
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD024": { "siblings_only": true },
+    "MD060": { "style": "aligned" }
+  },
+  "overrides": [
+    {
+      "filter": ["AGENTS.md"],
+      "config": { "MD041": false },
+      "combine": "merge"
+    }
+  ]
+}

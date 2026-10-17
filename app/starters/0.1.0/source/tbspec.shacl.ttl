@@ -1,0 +1,137 @@
+@prefix tbspec: <https://talby.ai/ontology/tbspec#> .
+@prefix proc: <https://talby.ai/ontology/process#> .
+@prefix sm: <https://talby.ai/ontology/state-machine#> .
+@prefix p-plan: <http://purl.org/net/p-plan#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes> a tbspec:ShapesGraph .
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#OntologyShape> a sh:NodeShape ; sh:targetClass owl:Ontology ; sh:nodeKind sh:IRI ; sh:property [ sh:path owl:versionIRI ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#ModelShape> a sh:NodeShape ; sh:targetClass tbspec:Model ; sh:nodeKind sh:IRI ; sh:property [ sh:path tbspec:modelType ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:minLength 1 ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#SchemaReferenceShape> a sh:NodeShape ; sh:targetSubjectsOf tbspec:schema ; sh:class tbspec:ConcreteDataModel ; sh:property [ sh:path tbspec:schema ; sh:nodeKind sh:IRI ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#ShapesGraphShape> a sh:NodeShape ; sh:targetClass tbspec:ShapesGraph ; sh:nodeKind sh:IRI .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#RelationshipSelectionShape> a sh:NodeShape ; sh:targetObjectsOf tbspec:relationship ; sh:nodeKind sh:BlankNodeOrIRI ; sh:property [ sh:path rdf:subject ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path rdf:predicate ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path rdf:object ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#ViewModelShape> a sh:NodeShape ; sh:targetClass tbspec:ViewModel ; sh:nodeKind sh:IRI ; sh:property [ sh:path tbspec:sourceGraph ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path tbspec:member ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path tbspec:relationship ; sh:nodeKind sh:BlankNodeOrIRI ; sh:node <https://talby.ai/ontology/tbspec/0.1.0/shapes#RelationshipSelectionShape> ] ; sh:node [ sh:sparql [ sh:message "Selected relationship endpoints must be members."@en ; sh:select """PREFIX tbspec: <https://talby.ai/ontology/tbspec#>
+PREFIX proc: <https://talby.ai/ontology/process#>
+PREFIX sm: <https://talby.ai/ontology/state-machine#>
+PREFIX p-plan: <http://purl.org/net/p-plan#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this WHERE { $this tbspec:relationship ?r . ?r rdf:subject ?s ; rdf:object ?o . FILTER (NOT EXISTS { $this tbspec:member ?s } || NOT EXISTS { $this tbspec:member ?o }) }""" ] ] ; sh:node [ sh:sparql [ sh:message "Duplicate selected relationship tuple."@en ; sh:select """PREFIX tbspec: <https://talby.ai/ontology/tbspec#>
+PREFIX proc: <https://talby.ai/ontology/process#>
+PREFIX sm: <https://talby.ai/ontology/state-machine#>
+PREFIX p-plan: <http://purl.org/net/p-plan#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this WHERE { $this tbspec:relationship ?r, ?r2 . ?r rdf:subject ?s ; rdf:predicate ?p ; rdf:object ?o . ?r2 rdf:subject ?s ; rdf:predicate ?p ; rdf:object ?o . FILTER (?r != ?r2) }""" ] ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#AppearanceShape> a sh:NodeShape ; sh:targetClass tbspec:VisualRule ; sh:property [ sh:path tbspec:nodeShape ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:in ( "rectangle" "rounded-rectangle" "ellipse" "diamond" ) ] ; sh:property [ sh:path tbspec:fontFamily ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:in ( "system-ui" "sans-serif" "serif" "monospace" ) ] ; sh:property [ sh:path tbspec:fontStyle ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:in ( "normal" "italic" ) ] ; sh:property [ sh:path tbspec:lineStyle ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:in ( "solid" "dashed" "dotted" ) ] ; sh:property [ sh:path tbspec:edgeRouting ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:in ( "straight" "bezier" "step" ) ] ; sh:property [ sh:path tbspec:arrowHead ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:in ( "none" "arrow" ) ] ; sh:property [ sh:path tbspec:labelMode ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:in ( "property" "local-name" "iri" "text" "none" ) ] ; sh:property [ sh:path tbspec:fillColor ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:pattern "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$" ] ; sh:property [ sh:path tbspec:strokeColor ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:pattern "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$" ] ; sh:property [ sh:path tbspec:textColor ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:pattern "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$" ] ; sh:property [ sh:path tbspec:strokeWidth ; sh:maxCount 1 ; sh:or ( [ sh:datatype xsd:integer ] [ sh:datatype xsd:decimal ] [ sh:datatype xsd:double ] ) ; sh:minInclusive 0 ] ; sh:property [ sh:path tbspec:fontSize ; sh:maxCount 1 ; sh:or ( [ sh:datatype xsd:integer ] [ sh:datatype xsd:decimal ] [ sh:datatype xsd:double ] ) ; sh:minExclusive 0 ] ; sh:property [ sh:path tbspec:fontWeight ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:in (100 200 300 400 500 600 700 800 900) ] ; sh:property [ sh:path tbspec:labelProperty ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path tbspec:labelText ; sh:maxCount 1 ; sh:or ( [ sh:datatype xsd:string ] [ sh:datatype rdf:langString ] ) ] ; sh:node [ sh:sparql [ sh:message "Explicit local label mode is incompatible with labelText."@en ; sh:select """PREFIX tbspec: <https://talby.ai/ontology/tbspec#>
+PREFIX proc: <https://talby.ai/ontology/process#>
+PREFIX sm: <https://talby.ai/ontology/state-machine#>
+PREFIX p-plan: <http://purl.org/net/p-plan#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this WHERE { $this tbspec:labelMode ?mode ; tbspec:labelText ?text . FILTER (?mode != "text") }""" ] ] ; sh:node [ sh:sparql [ sh:message "Explicit local label mode is incompatible with labelProperty."@en ; sh:select """PREFIX tbspec: <https://talby.ai/ontology/tbspec#>
+PREFIX proc: <https://talby.ai/ontology/process#>
+PREFIX sm: <https://talby.ai/ontology/state-machine#>
+PREFIX p-plan: <http://purl.org/net/p-plan#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this WHERE { $this tbspec:labelMode ?mode ; tbspec:labelProperty ?property . FILTER (?mode != "property") }""" ] ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#VisualRuleShape> a sh:NodeShape ; sh:targetClass tbspec:VisualRule ; sh:targetObjectsOf tbspec:rule ; sh:nodeKind sh:IRI ; sh:xone ( [ sh:class tbspec:NodeVisualRule ] [ sh:class tbspec:EdgeVisualRule ] ) ; sh:property [ sh:path tbspec:targetConcept ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path tbspec:x ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:y ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:element ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:chosenRule ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:group ; sh:maxCount 0 ] ; sh:node <https://talby.ai/ontology/tbspec/0.1.0/shapes#AppearanceShape> ; sh:node [ sh:sparql [ sh:message "Text label mode requires labelText."@en ; sh:select """PREFIX tbspec: <https://talby.ai/ontology/tbspec#>
+PREFIX proc: <https://talby.ai/ontology/process#>
+PREFIX sm: <https://talby.ai/ontology/state-machine#>
+PREFIX p-plan: <http://purl.org/net/p-plan#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this WHERE { $this tbspec:labelMode "text" . FILTER NOT EXISTS { $this tbspec:labelText ?text } }""" ] ] ; sh:node [ sh:sparql [ sh:message "labelText requires text label mode."@en ; sh:select """PREFIX tbspec: <https://talby.ai/ontology/tbspec#>
+PREFIX proc: <https://talby.ai/ontology/process#>
+PREFIX sm: <https://talby.ai/ontology/state-machine#>
+PREFIX p-plan: <http://purl.org/net/p-plan#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this WHERE { $this tbspec:labelText ?text . FILTER NOT EXISTS { $this tbspec:labelMode "text" } }""" ] ] ; sh:node [ sh:sparql [ sh:message "labelProperty requires property label mode."@en ; sh:select """PREFIX tbspec: <https://talby.ai/ontology/tbspec#>
+PREFIX proc: <https://talby.ai/ontology/process#>
+PREFIX sm: <https://talby.ai/ontology/state-machine#>
+PREFIX p-plan: <http://purl.org/net/p-plan#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this WHERE { $this tbspec:labelProperty ?property . OPTIONAL { $this tbspec:labelMode ?mode } FILTER (BOUND(?mode) && ?mode != "property") }""" ] ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#NodeVisualRuleShape> a sh:NodeShape ; sh:targetClass tbspec:NodeVisualRule ; sh:property [ sh:path tbspec:edgeRouting ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:arrowHead ; sh:maxCount 0 ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#EdgeVisualRuleShape> a sh:NodeShape ; sh:targetClass tbspec:EdgeVisualRule ; sh:property [ sh:path tbspec:nodeShape ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:fillColor ; sh:maxCount 0 ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#VisualDesignModelShape> a sh:NodeShape ; sh:targetClass tbspec:VisualDesignModel ; sh:nodeKind sh:IRI ; sh:property [ sh:path tbspec:rule ; sh:nodeKind sh:IRI ; sh:node <https://talby.ai/ontology/tbspec/0.1.0/shapes#VisualRuleShape> ] ; sh:node [ sh:sparql [ sh:message "Duplicate rule for an exact kind and concept."@en ; sh:select """PREFIX tbspec: <https://talby.ai/ontology/tbspec#>
+PREFIX proc: <https://talby.ai/ontology/process#>
+PREFIX sm: <https://talby.ai/ontology/state-machine#>
+PREFIX p-plan: <http://purl.org/net/p-plan#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this WHERE { $this tbspec:rule ?r, ?r2 . ?r a ?kind ; tbspec:targetConcept ?target . ?r2 a ?kind ; tbspec:targetConcept ?target . FILTER ((?kind = tbspec:NodeVisualRule || ?kind = tbspec:EdgeVisualRule) && ?r != ?r2) }""" ] ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#NodePresentationShape> a sh:NodeShape ; sh:targetObjectsOf tbspec:nodePresentation ; sh:nodeKind sh:BlankNodeOrIRI ; sh:property [ sh:path tbspec:element ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path tbspec:x ; sh:maxCount 1 ; sh:or ( [ sh:datatype xsd:integer ] [ sh:datatype xsd:decimal ] [ sh:datatype xsd:double ] ) ] ; sh:property [ sh:path tbspec:y ; sh:maxCount 1 ; sh:or ( [ sh:datatype xsd:integer ] [ sh:datatype xsd:decimal ] [ sh:datatype xsd:double ] ) ] ; sh:property [ sh:path tbspec:chosenRule ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path tbspec:group ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:minLength 1 ] ; sh:node <https://talby.ai/ontology/tbspec/0.1.0/shapes#AppearanceShape> ; sh:property [ sh:path tbspec:edgeRouting ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:arrowHead ; sh:maxCount 0 ] ; sh:node [ sh:sparql [ sh:message "Coordinates must be paired."@en ; sh:select """PREFIX tbspec: <https://talby.ai/ontology/tbspec#>
+PREFIX proc: <https://talby.ai/ontology/process#>
+PREFIX sm: <https://talby.ai/ontology/state-machine#>
+PREFIX p-plan: <http://purl.org/net/p-plan#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this WHERE { FILTER ((EXISTS { $this tbspec:x ?x }) != (EXISTS { $this tbspec:y ?y })) }""" ] ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#RelationshipPresentationShape> a sh:NodeShape ; sh:targetObjectsOf tbspec:relationshipPresentation ; sh:nodeKind sh:BlankNodeOrIRI ; sh:property [ sh:path rdf:subject ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path rdf:predicate ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path rdf:object ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path tbspec:chosenRule ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:node <https://talby.ai/ontology/tbspec/0.1.0/shapes#AppearanceShape> ; sh:property [ sh:path tbspec:nodeShape ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:fillColor ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:x ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:y ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:element ; sh:maxCount 0 ] ; sh:property [ sh:path tbspec:group ; sh:maxCount 0 ] .
+
+<https://talby.ai/ontology/tbspec/0.1.0/shapes#PresentationGraphShape> a sh:NodeShape ; sh:targetClass tbspec:PresentationGraph ; sh:nodeKind sh:IRI ; sh:property [ sh:path tbspec:forView ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ; sh:property [ sh:path tbspec:nodePresentation ; sh:nodeKind sh:BlankNodeOrIRI ] ; sh:property [ sh:path tbspec:relationshipPresentation ; sh:nodeKind sh:BlankNodeOrIRI ] ; sh:node [ sh:sparql [ sh:message "Duplicate node presentation."@en ; sh:select """PREFIX tbspec: <https://talby.ai/ontology/tbspec#>
+PREFIX proc: <https://talby.ai/ontology/process#>
+PREFIX sm: <https://talby.ai/ontology/state-machine#>
+PREFIX p-plan: <http://purl.org/net/p-plan#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this WHERE { $this tbspec:nodePresentation ?r, ?r2 . ?r tbspec:element ?e . ?r2 tbspec:element ?e . FILTER (?r != ?r2) }""" ] ] ; sh:node [ sh:sparql [ sh:message "Duplicate relationship presentation."@en ; sh:select """PREFIX tbspec: <https://talby.ai/ontology/tbspec#>
+PREFIX proc: <https://talby.ai/ontology/process#>
+PREFIX sm: <https://talby.ai/ontology/state-machine#>
+PREFIX p-plan: <http://purl.org/net/p-plan#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this WHERE { $this tbspec:relationshipPresentation ?r, ?r2 . ?r rdf:subject ?s ; rdf:predicate ?p ; rdf:object ?o . ?r2 rdf:subject ?s ; rdf:predicate ?p ; rdf:object ?o . FILTER (?r != ?r2) }""" ] ] .

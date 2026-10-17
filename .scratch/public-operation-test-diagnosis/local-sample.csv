@@ -1,0 +1,22 @@
+file,line,name,seconds,status
+authoring-web.test.ts,26,"authenticated HTTP authoring shares identities, model families and one-use session-owned import previews",22.270438900000002,ok
+authoring-web.test.ts,210,preview expiry cleans staging while idle and cannot interrupt publication,7.8224234,ok
+authoring-web.test.ts,322,server startup and stop clean obsolete preview artifacts and preserve unknown files,10.9304234,ok
+authoring-web.test.ts,357,failed preview staging removes partial files and reports retained cleanup failures,6.1840014000000005,ok
+authoring.test.ts,13,authoring reads only selected dependency content and binds every owned identity check,3.1031884,ok
+authoring.test.ts,75,authoring reports invalid configuration before parsing owned identities,0.857582,ok
+authoring.test.ts,90,a destination occupied during capture is a conflict without parsing or replacing it,2.9474415,ok
+authoring.test.ts,123,authors create explicit and derived ontology identities and inspect owned resources,1.3125700999999999,ok
+authoring.test.ts,145,"editable import preserves terms, unknown triples and originals while reporting missing vocabulary",1.5645836,ok
+authoring.test.ts,225,external import rejects oversized sources before reading and detects growth after stat,3.1138638999999997,ok
+authoring.test.ts,277,owned imports skip their source in collision warnings and retain unrelated collisions,0.9333514,ok
+authoring.test.ts,303,receiving vocabulary respects source contexts and configured dependency winners,2.1683213,ok
+authoring.test.ts,436,schema identity collisions block concrete model authoring without merging vocabulary,1.6786466,ok
+authoring.test.ts,491,"publication rejects stale inputs, occupied destinations and identity collisions without rewriting files",1.1312042,ok
+authoring.test.ts,543,authors create distinct data profiles and empty descriptive process and state-machine models,2.9258861,ok
+authoring.test.ts,611,creation uses replacement vocabulary without inventing starter classes and rejects unusable types,1.7868863,ok
+authoring.test.ts,674,failed parse/classification imports preserve originals and successful copies report owned term collisions,1.7104787,ok
+authoring.test.ts,723,concurrent identity claims publish once and native publication failure leaves authored inputs intact,4.0553168,ok
+cli.test.ts,34,"CLI validates, lists shapes and confirms schema removal offline with exact signatures",52.4996079,ok
+cli.test.ts,89,"repair CLI supports bare reference listing, exact IRI refactoring and recursive one-envelope guidance",61.1162426,ok
+cli.test.ts,122,"CLI query commands save, inspect, bind, run and confirm removal",23.8358566,ok
