@@ -96,7 +96,7 @@ The implementation is accepted only after meaningful checks demonstrate workflow
 ## Risks, exclusions and remaining verification
 
 - Regressions outside smoke can remain in `main` until full verification on a release branch. This is an accepted trade-off; do not pause unrelated PRs automatically.
-- The updated four-platform budget still requires hosted validation: Windows has a ten-minute bound after the five-minute combined step timed out, while Linux and both macOS lanes retain five minutes. Runner availability can still cause queue delays even when each smoke lane meets its budget.
+- [Hosted smoke run 38981802038](https://github.com/TalbyAI/tbspec/actions/runs/38981802038) passed the approved ten-minute Windows and five-minute other-platform budgets; independently validated durations and artifact identity are recorded in the implementation ticket. Runner availability can still cause queue delays even when each smoke lane meets its budget. This successful run does not explain the earlier intermittent Windows failure or authorize publication without complete release verification.
 - Confirm actual npm package ownership, authentication and publication requirements during implementation. No registry namespace, package rename, credential setup or successful publication was established in this session.
 - The artifact retention duration, exact script names/locations and stable CI check names are implementation details to document. Preserve the approved behavior rather than reopen settled product choices.
 - Exclude unrelated application optimization, duration-based repartitioning, test-impact selection, new dependencies/task runners, automatic npm publication, GitHub Release creation, and new nightly schedules.

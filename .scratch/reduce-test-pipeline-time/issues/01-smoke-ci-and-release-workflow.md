@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 Type: task
-State: open
+State: resolved
 Assigned to: implement-spec
 
 Approved design: [Fast pull-request checks and verified release publication](../spec.md).
@@ -11,7 +11,7 @@ Approved design: [Fast pull-request checks and verified release publication](../
 
 Routine PRs and `main` pushes use four-platform smoke verification instead of the exhaustive application matrices. Versioned release branches run all checks on every push. Local npm scripts prepare release branches and publish only the archive validated by complete CI for the current release commit.
 
-The user confirmed the design on 2026-10-16 and requested this durable ticket for continuation in another session. Implementation on `t3code/reduce-test-pipeline-time` is paused at the user's request on 2026-10-17; execution evidence and the resume checkpoint are recorded under Comments. The detailed specification is normative; earlier alternatives in the conversation are superseded by it.
+The user confirmed the design on 2026-10-16 and requested this durable ticket for continuation in another session. Implementation and hosted verification on `t3code/reduce-test-pipeline-time` completed on 2026-10-17; execution evidence and the earlier pause checkpoint are recorded under Comments. The detailed specification is normative; earlier alternatives in the conversation are superseded by it.
 
 ## Scope and code entry points
 
@@ -36,19 +36,19 @@ The user confirmed the design on 2026-10-16 and requested this durable ticket fo
 
 ## Acceptance criteria
 
-- [ ] All approved behavior in the specification is implemented and documented in English.
-- [ ] Ordinary PRs, including release-fix PRs into `main`, and `main` pushes run quality, type/build and smoke; no exhaustive application matrix is required for these events.
-- [ ] Four hosted smoke lanes cover the minimum installed CLI, project read/write, asset, authenticated/unauthenticated HTTP and verified shutdown behavior. Windows runs as a standard user.
-- [ ] Installation, assertions and cleanup complete within five minutes on Linux and both macOS platforms and within ten minutes on standard-user Windows, with recorded actual durations. A timeout is failure, not evidence that coverage fits.
-- [ ] A new release-branch push and a later direct hotfix push each trigger complete CI without a PR. Eligible manual full runs work as well.
-- [ ] Full verification retains the source suite across all platforms/Intel partitions and all exhaustive installed-artifact scenarios, including the shared smoke assertions.
-- [ ] Partial/manual diagnostic runs, skipped lanes, empty selections and cleanup failures cannot authorize a release.
+- [x] All approved behavior in the specification is implemented and documented in English.
+- [x] Ordinary PRs, including release-fix PRs into `main`, and `main` pushes run quality, type/build and smoke; no exhaustive application matrix is required for these events.
+- [x] Four hosted smoke lanes cover the minimum installed CLI, project read/write, asset, authenticated/unauthenticated HTTP and verified shutdown behavior. Windows runs as a standard user.
+- [x] Installation, assertions and cleanup complete within five minutes on Linux and both macOS platforms and within ten minutes on standard-user Windows, with recorded actual durations. A timeout is failure, not evidence that coverage fits.
+- [x] A new release-branch push and a later direct hotfix push each trigger complete CI without a PR. Eligible manual full runs work as well.
+- [x] Full verification retains the source suite across all platforms/Intel partitions and all exhaustive installed-artifact scenarios, including the shared smoke assertions.
+- [x] Partial/manual diagnostic runs, skipped lanes, empty selections and cleanup failures cannot authorize a release.
 - [x] Release preparation rejects dirty/divergent/non-`main` checkouts, invalid versions and branch collisions without discarding work; a valid preparation creates only the intended version changes/commit and does not push.
 - [x] Publication rejects a non-release checkout, branch/version mismatch, dirty state, existing published version, registry uncertainty, missing authentication, wrong commit, incomplete/failed/cancelled/pending verification and missing/expired/mismatched artifacts.
 - [x] A local stubbed success-path check proves publication receives the exact downloaded archive and no local build/repack occurs. No real package is published during automated validation.
-- [ ] Artifact/evidence metadata binds verification mode, commit, run, expected platform coverage and SHA-256; logs redact credentials. Retention supports the documented manual handoff and expiry fails clearly.
+- [x] Artifact/evidence metadata binds verification mode, commit, run, expected platform coverage and SHA-256; logs redact credentials. Retention supports the documented manual handoff and expiry fails clearly.
 - [x] Stable required checks protect `main` for ordinary contributors and admins; configuration does not block direct release hotfix pushes or introduce mandatory second-person approval. Verify the resulting live settings and record them.
-- [ ] Root `npm ci`, `npm run format` and `npm run check` pass; run appropriate application type/build, script checks and hosted workflow verification for the implementation.
+- [x] Root `npm ci`, `npm run format` and `npm run check` pass; run appropriate application type/build, script checks and hosted workflow verification for the implementation.
 
 ## Suggested implementation sequence
 
@@ -62,13 +62,45 @@ The user confirmed the design on 2026-10-16 and requested this durable ticket fo
 
 ## Resume checklist
 
-- [ ] Start with `git status --short` and the current branch. This handoff was written on `t3code/reduce-test-pipeline-time`, based on `a2d7fdb9`; do not assume a future session has the same checkout or clean state.
-- [ ] Read this ticket and [the approved specification](../spec.md); do not repeat the design interview or treat earlier proposals as decisions.
-- [ ] Read root `AGENTS.md`, [issue conventions](../../../docs/agents/issue-tracker.md) and [formatting instructions](../../../docs/agents/formatting.md). Do not modify `main` directly.
-- [ ] Review current workflow inputs and verifier helpers before adding parallel implementations. Root quality dependencies and application dependencies are separate installations.
-- [ ] Recheck GitHub settings, registry permissions and artifact availability live. The prior inspection is evidence of session state, not a permanent guarantee.
+- [x] Start with `git status --short` and the current branch. This handoff was written on `t3code/reduce-test-pipeline-time`, based on `a2d7fdb9`; do not assume a future session has the same checkout or clean state.
+- [x] Read this ticket and [the approved specification](../spec.md); do not repeat the design interview or treat earlier proposals as decisions.
+- [x] Read root `AGENTS.md`, [issue conventions](../../../docs/agents/issue-tracker.md) and [formatting instructions](../../../docs/agents/formatting.md). Do not modify `main` directly.
+- [x] Review current workflow inputs and verifier helpers before adding parallel implementations. Root quality dependencies and application dependencies are separate installations.
+- [x] Recheck GitHub settings, registry permissions and artifact availability live. The prior inspection is evidence of session state, not a permanent guarantee.
 
 ## Comments
+
+### 2026-10-17 — Resumed execution and accepted four-platform smoke evidence
+
+Resumption started from a clean `t3code/reduce-test-pipeline-time` checkout at `b0be7891`. The already-dispatched [smoke run 38981802038](https://github.com/TalbyAI/tbspec/actions/runs/38981802038), on functional commit `147040a4c5132c23933dd70a3c9c440cb9610492`, completed successfully. Repository quality, application typecheck/build, all four installed lanes and `Application smoke` passed; exhaustive source jobs and `Complete verification` were skipped as intended for smoke.
+
+The downloaded evidence and archive independently passed `node app/scripts/validate-verification.mjs <artifact-directory> <evidence-directory> smoke`, bound to run attempt 1, the exact commit and integration branch. Actual bounded durations were Ubuntu 31,142 ms, Windows standard user 322,062 ms, macOS ARM 55,446 ms and macOS Intel 108,666 ms. All records bind the same archive SHA-256, `fc6cecf427d4efee57f0646c6d79e6d43a548fdc15fb59ca30efeca77117c5b8`. Windows includes standard-user setup, installation, assertions, account removal and shared-directory removal. Every lane records server shutdown and owned temporary-root removal. This satisfies the approved ten-minute Windows and five-minute other-platform budgets; it does not establish a five-minute end-to-end pipeline or explain the earlier intermittent Windows failure.
+
+Live protection still enforces strict `Repository quality`, `Application typecheck and build` and `Application smoke` checks from GitHub Actions app 15368, includes administrators, requires PR integration and requires zero approvals. The five smoke artifacts remain available, with expiry `2027-01-14T23:30:32Z`, consistent with 90-day retention. npm authentication has changed since the pause: both `npm whoami` and the account-access query now return `E401`; package metadata returns `E404`. No credentials were changed and no package was published. Actual first-publication rights and any OTP requirement remain unverified.
+
+Ruling: retain the approved application/test scope and retry every job of [complete release run 38978682620](https://github.com/TalbyAI/tbspec/actions/runs/38978682620), rather than altering the two unrelated Intel test timeouts. Attempt 2 is running on the original release commit `825ce2d04c2ad428b653da3f96ab0d4360d775c0`. Only a successful complete attempt with matching evidence can support the real-GitHub, simulated-npm success probe. Neither the green integration smoke nor the failed first complete attempt authorizes publication. Retain the temporary release branch/worktree until this probe and acceptance are settled.
+
+Fresh local validation passed root and application `npm ci`, all 43 release-tooling tests, application typecheck/build, root format/check, actionlint 1.7.12, Node syntax checks for all repository/application `.mjs` scripts, and PowerShell parsing for both embedded workflow scripts. The Intel discovery check independently confirmed 47 test files assigned exactly once across partitions of 16, 16 and 15 files. No application source or application test file changed from the implementation baseline. Root installation still reports eight tooling advisories; the application installation reports none. Existing bundle size and upstream `use client` build warnings remain outside this task's scope. The final independent code review approved the implementation with no concrete findings; the complete hosted attempt remains in progress.
+
+The real-GitHub publication probe was repeated against pending attempt 2 with every npm call intercepted by the retained stub. It rejected the latest unfinished full attempt and created no simulated-publication capture. The rebuilt hosted archive has the same SHA-256 as attempt 1, `5fb8257a6a835e1bd21c2ec6d7bd7606263582665a40152eac4e4bab8792f60e`; its bytes remain distinct from the newer integration smoke archive. Both clean, fully merged implementer worktrees (`pipeline-implementation` and `release-cli-tooling`) were safely removed after checking their commits are ancestors of the integration tip. Their branches remain available. The integration checkout, unrelated user worktree at `E:/talby/tbspec`, and temporary release checkout are preserved.
+
+Attempt 2 subsequently failed installed Windows verification: `init` returned exit 4, `unavailable`, `IO_FAILURE` after a total bounded operation of 463,138 ms. Offline installation, account removal, shared-directory removal and owned temporary-root removal passed. Because the original release commit predates diagnostic preservation, the wrapper again replaced the original failure with `WINDOWS_OUTER_VERIFICATION_FAILED` and retained no diagnostic message. Ubuntu installed verification passed its eight scenarios and 196 assertions in 343,939 ms. This attempt cannot authorize publication and was cancelled to free capacity.
+
+Ruling: advance only the temporary `release/0.1.0` branch by normal fast-forward push to the already smoke-validated functional commit `147040a4c5132c23933dd70a3c9c440cb9610492`. The obsolete commit cannot reveal the newly preserved Windows diagnostic, so repeating it again would not resolve the failure. The direct push automatically triggered [complete run 39042921152](https://github.com/TalbyAI/tbspec/actions/runs/39042921152), including every source and installed lane. No application source, test, assertion, timeout or ownership boundary was changed. The final real-GitHub success probe now requires this newer commit's complete result and matching artifacts.
+
+GitHub confirmed the obsolete attempt's final conclusion is `cancelled`. The new complete run passed repository quality and application typecheck/build; all ten exhaustive source/installed lanes were selected. Its downloaded candidate SHA-256 is `fc6cecf427d4efee57f0646c6d79e6d43a548fdc15fb59ca30efeca77117c5b8`, identical to the successful four-platform smoke archive from the same commit. Release authorization still requires the new complete run's own platform evidence and manifest.
+
+### 2026-10-17 — Complete verification accepted and ticket resolved
+
+[Complete run 39042921152](https://github.com/TalbyAI/tbspec/actions/runs/39042921152), attempt 1 on `147040a4c5132c23933dd70a3c9c440cb9610492`, finished successfully. Repository quality, application typecheck/build, all six source lanes, all four installed lanes, `Application smoke` and `Complete verification` passed. Source lane durations were Ubuntu 30m 33s, standard-user Windows 38m 12s, macOS ARM 30m 30s, and Intel partitions 1/3, 2/3 and 3/3 respectively 25m 35s, 17m 44s and 22m 48s. No test timeout, assertion, platform or ownership boundary was changed to obtain this result.
+
+All four installed records independently validated against the exact commit, release branch, run, attempt and SHA-256. Each retained all eight exhaustive scenarios and the shared smoke assertions, with 196 assertions on Ubuntu and each macOS architecture and 198 on Windows. Full-mode installed durations were Ubuntu 335,102 ms, Windows 1,236,715 ms, macOS ARM 286,500 ms and macOS Intel 1,000,667 ms; smoke budgets apply to smoke mode, whose separate successful measurements are recorded above. The independently regenerated complete manifest equals the downloaded hosted `verification.json` exactly. All six artifacts have confirmed expiry `2027-01-15T14:57:06Z`, consistent with 90-day retention.
+
+The clean release checkout then exercised `publish-release` using real GitHub history, job, step and artifact APIs, with **every npm command intercepted by the retained local stub**. It selected the latest successful exact-commit full run, revalidated the downloaded evidence and manifest, rechecked the checkout/run, and passed the exact 11,967,048-byte archive with SHA-256 `fc6cecf427d4efee57f0646c6d79e6d43a548fdc15fb59ca30efeca77117c5b8` to simulated publication with lifecycle scripts disabled. The stub rejects unexpected commands, including local build/repack. No registry write occurred. The capture is `C:/Users/iskan/AppData/Local/Temp/tbspec-publish-live-gh-20261017/success-39042921152-publication.json`; downloaded artifacts, platform records and both manifests remain under `C:/Users/iskan/AppData/Local/Temp/tbspec-full-39042921152`.
+
+Final live protection inspection again confirmed strict required quality/build/smoke checks, GitHub Actions app 15368, administrator enforcement and zero required approvals. After the successful probe, the temporary remote `release/0.1.0` ref was deleted with an exact expected-commit lease, its clean local worktree was removed, and the fully merged local release branch was deleted. The two merged implementer worktrees were already removed; their local branches remain. Only the integration checkout and the unrelated user worktree at `E:/talby/tbspec` remain attached. No PR was created, no change was integrated into `main`, and no npm package was published.
+
+Remaining limits are explicit: real npm authentication currently returns `E401`, first-package creation rights and any OTP requirement are unproven, and earlier Windows `IO_FAILURE`/Intel timeout failures have no confirmed root cause. Passing the new complete run does not claim those intermittent failures were fixed. Any real publication remains an explicit author action after authentication and complete verification of its own release commit. Hosted source coverage is established for functional commit `147040a4`; subsequent closure edits change documentation only and receive the required local format/check validation.
 
 ### 2026-10-17 — User-requested pause and resume checkpoint
 
@@ -138,3 +170,7 @@ The user first selected fast PR feedback over exhaustive coverage on each PR, th
 The final release model supersedes earlier suggestions of a permanent `release` branch, complete verification on `main` before every publication, a Justfile, GitHub Release publication, and requiring hotfix integration before release. The user instead requested two npm scripts and a new versioned release branch, automatic full verification on every direct branch push, and publication only after exact-commit validation. They selected clean/up-to-date `main` as the preparation source and manual review/push after the local preparation commit.
 
 The user approved the consolidated design and requested only a ticket/specification handoff in this turn. No workflow/code implementation, protection change, credential setup or package publication is part of this documentation handoff.
+
+## Answer
+
+Implemented and verified the approved smoke CI and local release workflow. Four-platform smoke satisfies the approved budgets; full release verification passes every required lane; real-GitHub publication validation with fully simulated npm proves the exact CI archive is used without rebuilding. Local checks and independent final review passed. `main` protection is verified and temporary implementation/release worktrees are cleaned up. The implementation is accepted; npm authentication, first-publication permissions and any OTP requirement remain prerequisites for a future explicit real publication.
