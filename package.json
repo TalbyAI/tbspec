@@ -11,6 +11,7 @@
     "format:code": "biome check --write --error-on-warnings --diagnostic-level=warn .",
     "format:docs": "prettier --write \"**/*.{md,markdown,yml,yaml}\" && markdownlint-cli2 --fix",
     "lint": "biome lint --error-on-warnings --diagnostic-level=warn . && markdownlint-cli2",
+    "test:release-tooling": "node --test scripts/tests/*.test.mjs",
     "check": "npm run check:code && npm run check:docs",
     "check:code": "biome ci --error-on-warnings --diagnostic-level=warn .",
     "check:docs": "prettier --check \"**/*.{md,markdown,yml,yaml}\" && markdownlint-cli2"

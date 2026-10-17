@@ -179,9 +179,65 @@ The listener binds `127.0.0.1` and checks the actual Host and exact Origin witho
 
 ## Installing a release
 
-Run `npm ci` and `npm pack` from this directory to create a private `.tgz` release. `npm pack` runs `prepack`, which clears this package's generated output, compiles the CLI/server, builds the local browser assets and ELK worker, then writes the release and third-party inventories. Install the resulting archive from a local path, for example `npm install --global ./tbspec-0.1.0.tgz`. The archive contains its pinned production dependencies, immutable starter files, prebuilt interface, worker and notice texts; ordinary use requires Node 24 and no repository checkout or build tools. Explicit Git dependency acquisition additionally requires Git.
+Run `npm ci` and `npm pack` from this directory to create a local `.tgz` for development or inspection. `npm pack` runs `prepack`, which clears this package's generated output, compiles the CLI/server, builds the local browser assets and ELK worker, then writes the release and third-party inventories. Install a local archive with `npm install --global ./tbspec-0.1.0.tgz`. The archive contains its pinned production dependencies, immutable starter files, prebuilt interface, worker and notice texts; ordinary use requires Node 24 and no repository checkout or build tools. Explicit Git dependency acquisition additionally requires Git.
 
-The private package does not publish through this workflow. Review `dist/THIRD_PARTY_NOTICES.md` and `dist/release-inventory.json` in the installed package for exact package instances, emitted browser contributions, immutable starter hashes and license text hashes. The application package license is unspecified; third-party notices do not grant a license to the application.
+### Preparing and verifying an npm release
+
+Routine pull requests, including release-fix pull requests, and pushes to `main` run repository quality, application typecheck/build, and installed-package smoke checks on Linux, standard-user Windows, macOS ARM, and macOS Intel. Linux and both macOS lanes have a five-minute budget for installation, smoke assertions, and verified cleanup. Windows has a ten-minute budget for standard-user setup, artifact copy, installation, smoke assertions, and verified account/directory cleanup; the five-minute combined step timed out on the hosted Windows runner in [run 38978483654](https://github.com/TalbyAI/tbspec/actions/runs/38978483654), so the user approved this Windows-only increase. Checkout, Node setup, dependency/build preparation, quality checks, and runner queueing are outside these intervals. The full source suite and exhaustive installed scenarios run only on versioned release branches. Delayed detection of non-smoke regressions on `main` is accepted; a failed full run blocks publication of that release only, not unrelated pull requests or development on `main`.
+
+From a clean, up-to-date `main` checkout with `main` tracking its intended remote, prepare the new version from the repository root:
+
+```sh
+npm --prefix app run prepare-release -- 1.2.3
+```
+
+The command validates a canonical npm semantic version without a leading `v` or build metadata, creates `release/1.2.3`, updates the application manifest and lockfile, and commits those metadata changes locally. Build metadata is excluded because npm normalizes it and would not retain a distinct release identity. It never pushes. Review the commit, then push the new branch to trigger the complete workflow:
+
+```sh
+git show --stat --oneline HEAD
+git push --set-upstream origin release/1.2.3
+```
+
+Every release-branch push runs the full source, build, installed-package and smoke checks. A manual run is available from the `Application foundation` workflow by selecting the release branch and `verification_mode=full`. Smoke-only, artifact-only, focused and partial diagnostic runs cannot authorize publication. If a required lane fails or is skipped, fix the release branch and push a new commit, or start another full run for the exact commit. Each full run retains its candidate archive and platform evidence for 90 days.
+
+### Publishing the verified archive
+
+Publication is manual. From the same clean release checkout that passed full verification, run:
+
+```sh
+npm --prefix app run publish-release
+```
+
+Before publication, the command checks `gh` authentication and access to `TalbyAI/tbspec` Actions runs and artifacts, regardless of local remotes or `GH_REPO`. It also checks npm authentication against `https://registry.npmjs.org/`, whether the version already exists, and the account's `tbspec` read-write access when the package exists. A new unscoped package has no existing package ACL; npm must still permit the authenticated account to create it. Complete any npm account or one-time authentication requirement before retrying. The command does not print credentials.
+
+To check those connections separately, use `gh auth status` and `npm whoami --registry=https://registry.npmjs.org`. These checks confirm the active accounts; the publisher still verifies package access and the exact run artifacts before it can publish.
+
+The publisher selects the latest full run for the exact release branch and commit, rejects unsuccessful or incomplete required jobs and test steps, downloads the candidate `.tgz`, digest, platform evidence and complete report, and verifies that all evidence names the same commit and run. It then publishes those downloaded archive bytes to the fixed npm registry with lifecycle scripts disabled. It never builds or repacks locally. Expired artifacts, registry uncertainty, an already-published version or missing permissions stop publication; push a new full-verification commit or resolve the stated prerequisite and retry.
+
+Prereleases, including numeric prerelease identifiers, publish with the explicit `next` dist-tag; stable versions publish with `latest`. Before accessing GitHub or downloading artifacts, the publisher rejects a stable version below any already-published stable version, so it cannot move `latest` backwards. Newer prereleases do not block a stable release. Backport publication and custom dist-tags are not supported.
+
+A `prepublishOnly` lifecycle guard blocks accidental `npm publish` from the application directory and directs authors to `publish-release`. The verified archive flow disables lifecycle scripts and is unaffected. This guard prevents mistakes; explicit `--ignore-scripts` or direct archive publication can bypass it.
+
+After publication, return hotfixes to `main` through an ordinary pull request. This integration can happen after the release is published; it is not a prerequisite for publishing the exact verified release commit.
+
+### Verifying a published release
+
+With Node 24 and npm available, run from any repository branch:
+
+```sh
+npm --prefix app run verify-release
+npm --prefix app run verify-release -- --mode full
+```
+
+Both commands look up exactly `tbspec@<version>` from `app/package.json` at `https://registry.npmjs.org/`, including a prerelease suffix when present. They do not resolve `latest`, require a clean release checkout or `gh`, or check publication credentials. They download the published archive with a fresh temporary npm cache, verify its SHA-512 against the registry metadata, and pass those same bytes to the existing installed-package verifier. They never build or repack local source, publish, install globally, or run package lifecycle scripts. An absent version, registry/network failure, unexpected metadata, integrity mismatch, failed/incomplete test result, or cleanup failure returns a nonzero exit code; fix the reported prerequisite and rerun.
+
+The default `smoke` mode installs offline from the downloaded archive and checks the public CLI/version, project initialization and reading, a persisted model write/readback, served browser assets, authenticated HTTP status and rejection without credentials, verified server shutdown, and cleanup. `--mode full` additionally checks the installed inventories and all eight existing installed scenarios, including runtime compatibility, schema forms, dependency acquisition/update, vocabulary replacement, views/designs, retained conflicts, removal/repair/deletion/GC, and malformed-source isolation. Full verification can take substantially longer. Neither mode runs the source suite or another platform: it exercises only the current OS, architecture, and user account. On Windows, run as a standard user to exercise that permission boundary; the command does not create accounts or request elevation.
+
+The final JSON line includes the state, exact version, mode, archive SHA-256, and absolute `evidenceFile` path. The retained `verification.json` lives in a unique `tbspec-release-verification-*` directory under the OS temporary directory. It records timestamps, platform, archive URL/integrity/digests, the installed verifier's detailed assertions/scenarios and cleanup, and any operational failure. Downloaded archives, npm cache, and intermediate evidence are removed before success; only the report remains. Argument or manifest errors can stop before a report is created. Copy the report elsewhere if it must survive OS temporary-file cleanup. npm's raw errors and credentials are not printed.
+
+This command establishes registry integrity and installed behavior. It does not compare the published archive against the CI-approved artifact, verify a dist-tag, certify every supported platform, or replace the complete verification required by `publish-release`. The existing smoke budget covers installation, assertions, and verifier cleanup; registry lookup/download time is additional.
+
+Review `dist/THIRD_PARTY_NOTICES.md` and `dist/release-inventory.json` in the installed package for exact package instances, emitted browser contributions, immutable starter hashes and license text hashes. The application package license is unspecified; third-party notices do not grant a license to the application.
 
 Before replacing an installed release in place, stop every project server with the installed `tbspec web stop` command. Check `tbspec web status` after the replacement: it reports the version of the running server. Compatible CLI versions can reconnect to a running server without restarting it; an unsupported control protocol is preserved and refuses control rather than guessing a shutdown protocol. Start the installed version explicitly after stopping the prior server. Package upgrades do not migrate project schemas, lock records, snapshots or descriptions; `config model-type reset` restores defaults recorded in the project's own lockfile.
 
