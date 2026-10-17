@@ -79,6 +79,8 @@ Before publication, require all of the following:
 
 Publish the verified archive. Do not auto-increment the version, overwrite a published version, publish from a different commit, or silently fall back to another registry/package. Keep the root tooling package private; only adjust the application package's current private setting as needed for its approved publication. Resolve actual package-name ownership and publish permissions before claiming publication readiness; do not silently rename the package.
 
+The PR review amendment approved on 2026-10-17 fixes publication tags: prereleases use `next`, stable versions use `latest`, and a stable version below any already-published stable version is rejected before GitHub access or artifact downloads. Newer prereleases do not block a stable publication. Backport publication and custom tags are out of scope. GitHub run inspection and downloads target `TalbyAI/tbspec` explicitly. A `prepublishOnly` guard blocks accidental directory publication; it does not enforce policy against deliberate lifecycle bypasses.
+
 ### Main protection and hotfix flow
 
 - Configure `main` to require PR integration and successful quality, application type/build and aggregate smoke checks. Apply the protection to administrators as well. Do not introduce a requirement for approval by another person.

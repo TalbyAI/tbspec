@@ -208,11 +208,15 @@ Publication is manual. From the same clean release checkout that passed full ver
 npm --prefix app run publish-release
 ```
 
-Before publication, the command checks `gh` authentication and access to the current repository's Actions runs and artifacts. It also checks npm authentication against `https://registry.npmjs.org/`, whether the version already exists, and the account's `tbspec` read-write access when the package exists. A new unscoped package has no existing package ACL; npm must still permit the authenticated account to create it. Complete any npm account or one-time authentication requirement before retrying. The command does not print credentials.
+Before publication, the command checks `gh` authentication and access to `TalbyAI/tbspec` Actions runs and artifacts, regardless of local remotes or `GH_REPO`. It also checks npm authentication against `https://registry.npmjs.org/`, whether the version already exists, and the account's `tbspec` read-write access when the package exists. A new unscoped package has no existing package ACL; npm must still permit the authenticated account to create it. Complete any npm account or one-time authentication requirement before retrying. The command does not print credentials.
 
 To check those connections separately, use `gh auth status` and `npm whoami --registry=https://registry.npmjs.org`. These checks confirm the active accounts; the publisher still verifies package access and the exact run artifacts before it can publish.
 
 The publisher selects the latest full run for the exact release branch and commit, rejects unsuccessful or incomplete required jobs and test steps, downloads the candidate `.tgz`, digest, platform evidence and complete report, and verifies that all evidence names the same commit and run. It then publishes those downloaded archive bytes to the fixed npm registry with lifecycle scripts disabled. It never builds or repacks locally. Expired artifacts, registry uncertainty, an already-published version or missing permissions stop publication; push a new full-verification commit or resolve the stated prerequisite and retry.
+
+Prereleases, including numeric prerelease identifiers, publish with the explicit `next` dist-tag; stable versions publish with `latest`. Before accessing GitHub or downloading artifacts, the publisher rejects a stable version below any already-published stable version, so it cannot move `latest` backwards. Newer prereleases do not block a stable release. Backport publication and custom dist-tags are not supported.
+
+A `prepublishOnly` lifecycle guard blocks accidental `npm publish` from the application directory and directs authors to `publish-release`. The verified archive flow disables lifecycle scripts and is unaffected. This guard prevents mistakes; explicit `--ignore-scripts` or direct archive publication can bypass it.
 
 After publication, return hotfixes to `main` through an ordinary pull request. This integration can happen after the release is published; it is not a prerequisite for publishing the exact verified release commit.
 

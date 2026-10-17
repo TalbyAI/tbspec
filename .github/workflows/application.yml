@@ -356,6 +356,7 @@ jobs:
             if ($operationExitCode -ne 0) { throw 'Installed package verification failed.' }
           } catch {
             $operationFailed = $true
+            Write-Output "::error::Windows installed verification setup or run failed: $($_.Exception.Message)"
           } finally {
             if ($userCreated) {
               try {

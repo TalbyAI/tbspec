@@ -128,7 +128,7 @@ async function checkNpmAccess(version) {
   if (packageExists) {
     const value = parseJsonOutput(versionsResult.stdout.trim(), "package version metadata");
     versions = typeof value === "string" ? [value] : value;
-    if (!Array.isArray(versions) || versions.some((item) => typeof item !== "string"))
+    if (!Array.isArray(versions) || versions.some((item) => !isValidReleaseVersion(item)))
       throw new Error("Could not confirm package versions from the npm registry.");
   } else if (!npmNotFoundForPackage(versionsResult)) {
     throw new Error(
@@ -138,6 +138,20 @@ async function checkNpmAccess(version) {
 
   if (versions.includes(version))
     throw new Error(`${packageName}@${version} is already published.`);
+  if (!version.includes("-")) {
+    const targetParts = version.split(".").map(Number);
+    const newerStable = versions.find((published) => {
+      const normalized = published.split("+")[0];
+      if (normalized.includes("-")) return false;
+      const publishedParts = normalized.split(".").map(Number);
+      const difference = publishedParts.findIndex((part, index) => part !== targetParts[index]);
+      return difference !== -1 && publishedParts[difference] > targetParts[difference];
+    });
+    if (newerStable)
+      throw new Error(
+        `Refusing to move latest backwards: ${newerStable} is newer than ${version}. Backport publication is not supported.`,
+      );
+  }
   if (!packageExists && packageListHasPackage(packageList)) {
     throw new Error(
       "npm account access and package metadata disagree; registry uncertainty blocks publication.",
@@ -311,7 +325,7 @@ function successfulFullJobResults(jobs) {
 async function fullJobResults(run) {
   const response = requireCommand(
     "gh",
-    ["run", "view", String(run.id), "--json", "jobs"],
+    ["run", "view", String(run.id), "--repo", "TalbyAI/tbspec", "--json", "jobs"],
     "Could not inspect jobs for the latest full verification.",
   );
   const jobs = parseJsonOutput(response, "GitHub Actions job results").jobs;
@@ -366,6 +380,8 @@ async function downloadArtifact(run, name, directory) {
     "run",
     "download",
     String(run.id),
+    "--repo",
+    "TalbyAI/tbspec",
     "--name",
     name,
     "--dir",
@@ -535,6 +551,8 @@ async function main() {
       "publish",
       path.join(downloaded.archiveDirectory, downloaded.archiveName),
       "--ignore-scripts",
+      "--tag",
+      version.includes("-") ? "next" : "latest",
       "--registry",
       registry,
     ]);

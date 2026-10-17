@@ -111,7 +111,7 @@ function git(root, ...args) {
   return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 }
 
-async function makePublishFixture(t) {
+async function makePublishFixture(t, version = releaseVersion) {
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "tbspec-publish-"));
   t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
   const root = path.join(temporaryDirectory, "repo");
@@ -128,17 +128,17 @@ async function makePublishFixture(t) {
   );
   await writeFile(
     path.join(root, "app", "package.json"),
-    `${JSON.stringify({ name: "tbspec", version: releaseVersion }, null, 2)}\n`,
+    `${JSON.stringify({ name: "tbspec", version }, null, 2)}\n`,
   );
   await writeFile(
     path.join(root, "app", "package-lock.json"),
     `${JSON.stringify(
       {
         name: "tbspec",
-        version: releaseVersion,
+        version,
         lockfileVersion: 3,
         requires: true,
-        packages: { "": { name: "tbspec", version: releaseVersion } },
+        packages: { "": { name: "tbspec", version } },
       },
       null,
       2,
@@ -150,7 +150,7 @@ async function makePublishFixture(t) {
   execFileSync("git", ["config", "user.email", "release-test@example.invalid"], { cwd: root });
   execFileSync("git", ["add", "--all"], { cwd: root });
   execFileSync("git", ["commit", "-m", "Initial release version"], { cwd: root, stdio: "ignore" });
-  execFileSync("git", ["switch", "--create", `release/${releaseVersion}`], {
+  execFileSync("git", ["switch", "--create", `release/${version}`], {
     cwd: root,
     stdio: "ignore",
   });
@@ -160,12 +160,12 @@ async function makePublishFixture(t) {
     id: 123456789,
     run_number: 10,
     run_attempt: 2,
-    head_branch: `release/${releaseVersion}`,
+    head_branch: `release/${version}`,
     head_sha: commit,
     event: "push",
     status: "completed",
     conclusion: "success",
-    display_title: `Full release verification \u2014 release/${releaseVersion}`,
+    display_title: `Full release verification \u2014 release/${version}`,
   };
   const jobSteps = {
     "Repository quality": ["Require the selected mode and quality workflow"],
@@ -263,7 +263,7 @@ async function makePublishFixture(t) {
   await mkdir(candidateDirectory, { recursive: true });
   await mkdir(evidenceDirectory, { recursive: true });
   await mkdir(reportDirectory, { recursive: true });
-  const archiveName = `tbspec-${releaseVersion}.tgz`;
+  const archiveName = `tbspec-${version}.tgz`;
   const archiveBytes = Buffer.from("exact validated release archive fixture");
   const digest = createHash("sha256").update(archiveBytes).digest("hex");
   await writeFile(path.join(candidateDirectory, archiveName), archiveBytes);
@@ -281,7 +281,7 @@ async function makePublishFixture(t) {
         platformKey,
         repository: "TalbyAI/tbspec",
         commit,
-        branch: `release/${releaseVersion}`,
+        branch: `release/${version}`,
         runId: String(run.id),
         runAttempt: String(run.run_attempt),
         startedAt: "2026-10-17T09:00:00.000Z",
@@ -295,7 +295,7 @@ async function makePublishFixture(t) {
         filename: archiveName,
         bytes: archiveBytes.byteLength,
         sha256: digest,
-        applicationVersion: releaseVersion,
+        applicationVersion: version,
       },
       platform: {
         platform:
@@ -364,7 +364,7 @@ async function makePublishFixture(t) {
         TBSPEC_VERIFICATION_MODE: "full",
         TBSPEC_REPOSITORY: "TalbyAI/tbspec",
         TBSPEC_COMMIT: commit,
-        TBSPEC_BRANCH: `release/${releaseVersion}`,
+        TBSPEC_BRANCH: `release/${version}`,
         TBSPEC_RUN_ID: String(run.id),
         TBSPEC_RUN_ATTEMPT: String(run.run_attempt),
         TBSPEC_QUALITY_RESULT: "success",
@@ -724,6 +724,9 @@ test("release publication sends the exact artifact from the latest successful fu
     publication.publishArchive,
   ]);
   assert.ok(calls[publicationIndex - 1].args.includes("--ignore-scripts"));
+  const tagIndex = calls[publicationIndex - 1].args.indexOf("--tag");
+  assert.notEqual(tagIndex, -1);
+  assert.equal(calls[publicationIndex - 1].args[tagIndex + 1], "latest");
   assert.equal(calls[publicationIndex - 1].args.at(-1), "https://registry.npmjs.org/");
   assert.equal(
     calls.some(({ args }) => args?.includes("pack")),
@@ -738,6 +741,87 @@ test("release publication sends the exact artifact from the latest successful fu
   assert.ok(ghCalls.some((args) => args.includes("tbspec-release-verification")));
   for (const platformKey of platformKeys)
     assert.ok(ghCalls.some((args) => args.includes(`tbspec-installed-evidence-${platformKey}`)));
+});
+
+test("release publication pins GitHub inspection and downloads despite a repository override", async (t) => {
+  const fixture = await makePublishFixture(t);
+  const result = runPublish(fixture, { GH_REPO: "example/fork" });
+  assert.equal(result.status, 0, result.stderr);
+  const calls = (await readJsonLines(fixture.ghCalls)).filter((args) => args[0] === "run");
+  assert.ok(calls.some((args) => args[1] === "view"));
+  assert.equal(calls.filter((args) => args[1] === "download").length, 6);
+  for (const args of calls) {
+    const repoIndex = args.indexOf("--repo");
+    assert.notEqual(repoIndex, -1);
+    assert.equal(args[repoIndex + 1], "TalbyAI/tbspec");
+  }
+});
+
+test("release publication uses next for prereleases without changing the verified archive", async (t) => {
+  for (const version of ["1.2.3-rc.1", "1.2.3-0"]) {
+    const fixture = await makePublishFixture(t, version);
+    const result = runPublish(fixture, {
+      NPM_STUB_VIEW_ERROR: "",
+      NPM_STUB_VERSIONS: JSON.stringify(["9.0.0"]),
+      NPM_STUB_PACKAGES: JSON.stringify({ tbspec: "read-write" }),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const calls = await readJsonLines(fixture.npmCalls);
+    const args = calls.find((call) => call.args?.[0] === "publish").args;
+    const tagIndex = args.indexOf("--tag");
+    assert.notEqual(tagIndex, -1);
+    assert.equal(args[tagIndex + 1], "next");
+    assert.equal(calls.find((call) => call.publishArchive).archiveSha256, fixture.digest);
+  }
+});
+
+test("release publication rejects stable downgrades before GitHub access", async (t) => {
+  for (const publishedVersion of ["1.2.4", "1.10.0", "2.0.0", "2.0.0+build-old"]) {
+    const fixture = await makePublishFixture(t);
+    const result = runPublish(fixture, {
+      NPM_STUB_VIEW_ERROR: "",
+      NPM_STUB_VERSIONS: JSON.stringify([publishedVersion, "1.0.0"]),
+      NPM_STUB_PACKAGES: JSON.stringify({ tbspec: "read-write" }),
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /move latest backwards/i);
+    assert.deepEqual(await readJsonLines(fixture.ghCalls), []);
+    assert.equal(
+      (await readJsonLines(fixture.npmCalls)).some((call) => call.publishArchive),
+      false,
+    );
+  }
+});
+
+test("release publication orders stable versions numerically and ignores newer prereleases", async (t) => {
+  const fixture = await makePublishFixture(t, "1.2.10");
+  const result = runPublish(fixture, {
+    NPM_STUB_VIEW_ERROR: "",
+    NPM_STUB_VERSIONS: JSON.stringify(["1.2.9", "1.1.99", "9.0.0-beta.1"]),
+    NPM_STUB_PACKAGES: JSON.stringify({ tbspec: "read-write" }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("release publication rejects invalid registry versions before GitHub access", async (t) => {
+  const fixture = await makePublishFixture(t);
+  const result = runPublish(fixture, {
+    NPM_STUB_VIEW_ERROR: "",
+    NPM_STUB_VERSIONS: JSON.stringify(["not-a-version"]),
+    NPM_STUB_PACKAGES: JSON.stringify({ tbspec: "read-write" }),
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /could not confirm package versions/i);
+  assert.deepEqual(await readJsonLines(fixture.ghCalls), []);
+});
+
+test("direct application publication is blocked by its lifecycle guard", () => {
+  const result = spawnSync(process.execPath, ["--run", "prepublishOnly"], {
+    cwd: path.join(repositoryRoot, "app"),
+    encoding: "utf8",
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Use npm run publish-release to publish the verified CI archive/);
 });
 
 test("release publication rejects non-release, dirty and version-mismatched checkouts before npm access", async (t) => {
