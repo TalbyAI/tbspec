@@ -16,6 +16,12 @@ A maintainer can create additional model types, change ontology/design associati
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on configured built-in/custom model-type associations and enable/disable/reset/design changes, with accepted impact and exact local browser preview semantics for available resources. Custom type removal belongs to 12; acquired support/context integration to 08-10; authored-design and saved-presentation integration to 14. Existing models retain their bytes and current safety guarantees throughout.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [x] Implement model-type set/list/show through effective configuration, enable/disable/reset, and design set/clear with matching browser actions and exact local/locked selectors. Custom type removal is delivered by issue 12.

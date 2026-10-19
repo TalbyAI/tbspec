@@ -2,7 +2,7 @@
 
 Type: task
 Status: ready-for-agent
-State: resolved
+State: open
 Blocked by: 01
 User stories covered: 5, 6, 8, 24, 25, 26, 110, 111, 112, 113, 114
 
@@ -16,22 +16,28 @@ A user can inspect the same project inventory and effective configuration from t
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on verified CLI/browser inspection and the complete authenticated server lifecycle, with classification, selectors, and explicit coverage for bundled resources and available project-owned graphs. Full validation is owned by 04; acquired snapshot inventory/context by 08-09; saved-view/presentation integration by 13; authored-design integration by 14. Unchecked kinds or prerequisites remain visible rather than being reported clean.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [x] Status, graph list/show, effective configuration, and model-type listings expose exact portable selectors, graph identities, associations, default/override provenance, and validity/incomplete coverage. Do not label unchecked prerequisites as a complete clean result; later resource kinds extend the same records.
 - [x] Managed root declarations determine the most-specific compatible classification. Diagnose conflicting kinds or multiple roots; business individual types are not graph roots. Parseable unclassified content stays listed, and selector-derived graph identities follow the specified SHA-256 contract.
 - [x] CLI and authenticated HTTP inspection use the same transport-independent operations and coherent read snapshots. Browser inventory/configuration/error states reflect those records without putting project logic in routes.
-- [x] The server binds only the specified loopback host. Reads, controls, streams, and subsequent mutation endpoints enforce bearer authorization, actual Host and exact Origin checks, no proxy trust, and no permissive CORS. Public assets and unauthenticated errors expose no project data, secrets, or canonical paths.
+- [ ] The server binds only the specified loopback host. Reads, controls, streams, and subsequent mutation endpoints enforce bearer authorization and actual Host checks, no proxy trust, and no permissive CORS. Validate Origin when present against the exact served origin; browser mutations and bootstrap require that origin and reject null/foreign values. Authenticated native controls may omit Origin only on their control boundary, and legitimate same-origin browser reads are not rejected merely for omitting it. Public assets and unauthenticated errors expose no project data, secrets, or canonical paths.
 - [x] A single-use fragment bootstrap is removed immediately from the browser URL, expires after 60 seconds, and creates a distinct tab bearer with the specified 12-hour/restart lifetime. Browser and native-control bearers cannot substitute for one another; credentials and opening links are redacted from logs and persisted project state.
 - [x] Exclusive per-project runtime registration is protected to the OS user, including Windows ACLs. Before reporting health or controlling a process, verify canonical root, instance, full process identity, and authenticated protocol handshake; fail on unknown ownership, incompatible versions, or explicit-port conflicts.
 - [x] Two concurrent starts yield one verified server. Background/JSON startup returns readiness without attaching; ordinary startup/reconnect attaches a bounded log/control console. Start the separate Node process without terminal dependency or a visible background window.
 - [x] Detach, browser closure, and unexpected terminal loss preserve the server and sessions. Ctrl+C and authenticated stop request graceful shutdown; stop reports success only after shutdown and owned-registration release are verified. Absent stop is idempotent, and status neither starts nor attaches.
 - [x] Browser labels/source text render safely as text; assets are served locally. CLI help/llms guidance describes lifecycle and inspection behavior, including transient opening links and actual launched application/protocol versions.
-- [x] Real HTTP/browser and independent-process checks cover bootstrap replay/expiry, credential separation, Host/Origin rejection, protected registration, concurrent starts, independent projects, console detach/reconnect, non-TTY/JSON behavior, version mismatch, unreachable services, and verified stop.
+- [ ] Real HTTP/browser and independent-process checks cover bootstrap replay/expiry, credential separation, Host/Origin rejection, legitimate same-origin reads without Origin, required-Origin mutation/bootstrap rejection, protected registration, concurrent starts, independent projects, console detach/reconnect, non-TTY/JSON behavior, version mismatch, unreachable services, and verified stop.
 
 ## Blocked by
 
-- [01 - Initialize and discover an offline project](01-initialize-offline-project.md).
+- [01 - Initialize an offline project with bundled resources and safe publication](01-initialize-offline-project.md).
 
 ## References
 
@@ -88,3 +94,5 @@ Follow-up application verification passed typecheck, build and all 52 applicable
 - On 2026-10-08, implementation and Windows verification completed on `feat/inspect-project-authenticated-web`. See Answer for review corrections, execution evidence and remaining platform/validation limits.
 
 - On 2026-10-10, the user approved the autonomous assumption review and its implementation scope. See the approved review above for narrowed permission/capture behavior, worker recovery and provisional capacity evidence.
+
+- On 2026-10-17, merge reconciliation retained the implementation answers and verification history from `main`. The ticket is reopened only for expanded semantic-audit criteria whose complete evidence has not been reconciled; unchecked criteria do not establish a production failure or authorize new implementation.

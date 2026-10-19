@@ -16,6 +16,12 @@ A user can select or clear an ontology version winner, inspect every retained al
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on effective ontology winner/clear behavior, source-bound validation, retained losing/support graph isolation, canonical signatures, and read-only drift checks over acquired inventories. Update/manual support workflows belong to 10; full visual-design resolution to 14. Checking is never adoption, and losing bytes remain accessible without being merged.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [x] Implement dependency select/clear and check for one/all additions in CLI and browser. Listings disclose the chosen/effective candidate, relevant provenance/support, retained selectors, and changed/unchanged/unavailable outcomes.

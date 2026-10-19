@@ -16,6 +16,12 @@ A process author can describe plans, steps, decisions, variables, flows, and res
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on all settled exact P-Plan/process form fields and mutation semantics, including forward/inverse association handling, descriptive constraints, explicit creation, generic fallback, and stale/read-only protection. When saved views are present, edits must use the shared synchronization delivered by 13; this cannot be omitted from the combined story's eventual evidence. Element deletion is owned by 18, not implicit form removal.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [x] Recognize the settled pinned P-Plan 1.3 and process extension IRIs from valid process graph classification and exact explicit types. Decision exposes its fixed Step fields without writing superclass triples; visual designs, aliases, hierarchy, and older spellings do not select forms.

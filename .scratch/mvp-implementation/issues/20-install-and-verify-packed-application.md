@@ -2,8 +2,8 @@
 
 Type: task
 Status: ready-for-agent
-State: resolved
-Blocked by: none
+State: open
+Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
 Assigned to: Codex
 User stories covered: 9, 54, 117
 
@@ -17,6 +17,12 @@ A maintainer can install one actual npm artifact and use the complete CLI and lo
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close only after all feature tickets and their mapped extension obligations are implemented and verified, then demonstrate all seven assembled acceptance scenarios using the actual installed artifact and actual Windows/macOS/Linux process/filesystem checks. Missing platform execution is incomplete evidence. This ticket verifies integration/distribution; it does not absorb unfinished feature implementation or authorize public publication/deployment. Documentary audit coverage is not runtime evidence.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [x] Produce one packed artifact containing compiled TypeScript CLI/server entry points, matching prebuilt local React/Vite/React Flow assets and ELK worker, pinned production dependencies, immutable starter releases/digests/parser contexts, and complete license/source inventory.
@@ -26,9 +32,31 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 - [x] Document stop-before-replacement guidance and verify compatible reconnection versus incompatible protocol refusal. Browser assets/API remain tied to the launched server release, and status reports that actual version.
 - [x] Run platform-sensitive ownership/protected records, process identity/lifecycle, path/link/alias confinement, staged publication/rollback, acquisition, and package checks on Windows, macOS, and Linux with real processes/filesystem boundaries before claiming support for all three.
 - [x] Execute all seven original functional acceptance scenarios against the assembled application: project/conceptual/concrete/schema creation; acquisition/check/update; accepted vocabulary replacement; independent views/design ties; retained ontology conflicts; breaking removal/repair/GC; and malformed RDF with isolated querying/partial diagnostics.
-- [x] Check every public command family has exact routing/help/guidance and one-envelope JSON/error/exit behavior. Use focused real browser/HTTP checks for bootstrap, drafts, forms, canvas/views/layout, staged previews, and lifecycle rather than duplicating all core permutations.
+- [ ] Check every public command family has exact routing/help/guidance and one-envelope JSON/error/exit behavior, including version-1 field/nullability conformance, partial-result and exit precedence, completed intentional-invalidity results, and exact ServerRecord states. Verify transient opening-link output is labeled as specified and excluded from operation previews/fingerprints. Use focused real browser/HTTP checks for bootstrap, drafts, forms, canvas/views/layout, staged previews, and lifecycle rather than duplicating all core permutations.
 - [x] Record artifact identity, Node/OS versions, exact install/run/check commands, measured outcomes, and material limitations. Missing platform execution is explicit incomplete evidence, not a passed mock or an assumption from prototype verdicts.
 - [x] Tests introduced by earlier tickets remain the primary public-operation seam; broaden integration only to installed-artifact, cross-platform, and cross-feature risks that those checks cannot establish. Do not claim multi-file crash atomicity, network-share guarantees, public publication, or vocabulary hosting.
+
+## Blocked by
+
+- [01 - Initialize an offline project with bundled resources and safe publication](01-initialize-offline-project.md).
+- [02 - Inspect the project from CLI and an authenticated browser](02-inspect-project-and-authenticated-web.md).
+- [03 - Create and import editable ontologies and domain models](03-create-and-import-owned-resources.md).
+- [04 - Validate models, schema associations, and constraints offline](04-validate-models-schemas-and-shacl.md).
+- [05 - Edit RDF through the canvas, Turtle, and ontology forms](05-edit-rdf-source-and-ontology-forms.md).
+- [06 - Run and manage reproducible SPARQL queries](06-run-and-manage-sparql-queries.md).
+- [07 - Configure model types and accept vocabulary changes](07-configure-model-types-and-vocabulary-changes.md).
+- [08 - Acquire dependencies from directories, HTTP, and Git](08-acquire-directory-http-and-git-dependencies.md).
+- [09 - Resolve ontology versions and detect source drift](09-resolve-ontology-versions-and-check-drift.md).
+- [10 - Update dependencies and manage explicit support](10-update-dependencies-and-manual-support.md).
+- [11 - Rename and deliberately remove dependencies](11-rename-and-remove-dependencies.md).
+- [12 - Move and remove owned resources with impact review](12-move-and-remove-owned-resources.md).
+- [13 - Maintain independent views and synchronize their selections](13-maintain-independent-saved-views.md).
+- [14 - Create reusable designs and customize each view](14-author-designs-and-view-appearance.md).
+- [15 - Organize and explore the canvas without losing positions](15-organize-and-explore-canvas.md).
+- [16 - Edit descriptive processes with specialized forms](16-edit-descriptive-process-forms.md).
+- [17 - Edit descriptive state machines](17-edit-descriptive-state-machine-forms.md).
+- [18 - Delete elements precisely and clean affected views](18-delete-elements-and-clean-view-selections.md).
+- [19 - Refactor identities, repair references, and collect orphaned support](19-refactor-repair-and-collect-orphaned-support.md).
 
 ## References
 
@@ -77,3 +105,5 @@ The workflow commands and test commands were:
 Run links and sanitized logs are also recorded in `E:/talby/tbspec-worktrees/mvp20-resume-report.md`.
 
 Root `npm ci`, `npm run format`, `npm run check`, and app `npm run typecheck` passed on the final test/workflow revision `6cf803edf5cb18b1db7b70fe1eb1983d82b4920d`. This ticket does not claim public npm publication, hosting, deployment, screenshot/pixel inspection, multi-file crash atomicity, network-share guarantees, or vocabulary hosting.
+
+- On 2026-10-17, merge reconciliation retained the implementation answers and verification history from `main`. The ticket is reopened only for expanded semantic-audit criteria whose complete evidence has not been reconciled; unchecked criteria do not establish a production failure or authorize new implementation.

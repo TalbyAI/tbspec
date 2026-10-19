@@ -16,6 +16,12 @@ A user can run an ad hoc or saved read-only query against the resolved project o
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on saved/ad hoc read-only query lifecycle, typed parameters/results, local query policy, and full/selected graph isolation for available resources. Issue 08 supplies acquired retained-file inventories and issue 09 owns their query integration and winner/losing-context assembly. Issue 13 AC11 owns saved-view/presentation named-registry and isolated-query integration; issue 14 AC10 owns the authored/active-support design extension. Their blockers establish the earlier query workflow before those tickets close. All these support kinds remain excluded from the default ontology/model union.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [x] Implement query list/show/save/run/remove with matching browser actions, exact functional signatures, confirmed removal, typed initial bindings, declaration inspection, and selective help/llms guidance.

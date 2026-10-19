@@ -1,4 +1,4 @@
-# Initialize and discover an offline project
+# Initialize an offline project with bundled resources and safe publication
 
 Type: task
 Status: ready-for-agent
@@ -16,6 +16,12 @@ A maintainer can initialize a reproducible local project with ready-to-use data,
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+This is a foundational ticket, covering offline initialization/discovery, immutable starter resource authoring and bundling, version-1 starter configuration/locks, and the shared locking, revision, transaction, recovery, and confinement mechanism exercised through initialization. All safety guarantees applicable to this workflow must be implemented and demonstrated before closure. The size of this foundation must be included in estimation; it is not only CLI scaffolding.
+
+Later tickets own integration and evidence for their new operations and resource kinds, including captured prerequisites, affected destinations, stale-plan rejection, failure preservation, and coordinated rollback. This ticket does not certify those future operations. Issue 20 owns installed-artifact and actual Windows/macOS/Linux verification. An empty blocker list means dependency readiness only; implementation still requires explicit user authorization as described in the [execution rule](README.md#execution-authorization).
+
 ## Acceptance criteria
 
 - [x] Initialization accepts the specified directory/base-IRI options, upward discovery finds the intended manifest, and explicit project selection takes precedence. Existing destinations or incompatible project versions produce actionable failures without replacing content.
@@ -31,7 +37,7 @@ Follow the [shared delivery requirements](README.md#shared-delivery-requirements
 
 ## Blocked by
 
-None - can start immediately.
+None - no implementation dependencies; execution requires explicit user authorization.
 
 ## References
 
@@ -61,6 +67,7 @@ Live status/configuration/resource CLI inspection belongs to issue 02; later gui
 ## Comments
 
 - On 2026-10-04, the user approved the grouped breakdown of 20 AFK implementation tickets, including this scope, dependencies, and story coverage.
+- On 2026-10-07, the user agreed to retain this foundational ticket, disclose its full responsibilities, and require later tickets to demonstrate safety for their own operations. Breakdown approval does not authorize implementation.
 
 - On 2026-10-07, implementation and focused verification completed on branch `feat/initialize-offline-project`. See Answer for delivered behavior, review corrections and platform limits.
 

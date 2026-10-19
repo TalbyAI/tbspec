@@ -17,6 +17,12 @@ A browser user can open a graph with usable relationship-based placement, add re
 
 Follow the [shared delivery requirements](README.md#shared-delivery-requirements) and the normative contracts below.
 
+## Completion boundary
+
+Close on initial/incremental layout, explicit active-canvas reorganization, failure/cancellation/stale-result preservation, search/navigation, and representative real-browser responsiveness evidence for complete graphs and saved views. Do not derive contractual performance limits or cross-platform certification from prototype timings; installed/platform evidence belongs to 20.
+
+Follow the [shared closure and safety rules](README.md#ticket-closure-and-later-extensions); specification readiness is not execution authorization.
+
 ## Acceptance criteria
 
 - [x] Use the approved ELK layered/RIGHT layout in a dedicated browser worker with stable RDF-term ordering, fixed seed, and real node dimensions. Initial layout applies when no usable positions exist; incremental placement fills only missing resources near neighbors.
